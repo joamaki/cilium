@@ -81,16 +81,16 @@ func autoDetect() (int, error) {
 
 // getMTUFromIf finds the interface that holds the ip and returns its mtu
 func getMTUFromIf(ip net.IP) (int, error) {
-	ifaces, err := net.Interfaces()
+	ifaces, err := netlink.LinkList()
 	if err != nil {
 		return 0, fmt.Errorf("unable to list interfaces: %w", err)
 	}
 
 	for _, iface := range ifaces {
-		addrs, err := iface.Addrs()
+		addrs, err := netlink.AddrList(iface, netlink.FAMILY_ALL)
 		if err != nil {
 			log.WithFields(logrus.Fields{
-				logfields.Device: iface.Name,
+				logfields.Device: iface.Attrs().Name,
 			}).Warning("Unable to list all addresses")
 			continue
 		}
@@ -100,16 +100,16 @@ func getMTUFromIf(ip net.IP) (int, error) {
 
 			if err != nil {
 				log.WithFields(logrus.Fields{
-					logfields.Device: iface.Name,
+					logfields.Device: iface.Attrs().Name,
 					logfields.IPAddr: addr,
 				}).Warning("Unable parse the address")
 				continue
 			}
 
 			if myIP.Equal(ip) == true {
-				myMTU := iface.MTU
+				myMTU := iface.Attrs().MTU
 				log.WithFields(logrus.Fields{
-					logfields.Device: iface.Name,
+					logfields.Device: iface.Attrs().Name,
 					logfields.IPAddr: ip,
 					logfields.MTU:    myMTU,
 				}).Info("Inheriting MTU from external network interface")
