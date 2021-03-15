@@ -90,7 +90,8 @@ else
 MAX_BASE_OPTIONS += -DHAVE_LPM_TRIE_MAP_TYPE=1 -DHAVE_LRU_HASH_MAP_TYPE=1
 ifeq ("$(KERNEL)","netnext")
 MAX_BASE_OPTIONS += -DENABLE_TPROXY=1 -DENABLE_REDIRECT_FAST=1 -DENABLE_BANDWIDTH_MANAGER=1 \
-	-DENABLE_HOST_SERVICES_FULL=1 # Required to work around complexity issue #14234.
+	-DENABLE_HOST_SERVICES_FULL=1 \ # Required to work around complexity issue #14234.
+ 	-DETH_HLEN=0
 endif
 endif
 
