@@ -509,8 +509,8 @@ func finishKubeProxyReplacementInit(isKubeProxyReplacementStrict bool) {
 		// All cases below still need to be implemented ...
 		case option.Config.EnableEndpointRoutes:
 			msg = fmt.Sprintf("BPF host routing is currently not supported with %s.", option.EnableEndpointRoutes)
-		case !mac.HaveMACAddrs(option.Config.Devices):
-			msg = "BPF host routing is currently not supported with devices without L2 addr."
+		//case !mac.HaveMACAddrs(option.Config.Devices):
+	        //	msg = "BPF host routing is currently not supported with devices without L2 addr."
 		case option.Config.EnableWireguard:
 			msg = fmt.Sprintf("BPF host routing is currently not compatible with Wireguard (--%s).", option.EnableWireguard)
 		default:

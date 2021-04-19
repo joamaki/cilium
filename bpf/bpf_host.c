@@ -459,6 +459,8 @@ handle_ipv4(struct __ctx_buff *ctx, __u32 secctx,
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
 
+	cilium_dbg(ctx, DBG_GENERIC, 1, ip4->daddr);
+
 #ifdef ENABLE_NODEPORT
 	if (!from_host) {
 		if (ctx_get_xfer(ctx) != XFER_PKT_NO_SVC &&
@@ -502,9 +504,13 @@ handle_ipv4(struct __ctx_buff *ctx, __u32 secctx,
 	if (skip_redirect)
 		return CTX_ACT_OK;
 
+	cilium_dbg(ctx, DBG_GENERIC, 2, 2);
+
 	tuple.nexthdr = ip4->protocol;
 
 	if (from_host) {
+		cilium_dbg(ctx, DBG_GENERIC, 3, 3);
+
 		/* If we are attached to cilium_host at egress, this will
 		 * rewrite the destination MAC address to the MAC of cilium_net.
 		 */
@@ -846,6 +852,8 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, const bool from_host)
 				  ctx->ingress_ifindex, 0, TRACE_PAYLOAD_LEN);
 	}
 
+	cilium_dbg(ctx, DBG_GENERIC, proto, 0);
+
 	switch (proto) {
 # if defined ENABLE_ARP_PASSTHROUGH || defined ENABLE_ARP_RESPONDER
 	case bpf_htons(ETH_P_ARP):
@@ -894,6 +902,7 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, const bool from_host)
 #ifdef ENABLE_HOST_FIREWALL
 		ret = send_drop_notify_error(ctx, identity, DROP_UNKNOWN_L3,
 					     CTX_ACT_DROP, METRIC_INGRESS);
+		cilium_dbg(ctx, DBG_GENERIC, 99999, 0);
 #else
 		/* Pass unknown traffic to the stack */
 		ret = CTX_ACT_OK;

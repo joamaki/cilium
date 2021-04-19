@@ -47,6 +47,14 @@ static __always_inline int ipv4_l3(struct __ctx_buff *ctx, int l3_off,
 		return DROP_INVALID;
 	}
 
+	if (ETH_HLEN == 0) {
+		/* Packet is from a L2-less device, so create a L2 header */
+		if (ctx_change_head(ctx, __ETH_HLEN, 0))
+			return DROP_INVALID;
+		if (eth_store_proto(ctx, bpf_htons(ETH_P_IP), 0) < 0)
+			return DROP_WRITE_ERROR;
+	}
+
 	if (smac && eth_store_saddr(ctx, smac, 0) < 0)
 		return DROP_WRITE_ERROR;
 	if (dmac && eth_store_daddr(ctx, dmac, 0) < 0)
@@ -123,9 +131,13 @@ static __always_inline int ipv4_local_delivery(struct __ctx_buff *ctx, int l3_of
 
 	cilium_dbg(ctx, DBG_LOCAL_DELIVERY, ep->lxc_id, seclabel);
 
+
 	ret = ipv4_l3(ctx, l3_off, (__u8 *) &router_mac, (__u8 *) &lxc_mac, ip4);
-	if (ret != CTX_ACT_OK)
+	if (ret != CTX_ACT_OK) {
+		cilium_dbg(ctx, DBG_GENERIC, 5, 5);
 		return ret;
+	}
+	cilium_dbg(ctx, DBG_GENERIC, 6, 6);
 
 #ifdef LOCAL_DELIVERY_METRICS
 	/*
