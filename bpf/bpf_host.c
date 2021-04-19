@@ -506,6 +506,18 @@ handle_ipv4(struct __ctx_buff *ctx, __u32 secctx,
 
 	cilium_dbg(ctx, DBG_GENERIC, 2, 2);
 
+
+	if (ETH_HLEN == 0) {
+		/* Packet is from a L2-less device. Prepare it for delivery
+                 * be crafting room for the L2 header */
+		if (ctx_change_head(ctx, __ETH_HLEN, 0))
+			return DROP_INVALID;
+		if (eth_store_proto(ctx, bpf_htons(ETH_P_IP), 0) < 0)
+			return DROP_WRITE_ERROR;
+		if (!revalidate_data_with_eth_hlen(ctx, &data, &data_end, &ip4, __ETH_HLEN))
+			return DROP_INVALID;
+	}
+
 	tuple.nexthdr = ip4->protocol;
 
 	if (from_host) {
