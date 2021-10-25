@@ -1033,6 +1033,10 @@ const (
 	// TCFilterPriority sets the priority of the cilium tc filter, enabling other
 	// filters to be inserted prior to the cilium filter.
 	TCFilterPriority = "bpf-filter-priority"
+
+	// EnableRuntimeDeviceDetection is the name of the option to enable detection
+	// of new and removed datapath devices during the agent runtime.
+	EnableRuntimeDeviceDetection = "enable-runtime-device-detection"
 )
 
 // Default string arguments
@@ -1255,6 +1259,11 @@ type DaemonConfig struct {
 	HostV6Addr          net.IP   // Host v6 address of the snooping device
 	EncryptInterface    []string // Set of network facing interface to encrypt over
 	EncryptNode         bool     // Set to true for encrypting node IP traffic
+
+	// If set to true the daemon will detect new and deleted datapath devices
+	// at runtime and reconfigure the datapath to load programs onto the new
+	// devices.
+	EnableRuntimeDeviceDetection bool
 
 	Ipvlan IpvlanConfig // Ipvlan related configuration
 
@@ -2770,6 +2779,7 @@ func (c *DaemonConfig) Populate() {
 
 	c.populateLoadBalancerSettings()
 	c.populateDevices()
+	c.EnableRuntimeDeviceDetection = viper.GetBool(EnableRuntimeDeviceDetection)
 	c.EgressMultiHomeIPRuleCompat = viper.GetBool(EgressMultiHomeIPRuleCompat)
 
 	c.VLANBPFBypass = viper.GetIntSlice(VLANBPFBypass)

@@ -771,14 +771,6 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 		return nil, nil, fmt.Errorf("failed to finalise LB initialization: %w", err)
 	}
 
-	if k8s.IsEnabled() {
-		bootstrapStats.k8sInit.Start()
-		// Launch the K8s watchers in parallel as we continue to process other
-		// daemon options.
-		d.k8sCachesSynced = d.k8sWatcher.InitK8sSubsystem(d.ctx)
-		bootstrapStats.k8sInit.End(true)
-	}
-
 	// BPF masquerade depends on BPF NodePort and require host-reachable svc to
 	// be fully enabled in the tunneling mode, so the following checks should
 	// happen after invoking initKubeProxyReplacementOptions().
@@ -1051,6 +1043,23 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 	d.ipcache.InitIPIdentityWatcher()
 	identitymanager.Subscribe(d.policy)
 
+	// Start listening to changed devices if requested.
+	if option.Config.EnableRuntimeDeviceDetection {
+		if linuxdatapath.AreDevicesRequired() {
+			devicesChan, err := d.deviceManager.Listen(ctx)
+			if err != nil {
+				log.WithError(err).Warn("Runtime device detection failed to start")
+			}
+			go func() {
+				for devices := range devicesChan {
+					d.ReloadOnDeviceChange(devices)
+				}
+			}()
+		} else {
+			log.Warn("Runtime device detection requested, but no feature requires it. Disabling detection.")
+		}
+	}
+
 	return &d, restoredEndpoints, nil
 }
 
@@ -1096,6 +1105,43 @@ func (d *Daemon) bootstrapClusterMesh(nodeMngr *nodemanager.Manager) {
 		}
 	}
 	bootstrapStats.clusterMeshInit.End(true)
+}
+
+// ReloadOnDeviceChange regenerates device related information and reloads the datapath.
+func (d *Daemon) ReloadOnDeviceChange(devices []string) {
+	log.WithField(logfields.Devices, devices).Infof("Datapath reload initiated due to changed devices.")
+
+	option.Config.Devices = devices
+
+	if option.Config.EnableIPv4Masquerade && option.Config.EnableBPFMasquerade {
+		if err := node.InitBPFMasqueradeAddrs(devices); err != nil {
+			log.Warnf("InitBPFMasqueradeAddrs failed: %s", err)
+		}
+	}
+
+	if option.Config.EnableNodePort {
+		if err := node.InitNodePortAddrs(devices, option.Config.LBDevInheritIPAddr); err != nil {
+			log.WithError(err).Warn("Failed to initialize NodePort addresses")
+		} else {
+			// Synchronize services and endpoints to reflect new addresses onto lbmap.
+			d.svc.SyncServicesOnDeviceChange(d.Datapath().LocalNodeAddressing())
+			d.syncEndpointsAndHostIPs()
+		}
+	}
+
+	// Recreate node_config.h to reflect the mac addresses of the new devices.
+	if err := d.createNodeConfigHeaderfile(); err != nil {
+		log.WithError(err).Warn("Failed to re-create node config header")
+		return
+	}
+
+	// Reload the datapath.
+	wg, err := d.TriggerReloadWithoutCompile("devices changed")
+	if err != nil {
+		log.WithError(err).Warn("Failed to reload datapath")
+		return
+	}
+	wg.Wait()
 }
 
 // Close shuts down a daemon

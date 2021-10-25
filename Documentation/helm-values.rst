@@ -377,6 +377,10 @@
      - Configure whether to enable auto detect of terminating state for endpoints in order to support graceful termination.
      - bool
      - ``true``
+   * - enableRuntimeDeviceDetection
+     - Enables experimental support for the detection of new and removed datapath devices. On device change the eBPF datapath, IPsec and BandwidthManager functionality is reloaded to add and remove the device specific eBPF programs. If "devices" is set then those are taken as the starting point, but the set of used devices may be expanded at runtime. Device wildcards are currently ignored by this option.
+     - bool
+     - ``false``
    * - enableXTSocketFallback
      - Enables the fallback compatibility solution for when the xt_socket kernel module is missing and it is needed for the datapath L7 redirection to work properly. See documentation for details on when this can be disabled: https://docs.cilium.io/en/stable/operations/system_requirements/#linux-kernel.
      - bool

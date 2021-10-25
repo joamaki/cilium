@@ -348,6 +348,7 @@ enableHealthCheck
 enableIPv
 enableIdentityMark
 enableK
+enableRuntimeDeviceDetection
 enableXTSocketFallback
 enablement
 endian
