@@ -757,16 +757,26 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 	// This is because the device detection requires self (Cilium)Node object,
 	// and the k8s service watcher depends on option.Config.EnableNodePort flag
 	// which can be modified after the device detection.
-	if err := d.deviceManager.Detect(); err != nil {
-		if linuxdatapath.AreDevicesRequired() {
+	if devices, err := d.deviceManager.Detect(); err != nil {
+		if d.deviceManager.AreDevicesRequired() {
 			// Fail hard if devices are required to function.
 			return nil, nil, fmt.Errorf("failed to detect devices: %w", err)
 		}
 		log.WithError(err).Warn("failed to detect devices, disabling BPF NodePort")
 		disableNodePort()
+	} else {
+		option.Config.Devices = devices
 	}
 	if err := finishKubeProxyReplacementInit(isKubeProxyReplacementStrict); err != nil {
 		return nil, nil, fmt.Errorf("failed to finalise LB initialization: %w", err)
+	}
+
+	if k8s.IsEnabled() {
+		bootstrapStats.k8sInit.Start()
+		// Launch the K8s watchers in parallel as we continue to process other
+		// daemon options.
+		d.k8sCachesSynced = d.k8sWatcher.InitK8sSubsystem(d.ctx)
+		bootstrapStats.k8sInit.End(true)
 	}
 
 	// BPF masquerade depends on BPF NodePort and require host-reachable svc to
