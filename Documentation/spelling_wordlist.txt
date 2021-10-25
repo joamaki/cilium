@@ -356,6 +356,7 @@ enableIdentityMark
 enableIngressController
 enableK
 enableSecretsSync
+enableRuntimeDeviceDetection
 enableXTSocketFallback
 enablement
 endian
