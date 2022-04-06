@@ -65,7 +65,7 @@ type Subsystem interface {
 // subsystem is given a handle that allows the subsystem to publish events.
 // A subsystem can only register for events known to the event bus and returns
 // an error if an event listed by Subscribes has not been registered.
-func (bus *EventBus) RegisterSubsystem(subsys Subsystem, publishes, subscribes []EventPrototype) (*EventBusHandle, error) {
+func (bus *EventBus) RegisterSubsystem(subsys Subsystem, publishes, subscribes []EventPrototype) (*EventPublisher, error) {
 	bus.Lock()
 	defer bus.Unlock()
 	// TODO rewind of changes on errors
@@ -88,14 +88,14 @@ func (bus *EventBus) RegisterSubsystem(subsys Subsystem, publishes, subscribes [
 		bus.subs[proto.typeId] = append(bus.subs[proto.typeId], subsys)
 	}
 
-	return &EventBusHandle{bus, subsys}, nil
+	return &EventPublisher{bus, subsys}, nil
 }
 
 func (bus *EventBus) Close() error {
 	panic("TODO CLOSE")
 }
 
-type EventBusHandle struct {
+type EventPublisher struct {
 	bus    *EventBus
 	subsys Subsystem
 }
@@ -103,7 +103,7 @@ type EventBusHandle struct {
 // Publish an event. The method will fail if the subsystem has not declared
 // the event type when it registered. Subscribers are invoked sequentially
 // in the order they've registered.
-func (h *EventBusHandle) Publish(ev Event) error {
+func (h *EventPublisher) Publish(ev Event) error {
 	h.bus.RLock()
 	defer h.bus.RUnlock()
 
@@ -136,6 +136,6 @@ func (h *EventBusHandle) Publish(ev Event) error {
 }
 
 // Unregister the subsystem from the registry.
-func (h *EventBusHandle) Unregister() error {
+func (h *EventPublisher) Unregister() error {
 	panic("TODO Unregister")
 }

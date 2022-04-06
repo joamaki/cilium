@@ -41,7 +41,7 @@ var ExampleEventFooP = NewEventPrototype("The dreaded Foo event has happened", &
 //
 
 type ExampleSubsys struct {
-	events *EventBusHandle
+	events *EventPublisher
 }
 
 func NewExampleSubsys(bus *EventBus) (*ExampleSubsys, error) {
