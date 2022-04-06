@@ -31,6 +31,9 @@ func (bus *EventBus) DumpGraph() {
 
 	// Construct the reverse of 'subs', e.g. map from subsystem to event types
 	revSubs := map[Subsystem][]eventTypeId{}
+	for _, subsys := range bus.pubs {
+		revSubs[subsys] = []eventTypeId{}
+	}
 	for typeId, ss := range bus.subs {
 		for _, subsys := range ss {
 			revSubs[subsys] = append(revSubs[subsys], typeId)
