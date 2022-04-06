@@ -39,19 +39,21 @@ var TestEventC_Proto = NewEventPrototype(
 )
 
 type TestSubsys struct {
-	name string
+	name  string
+	count int
 }
 
 func (s *TestSubsys) SysName() string { return s.name }
 
 func (s *TestSubsys) SysEventHandler(ev Event) error {
-	fmt.Printf("[%s]: Received: %s\n", s.name, ev)
+	//fmt.Printf("[%s]: Received: %s\n", s.name, ev)
+	s.count++
 	return nil
 }
 
-var subsysA = &TestSubsys{"SubsysA"}
-var subsysB = &TestSubsys{"SubsysB"}
-var subsysC = &TestSubsys{"SubsysC"}
+var subsysA = &TestSubsys{"SubsysA", 0}
+var subsysB = &TestSubsys{"SubsysB", 0}
+var subsysC = &TestSubsys{"SubsysC", 0}
 
 func TestEventBus(t *testing.T) {
 
@@ -115,4 +117,33 @@ func TestEventBus(t *testing.T) {
 		t.Fatal("handleC.Publish(TestEventA) succeeded")
 	}
 
+}
+
+func BenchmarkEventBus(b *testing.B) {
+	bus := NewEventBus()
+
+	handleA, err := bus.RegisterSubsystem(
+		subsysA,
+		[]EventPrototype{TestEventA_Proto},
+		[]EventPrototype{})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// B publishes TestEventB, and subscribes to TestEventA
+	_, err = bus.RegisterSubsystem(
+		subsysB,
+		[]EventPrototype{TestEventB_Proto},
+		[]EventPrototype{TestEventA_Proto})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	testEvent := &TestEventA{}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		handleA.Publish(testEvent)
+	}
 }

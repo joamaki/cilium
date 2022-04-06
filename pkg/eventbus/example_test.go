@@ -13,7 +13,7 @@ func TestExampleSubsystem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tsys := &TestSubsys{"Test"}
+	tsys := &TestSubsys{"Test", 0}
 	bus.RegisterSubsystem(tsys, nil, []EventPrototype{ExampleEventFooP})
 
 	time.Sleep(2 * time.Second)

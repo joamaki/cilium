@@ -5,37 +5,42 @@ package eventbus
 
 import (
 	"fmt"
-	"reflect"
+	"sync"
 )
 
 // EventBus provides a publish-subscribe service for broadcasting events from a subsystem.
 type EventBus struct {
-	pubs map[eventTypeName]Subsystem // + prototype?
+	sync.RWMutex
 
-	// subs maps each event type to a subsystem that's subscribed to it
-	subs map[eventTypeName][]Subsystem
+	pubs   map[eventTypeId]Subsystem
+	subs   map[eventTypeId][]Subsystem
+	protos map[eventTypeId]EventPrototype
 }
 
 func NewEventBus() *EventBus {
 	return &EventBus{
-		pubs: map[eventTypeName]Subsystem{},
-		subs: map[eventTypeName][]Subsystem{},
+		pubs:   map[eventTypeId]Subsystem{},
+		subs:   map[eventTypeId][]Subsystem{},
+		protos: map[eventTypeId]EventPrototype{},
 	}
 }
 
 func (bus *EventBus) DumpGraph() {
+	bus.RLock()
+	defer bus.RUnlock()
+
 	// Construct the reverse of 'subs', e.g. map from subsystem to event types
-	revSubs := map[Subsystem][]eventTypeName{}
-	for typeName, ss := range bus.subs {
+	revSubs := map[Subsystem][]eventTypeId{}
+	for typeId, ss := range bus.subs {
 		for _, subsys := range ss {
-			revSubs[subsys] = append(revSubs[subsys], typeName)
+			revSubs[subsys] = append(revSubs[subsys], typeId)
 		}
 	}
 
 	for subsys, typs := range revSubs {
 		fmt.Printf("%s:\n", subsys.SysName())
 		for _, typ := range typs {
-			fmt.Printf("\t%s\n", typ)
+			fmt.Printf("\t%s\n", bus.protos[typ])
 		}
 	}
 }
@@ -61,24 +66,26 @@ type Subsystem interface {
 // A subsystem can only register for events known to the event bus and returns
 // an error if an event listed by Subscribes has not been registered.
 func (bus *EventBus) RegisterSubsystem(subsys Subsystem, publishes, subscribes []EventPrototype) (*EventBusHandle, error) {
-	// TODO locking
+	bus.Lock()
+	defer bus.Unlock()
 	// TODO rewind of changes on errors
 
 	// Register event types published by this subsystem.
 	for _, proto := range publishes {
-		if subsys2, ok := bus.pubs[proto.typeName]; ok {
-			return nil, fmt.Errorf("event type %q already registered by %s", proto.typeName, subsys2.SysName())
+		if subsys2, ok := bus.pubs[proto.typeId]; ok {
+			return nil, fmt.Errorf("event type %q already registered by %s", proto.typeId, subsys2.SysName())
 		}
-		fmt.Printf("Registered event type %q\n", proto.typeName)
-		bus.pubs[proto.typeName] = subsys
+		fmt.Printf("Registered event type %q (id: %d)\n", proto.typeName, proto.typeId)
+		bus.pubs[proto.typeId] = subsys
+		bus.protos[proto.typeId] = proto
 	}
 
 	for _, proto := range subscribes {
 		// Validate that some subsystem already publishes this event.
-		if _, ok := bus.pubs[proto.typeName]; !ok {
-			return nil, fmt.Errorf("event type %q is not known to the event bus", proto.typeName)
+		if _, ok := bus.pubs[proto.typeId]; !ok {
+			return nil, fmt.Errorf("event type %q is not known to the event bus", proto.typeId)
 		}
-		bus.subs[proto.typeName] = append(bus.subs[proto.typeName], subsys)
+		bus.subs[proto.typeId] = append(bus.subs[proto.typeId], subsys)
 	}
 
 	return &EventBusHandle{bus, subsys}, nil
@@ -97,26 +104,32 @@ type EventBusHandle struct {
 // the event type when it registered. Subscribers are invoked sequentially
 // in the order they've registered.
 func (h *EventBusHandle) Publish(ev Event) error {
-	typeName := getTypeName(ev)
+	h.bus.RLock()
+	defer h.bus.RUnlock()
 
-	regSubsys, ok := h.bus.pubs[typeName]
+	typeId := eventToTypeId(ev)
+
+	regSubsys, ok := h.bus.pubs[typeId]
 	if !ok {
-		return fmt.Errorf("event type %q not registered", typeName)
+		return fmt.Errorf("event type %q not registered", typeId)
 	}
 	if regSubsys != h.subsys {
-		return fmt.Errorf("event type %q registered to another subsystem: %s", typeName, regSubsys.SysName())
+		return fmt.Errorf("event type %q registered to another subsystem: %s", typeId, regSubsys.SysName())
 	}
 
-	subs, ok := h.bus.subs[typeName]
+	subs, ok := h.bus.subs[typeId]
 	if !ok || len(subs) == 0 {
-		return fmt.Errorf("no subscribers to %s", typeName)
+		return fmt.Errorf("no subscribers to %s", h.bus.protos[typeId])
 	}
 
-	// TODO locking
+	// TODO: Holding RLock and calling subscribers. Consider dropping locking and only allowing
+	// registering before event bus has been started?
+
 	for _, subsys := range subs {
 		subsys.SysEventHandler(ev)
 		// TODO: ^ short-circuit and return error to publishing subsystem?
 		// ... or what do we want to do here?
+		// TODO: event handling metrics
 	}
 
 	return nil
@@ -125,15 +138,4 @@ func (h *EventBusHandle) Publish(ev Event) error {
 // Unregister the subsystem from the registry.
 func (h *EventBusHandle) Unregister() error {
 	panic("TODO Unregister")
-}
-
-func getTypeName(x interface{}) eventTypeName {
-	// TODO(JM): How expensive is the reflection here? Instead of constructing
-	// the type name, we could just unpack the fat pointer to get a pointer
-	// to type and use the pointer as index. Or just maintain a registry of events
-	// somewhere and hand out integer identifiers? E.g.
-	//   RegisterEvent(empty Event) EventId
-	//   Publish(id EventId, ev event) ?
-	typ := reflect.TypeOf(x).Elem()
-	return eventTypeName(typ.PkgPath() + "." + typ.Name())
 }
