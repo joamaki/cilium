@@ -6,27 +6,12 @@ import (
 	"time"
 
 	"github.com/cilium/cilium/pkg/eventbus"
-	"github.com/cilium/cilium/pkg/logging"
-	"github.com/cilium/cilium/pkg/logging/logfields"
 	"go.uber.org/fx"
-)
-
-var (
-	log = logging.DefaultLogger.WithField(logfields.LogSubsys, "foob")
 )
 
 //
 // Events emitted by Foob
 //
-
-// Ready event
-type FoobEventReady struct{}
-
-func (e *FoobEventReady) String() string { return "Ready" }
-
-var FoobEventReadyP = eventbus.NewEventPrototype("Foob subsystem is ready", &FoobEventReady{})
-
-// Foo event
 
 type FoobEventFoo struct {
 	Timestamp time.Time
@@ -34,24 +19,21 @@ type FoobEventFoo struct {
 
 func (e *FoobEventFoo) String() string { return "Foo has happened" }
 
-var FoobEventFooP = eventbus.NewEventPrototype("The dreaded Foo event has happened", &FoobEventFoo{})
-
 //
 // Implementation
 //
 
 type Foob struct {
-	events *eventbus.EventPublisher
-	wg     sync.WaitGroup
+	publishFoo eventbus.PublishFunc
+	wg         sync.WaitGroup
 }
 
-func NewFoob(lc fx.Lifecycle, bus *eventbus.EventBus) (*Foob, error) {
+func NewFoob(lc fx.Lifecycle, builder *eventbus.Builder) (*Foob, error) {
 	foob := &Foob{}
 	var err error
-	foob.events, err = bus.RegisterSubsystem(
-		foob,
-		[]eventbus.EventPrototype{FoobEventReadyP, FoobEventFooP},
-		nil,
+	foob.publishFoo, err = builder.Register(
+		new(FoobEventFoo),
+		"Foob",
 	)
 	if err != nil {
 		return nil, err
@@ -74,13 +56,6 @@ func NewFoob(lc fx.Lifecycle, bus *eventbus.EventBus) (*Foob, error) {
 
 func (foob *Foob) worker() {
 	time.Sleep(time.Second)
-	foob.events.Publish(&FoobEventFoo{time.Now()})
+	foob.publishFoo(&FoobEventFoo{time.Now()})
 	foob.wg.Done()
-}
-
-func (foob *Foob) SysName() string { return "foob" }
-
-func (foob *Foob) SysEventHandler(ev eventbus.Event) error {
-	log.Infof("Received event: %s", ev)
-	return nil
 }

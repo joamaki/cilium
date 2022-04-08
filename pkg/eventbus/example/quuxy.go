@@ -19,33 +19,34 @@ type QuuxyEventReady struct{}
 
 func (e *QuuxyEventReady) String() string { return "Ready" }
 
-var QuuxyEventReadyP = eventbus.NewEventPrototype("Quuxy subsystem is ready", &QuuxyEventReady{})
-
 //
 // Implementation
 //
 
 type Quuxy struct {
-	events *eventbus.EventPublisher
+	publishReady eventbus.PublishFunc
+	unsubscribe  eventbus.UnsubscribeFunc
 }
 
-func NewQuuxy(bus *eventbus.EventBus, foob *Foob) (*Quuxy, error) {
+func NewQuuxy(builder *eventbus.Builder, foob *Foob) (*Quuxy, error) {
 	quuxy := &Quuxy{}
 	var err error
-	quuxy.events, err = bus.RegisterSubsystem(
-		quuxy,
-		[]eventbus.EventPrototype{QuuxyEventReadyP},
-		[]eventbus.EventPrototype{FoobEventFooP},
+	quuxy.publishReady, err = builder.Register(
+		new(QuuxyEventReady),
+		"Quuxy is ready",
 	)
 	if err != nil {
 		return nil, err
 	}
+	quuxy.unsubscribe = builder.Subscribe(
+		new(FoobEventFoo),
+		"FoobFoob",
+		quuxy.eventHandler,
+	)
 	return quuxy, nil
 }
 
-func (quuxy *Quuxy) SysName() string { return "quuxy" }
-
-func (quuxy *Quuxy) SysEventHandler(ev eventbus.Event) error {
+func (quuxy *Quuxy) eventHandler(ev eventbus.Event) error {
 	logQ.Infof("Received event: %s", ev)
 	return nil
 }

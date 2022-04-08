@@ -24,8 +24,6 @@ type ExampleEventReady struct{}
 
 func (e *ExampleEventReady) String() string { return "Ready" }
 
-var ExampleEventReadyP = NewEventPrototype("Example subsystem is ready", &ExampleEventReady{})
-
 // Foo event
 
 type ExampleEventFoo struct {
@@ -34,24 +32,25 @@ type ExampleEventFoo struct {
 
 func (e *ExampleEventFoo) String() string { return "Foo has happened" }
 
-var ExampleEventFooP = NewEventPrototype("The dreaded Foo event has happened", &ExampleEventFoo{})
-
 //
 // The example subsystem implementation
 //
 
 type ExampleSubsys struct {
-	events *EventPublisher
+	publishReady PublishFunc
+	publishFoo   PublishFunc
 }
 
-func NewExampleSubsys(bus *EventBus) (*ExampleSubsys, error) {
+func NewExampleSubsys(builder *Builder) (*ExampleSubsys, error) {
 	ex := &ExampleSubsys{}
 	var err error
-	ex.events, err = bus.RegisterSubsystem(
-		ex,
-		[]EventPrototype{ExampleEventReadyP, ExampleEventFooP},
-		nil,
-	)
+
+	ex.publishReady, err = builder.Register(new(ExampleEventReady), "Example is ready")
+	if err != nil {
+		return nil, err
+	}
+
+	ex.publishFoo, err = builder.Register(new(ExampleEventFoo), "Foo")
 	if err != nil {
 		return nil, err
 	}
@@ -63,12 +62,5 @@ func NewExampleSubsys(bus *EventBus) (*ExampleSubsys, error) {
 
 func (ex *ExampleSubsys) worker() {
 	time.Sleep(time.Second)
-	ex.events.Publish(&ExampleEventFoo{time.Now()})
-}
-
-func (ex *ExampleSubsys) SysName() string { return "example" }
-
-func (ex *ExampleSubsys) SysEventHandler(ev Event) error {
-	log.Infof("Received event: %s", ev)
-	return nil
+	ex.publishFoo(&ExampleEventFoo{time.Now()})
 }

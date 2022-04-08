@@ -6,15 +6,32 @@ import (
 )
 
 func TestExampleSubsystem(t *testing.T) {
-	bus := NewEventBus()
+	builder := NewBuilder()
 
-	_, err := NewExampleSubsys(bus)
+	_, err := NewExampleSubsys(builder)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	tsys := &TestSubsys{"Test", 0}
-	bus.RegisterSubsystem(tsys, nil, []EventPrototype{ExampleEventFooP})
+	foo := false
+	builder.Subscribe(
+		new(ExampleEventFoo),
+		"catch a foo",
+		func(ev Event) error {
+			foo = true
+			return nil
+		})
+
+	bus, err := builder.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bus.PrintGraph()
 
 	time.Sleep(2 * time.Second)
+
+	if !foo {
+		t.Fatal("no foo")
+	}
 }

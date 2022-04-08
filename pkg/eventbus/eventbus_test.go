@@ -1,7 +1,6 @@
 package eventbus
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -11,21 +10,11 @@ func (e *TestEventA) String() string {
 	return "TestEventA"
 }
 
-var TestEventA_Proto = NewEventPrototype(
-	"This is TestEventA",
-	&TestEventA{},
-)
-
 type TestEventB struct{}
 
 func (e *TestEventB) String() string {
 	return "TestEventB"
 }
-
-var TestEventB_Proto = NewEventPrototype(
-	"This is TestEventB",
-	&TestEventB{},
-)
 
 type TestEventC struct{}
 
@@ -33,117 +22,139 @@ func (e *TestEventC) String() string {
 	return "TestEventC"
 }
 
-var TestEventC_Proto = NewEventPrototype(
-	"This is TestEventC",
-	&TestEventC{},
-)
-
-type TestSubsys struct {
-	name  string
-	count int
-}
-
-func (s *TestSubsys) SysName() string { return s.name }
-
-func (s *TestSubsys) SysEventHandler(ev Event) error {
-	//fmt.Printf("[%s]: Received: %s\n", s.name, ev)
-	s.count++
-	return nil
-}
-
-var subsysA = &TestSubsys{"SubsysA", 0}
-var subsysB = &TestSubsys{"SubsysB", 0}
-var subsysC = &TestSubsys{"SubsysC", 0}
-
 func TestEventBus(t *testing.T) {
+	builder := NewBuilder()
 
-	bus := NewEventBus()
-
-	// A publishes TestEventA
-	handleA, err := bus.RegisterSubsystem(
-		subsysA,
-		[]EventPrototype{TestEventA_Proto},
-		[]EventPrototype{})
+	pubA, err := builder.Register(new(TestEventA), "TestEventA")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// B publishes TestEventB, and subscribes to TestEventA
-	handleB, err := bus.RegisterSubsystem(
-		subsysB,
-		[]EventPrototype{TestEventB_Proto},
-		[]EventPrototype{TestEventA_Proto})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check that one cannot subscribe to unknown event types
-	_, err = bus.RegisterSubsystem(
-		subsysC,
-		[]EventPrototype{},
-		[]EventPrototype{TestEventC_Proto})
+	err = pubA(&TestEventA{})
 	if err == nil {
-		t.Fatal("Expected registering of subsystem with subscription to unknown event to fail")
+		t.Fatal("expected publishing before bus was ready to fail")
 	}
 
-	// C publishes TestEventC, and subscribes to TestEventA and TestEventB
-	handleC, err := bus.RegisterSubsystem(
-		subsysC,
-		[]EventPrototype{TestEventC_Proto},
-		[]EventPrototype{TestEventA_Proto, TestEventB_Proto})
+	pubB, err := builder.Register(new(TestEventB), "TestEventB")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	bus.DumpGraph()
+	countA := 0
+	unsubA := builder.Subscribe(
+		new(TestEventA), "count TestEventA",
+		func(ev Event) error {
+			countA++
+			return nil
+		})
 
-	fmt.Printf("Publishing TestEventA:\n")
-	// A can publish TestEventA
-	err = handleA.Publish(&TestEventA{})
+	countB := 0
+	unsubB := builder.Subscribe(
+		new(TestEventB), "count TestEventB",
+		func(ev Event) error {
+			countB++
+			return nil
+		})
+
+	_, err = builder.Build()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fmt.Printf("Publishing TestEventB:\n")
-	// B can publish TestEventB
-	err = handleB.Publish(&TestEventB{})
-	if err != nil {
-		t.Fatal(err)
+	for i := 0; i < 3; i++ {
+		err = pubA(&TestEventA{})
+		if err != nil {
+			t.Fatalf("expected pubA to succeed, got error: %s", err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		err = pubB(&TestEventB{})
+		if err != nil {
+			t.Fatalf("expected pubB to succeed, got error: %s", err)
+		}
 	}
 
-	// C cannot publish TestEventA
-	err = handleC.Publish(&TestEventA{})
+	// Test with wrong type
+	err = pubA(&TestEventB{})
 	if err == nil {
-		t.Fatal("handleC.Publish(TestEventA) succeeded")
+		t.Fatal("expected pubA with TestEventB to fail")
+	}
+
+	if countA != 3 {
+		t.Fatalf("expected countA=2, got %d", countA)
+	}
+	if countB != 2 {
+		t.Fatalf("expected countB=2, got %d", countA)
+	}
+
+	unsubA()
+	unsubB()
+
+	err = pubA(&TestEventA{})
+	if err != nil {
+		t.Fatalf("expected pubA to succeed, got error: %s", err)
+	}
+	if countA != 3 {
+		t.Fatalf("after unsubscribe, expected countA=2, got %d", countA)
 	}
 
 }
 
 func BenchmarkEventBus(b *testing.B) {
-	bus := NewEventBus()
+	builder := NewBuilder()
 
-	handleA, err := bus.RegisterSubsystem(
-		subsysA,
-		[]EventPrototype{TestEventA_Proto},
-		[]EventPrototype{})
+	pubA, err := builder.Register(new(TestEventA), "source of EventA")
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	// B publishes TestEventB, and subscribes to TestEventA
-	_, err = bus.RegisterSubsystem(
-		subsysB,
-		[]EventPrototype{TestEventB_Proto},
-		[]EventPrototype{TestEventA_Proto})
+	count := 0
+	_ = builder.Subscribe(
+		new(TestEventA),
+		"count EventAs",
+		func(ev Event) error {
+			count++
+			return nil
+		})
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	testEvent := &TestEventA{}
+	_, err = builder.Build()
+	if err != nil {
+		b.Fatal(err)
+	}
 
+	ev := &TestEventA{}
 	b.ResetTimer()
-
 	for i := 0; i < b.N; i++ {
-		handleA.Publish(testEvent)
+		pubA(ev)
+	}
+	if count != b.N {
+		b.Fatalf("missed events, expected %d, got %d", b.N, count)
+	}
+}
+
+// BenchmarkFuncCall gives a baseline performance to which to compare
+// BenchmarkGenbus to.
+func BenchmarkFuncCall(b *testing.B) {
+	count := 0
+
+	var cb func(ev Event) error
+	if b.N > 0 {
+		// Hack to stop Go from inlining
+		cb = func(ev Event) error {
+			count++
+			return nil
+		}
+	}
+
+	ev := &TestEventA{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cb(ev)
+	}
+	if count != b.N {
+		b.Fatalf("missed events, expected %d, got %d", b.N, count)
 	}
 }

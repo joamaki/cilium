@@ -2,21 +2,26 @@ package main
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/cilium/cilium/pkg/eventbus"
 	"go.uber.org/fx"
 )
 
-func run(bus *eventbus.EventBus, quuxy *Quuxy, foob *Foob) {
-	bus.DumpGraph()
+func run(builder *eventbus.Builder, quuxy *Quuxy, foob *Foob) {
+	bus, err := builder.Build()
+	if err != nil {
+		panic(err)
+	}
+	bus.PrintGraph()
 	time.Sleep(5 * time.Second)
 }
 
 func main() {
 	app := fx.New(
 		fx.Provide(
-			eventbus.NewEventBus,
+			eventbus.NewBuilder,
 			NewFoob,
 			NewQuuxy,
 		),
