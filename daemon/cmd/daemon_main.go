@@ -123,7 +123,8 @@ var (
 			bootstrapStats.earlyInit.Start()
 			initEnv(cmd)
 			bootstrapStats.earlyInit.End(true)
-			runDaemon()
+			//runDaemon()
+			runApp()
 		},
 	}
 

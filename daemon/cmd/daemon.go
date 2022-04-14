@@ -83,7 +83,6 @@ import (
 	"github.com/cilium/cilium/pkg/sockops"
 	"github.com/cilium/cilium/pkg/status"
 	"github.com/cilium/cilium/pkg/trigger"
-	wg "github.com/cilium/cilium/pkg/wireguard/agent"
 	cnitypes "github.com/cilium/cilium/plugins/cilium-cni/types"
 )
 
@@ -739,12 +738,6 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 		}
 
 		bootstrapStats.k8sInit.End(true)
-	}
-
-	if wgAgent := dp.WireguardAgent(); option.Config.EnableWireguard {
-		if err := wgAgent.(*wg.Agent).Init(d.ipcache, mtuConfig); err != nil {
-			return nil, nil, fmt.Errorf("failed to initialize wireguard agent: %w", err)
-		}
 	}
 
 	// Perform an early probe on the underlying kernel on whether BandwidthManager
