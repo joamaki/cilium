@@ -24,7 +24,6 @@ import (
 
 	"github.com/cilium/cilium/api/v1/server"
 	"github.com/cilium/cilium/api/v1/server/restapi"
-	"github.com/cilium/cilium/pkg/aws/eni"
 	bgpv1 "github.com/cilium/cilium/pkg/bgpv1/agent"
 	"github.com/cilium/cilium/pkg/bgpv1/gobgp"
 	"github.com/cilium/cilium/pkg/bpf"
@@ -33,24 +32,18 @@ import (
 	"github.com/cilium/cilium/pkg/components"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/datapath/connector"
-	"github.com/cilium/cilium/pkg/datapath/iptables"
-	"github.com/cilium/cilium/pkg/datapath/link"
 	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
 	"github.com/cilium/cilium/pkg/datapath/linux/ipsec"
 	"github.com/cilium/cilium/pkg/datapath/linux/probes"
-	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/loader"
-	"github.com/cilium/cilium/pkg/datapath/maps"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/defaults"
-	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/flowdebug"
 	"github.com/cilium/cilium/pkg/hubble/exporter/exporteroption"
 	"github.com/cilium/cilium/pkg/hubble/observer/observeroption"
 	"github.com/cilium/cilium/pkg/identity"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
-	"github.com/cilium/cilium/pkg/ipmasq"
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/kvstore"
@@ -61,22 +54,17 @@ import (
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maglev"
 	"github.com/cilium/cilium/pkg/maps/ctmap"
-	"github.com/cilium/cilium/pkg/maps/ctmap/gc"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/maps/nat"
 	"github.com/cilium/cilium/pkg/maps/neighborsmap"
 	"github.com/cilium/cilium/pkg/maps/policymap"
 	"github.com/cilium/cilium/pkg/metrics"
-	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	"github.com/cilium/cilium/pkg/node"
-	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
 	"github.com/cilium/cilium/pkg/version"
-	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
-	wireguardTypes "github.com/cilium/cilium/pkg/wireguard/types"
 )
 
 const (
@@ -122,10 +110,7 @@ var (
 			}
 			log.WithFields(addrField).Info("Started gops server")
 
-			bootstrapStats.earlyInit.Start()
-			initEnv(cmd)
-			bootstrapStats.earlyInit.End(true)
-			runDaemon()
+			runApp(cmd)
 		},
 	}
 
@@ -1128,6 +1113,9 @@ func initializeFlags() {
 	flags.Bool(option.EnableBGPControlPlane, false, "Enable the BGP control plane.")
 	option.BindEnv(option.EnableBGPControlPlane)
 
+	flags.String(option.DotGraphOutputFile, "", "File to which the agent dependency graph should be written to")
+	option.BindEnv(option.DotGraphOutputFile)
+
 	viper.BindPFlags(flags)
 }
 
@@ -1156,6 +1144,7 @@ func restoreExecPermissions(searchDir string, patterns ...string) error {
 }
 
 func initEnv(cmd *cobra.Command) {
+	bootstrapStats.earlyInit.Start()
 	var debugDatapath bool
 
 	option.Config.SetMapElementSizes(
@@ -1628,6 +1617,7 @@ func initEnv(cmd *cobra.Command) {
 			)
 		}
 	}
+	bootstrapStats.earlyInit.End(true)
 }
 
 func (d *Daemon) initKVStore() {
@@ -1675,283 +1665,6 @@ func (d *Daemon) initKVStore() {
 			"kvstore": option.Config.KVStore,
 			"address": addr,
 		}).Fatal("Unable to setup kvstore")
-	}
-}
-
-func runDaemon() {
-	datapathConfig := linuxdatapath.DatapathConfiguration{
-		HostDevice: defaults.HostDevice,
-	}
-
-	log.Info("Initializing daemon")
-
-	option.Config.RunMonitorAgent = true
-
-	if err := enableIPForwarding(); err != nil {
-		log.WithError(err).Fatal("Error when enabling sysctl parameters")
-	}
-
-	iptablesManager := &iptables.IptablesManager{}
-	iptablesManager.Init()
-
-	var wgAgent *wireguard.Agent
-	if option.Config.EnableWireguard {
-		switch {
-		case option.Config.EnableIPSec:
-			log.Fatalf("Wireguard (--%s) cannot be used with IPSec (--%s)",
-				option.EnableWireguard, option.EnableIPSecName)
-		case option.Config.EnableL7Proxy:
-			log.Fatalf("Wireguard (--%s) is not compatible with L7 proxy (--%s)",
-				option.EnableWireguard, option.EnableL7Proxy)
-		}
-
-		var err error
-		privateKeyPath := filepath.Join(option.Config.StateDir, wireguardTypes.PrivKeyFilename)
-		wgAgent, err = wireguard.NewAgent(privateKeyPath)
-		if err != nil {
-			log.WithError(err).Fatal("Failed to initialize wireguard")
-		}
-
-		cleaner.cleanupFuncs.Add(func() {
-			_ = wgAgent.Close()
-		})
-	} else {
-		// Delete wireguard device from previous run (if such exists)
-		link.DeleteByName(wireguardTypes.IfaceName)
-	}
-
-	if k8s.IsEnabled() {
-		bootstrapStats.k8sInit.Start()
-		if err := k8s.Init(option.Config); err != nil {
-			log.WithError(err).Fatal("Unable to initialize Kubernetes subsystem")
-		}
-		bootstrapStats.k8sInit.End(true)
-	}
-
-	ctx, cancel := context.WithCancel(server.ServerCtx)
-	d, restoredEndpoints, err := NewDaemon(ctx, cancel,
-		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
-		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent))
-	if err != nil {
-		select {
-		case <-server.ServerCtx.Done():
-			log.WithError(err).Debug("Error while creating daemon")
-		default:
-			log.WithError(err).Fatal("Error while creating daemon")
-		}
-		return
-	}
-
-	// This validation needs to be done outside of the agent until
-	// datapath.NodeAddressing is used consistently across the code base.
-	log.Info("Validating configured node address ranges")
-	if err := node.ValidatePostInit(); err != nil {
-		log.WithError(err).Fatal("postinit failed")
-	}
-
-	bootstrapStats.enableConntrack.Start()
-	log.Info("Starting connection tracking garbage collector")
-	gc.Enable(option.Config.EnableIPv4, option.Config.EnableIPv6,
-		restoredEndpoints.restored, d.endpointManager)
-	bootstrapStats.enableConntrack.End(true)
-
-	bootstrapStats.k8sInit.Start()
-	if k8s.IsEnabled() {
-		// Wait only for certain caches, but not all!
-		// (Check Daemon.InitK8sSubsystem() for more info)
-		<-d.k8sCachesSynced
-	}
-	bootstrapStats.k8sInit.End(true)
-	restoreComplete := d.initRestore(restoredEndpoints)
-	if wgAgent != nil {
-		if err := wgAgent.RestoreFinished(); err != nil {
-			log.WithError(err).Error("Failed to set up wireguard peers")
-		}
-	}
-
-	if d.endpointManager.HostEndpointExists() {
-		d.endpointManager.InitHostEndpointLabels(d.ctx)
-	} else {
-		log.Info("Creating host endpoint")
-		if err := d.endpointManager.AddHostEndpoint(
-			d.ctx, d, d, d.ipcache, d.l7Proxy, d.identityAllocator,
-			"Create host endpoint", nodeTypes.GetName(),
-		); err != nil {
-			log.WithError(err).Fatal("Unable to create host endpoint")
-		}
-	}
-
-	if option.Config.EnableIPMasqAgent {
-		ipmasqAgent, err := ipmasq.NewIPMasqAgent(option.Config.IPMasqAgentConfigPath)
-		if err != nil {
-			log.WithError(err).Fatal("Failed to create ip-masq-agent")
-		}
-		ipmasqAgent.Start()
-	}
-
-	if !option.Config.DryMode {
-		go func() {
-			if restoreComplete != nil {
-				<-restoreComplete
-			}
-			d.dnsNameManager.CompleteBootstrap()
-
-			ms := maps.NewMapSweeper(&EndpointMapManager{
-				EndpointManager: d.endpointManager,
-			})
-			ms.CollectStaleMapGarbage()
-			ms.RemoveDisabledMaps()
-
-			if len(d.restoredCIDRs) > 0 {
-				// Release restored CIDR identities after a grace period (default 10
-				// minutes).  Any identities actually in use will still exist after
-				// this.
-				//
-				// This grace period is needed when running on an external workload
-				// where policy synchronization is not done via k8s. Also in k8s
-				// case it is prudent to allow concurrent endpoint regenerations to
-				// (re-)allocate the restored identities before we release them.
-				time.Sleep(option.Config.IdentityRestoreGracePeriod)
-				log.Debugf("Releasing reference counts for %d restored CIDR identities", len(d.restoredCIDRs))
-
-				d.ipcache.ReleaseCIDRIdentitiesByCIDR(d.restoredCIDRs)
-				// release the memory held by restored CIDRs
-				d.restoredCIDRs = nil
-			}
-		}()
-		d.endpointManager.Subscribe(d)
-		defer d.endpointManager.Unsubscribe(d)
-	}
-
-	// Migrating the ENI datapath must happen before the API is served to
-	// prevent endpoints from being created. It also must be before the health
-	// initialization logic which creates the health endpoint, for the same
-	// reasons as the API being served. We want to ensure that this migration
-	// logic runs before any endpoint creates.
-	if option.Config.IPAM == ipamOption.IPAMENI {
-		migrated, failed := linuxrouting.NewMigrator(
-			&eni.InterfaceDB{},
-		).MigrateENIDatapath(option.Config.EgressMultiHomeIPRuleCompat)
-		switch {
-		case failed == -1:
-			// No need to handle this case specifically because it is handled
-			// in the call already.
-		case migrated >= 0 && failed > 0:
-			log.Errorf("Failed to migrate ENI datapath. "+
-				"%d endpoints were successfully migrated and %d failed to migrate completely. "+
-				"The original datapath is still in-place, however it is recommended to retry the migration.",
-				migrated, failed)
-
-		case migrated >= 0 && failed == 0:
-			log.Infof("Migration of ENI datapath successful, %d endpoints were migrated and none failed.",
-				migrated)
-		}
-	}
-
-	bootstrapStats.healthCheck.Start()
-	if option.Config.EnableHealthChecking {
-		d.initHealth()
-	}
-	bootstrapStats.healthCheck.End(true)
-
-	d.startStatusCollector()
-
-	metricsErrs := initMetrics()
-
-	d.startAgentHealthHTTPService()
-	if option.Config.KubeProxyReplacementHealthzBindAddr != "" {
-		if option.Config.KubeProxyReplacement != option.KubeProxyReplacementDisabled {
-			d.startKubeProxyHealthzHTTPService(fmt.Sprintf("%s", option.Config.KubeProxyReplacementHealthzBindAddr))
-		}
-	}
-
-	bootstrapStats.initAPI.Start()
-	srv := server.NewServer(d.instantiateAPI())
-	srv.EnabledListeners = []string{"unix"}
-	srv.SocketPath = option.Config.SocketPath
-	srv.ReadTimeout = apiTimeout
-	srv.WriteTimeout = apiTimeout
-	defer srv.Shutdown()
-
-	srv.ConfigureAPI()
-	bootstrapStats.initAPI.End(true)
-
-	err = d.SendNotification(monitorAPI.StartMessage(time.Now()))
-	if err != nil {
-		log.WithError(err).Warn("Failed to send agent start monitor message")
-	}
-
-	if !d.datapath.Node().NodeNeighDiscoveryEnabled() {
-		// Remove all non-GC'ed neighbor entries that might have previously set
-		// by a Cilium instance.
-		d.datapath.Node().NodeCleanNeighbors(false)
-	} else {
-		// If we came from an agent upgrade, migrate entries.
-		d.datapath.Node().NodeCleanNeighbors(true)
-		// Start periodical refresh of the neighbor table from the agent if needed.
-		if option.Config.ARPPingRefreshPeriod != 0 && !option.Config.ARPPingKernelManaged {
-			d.nodeDiscovery.Manager.StartNeighborRefresh(d.datapath.Node())
-		}
-	}
-
-	if option.Config.BGPControlPlaneEnabled() {
-		log.Info("Initializing BGP Control Plane")
-		if err := d.instantiateBGPControlPlane(d.ctx); err != nil {
-			log.WithError(err).Fatal("Error returned when instantiating BGP control plane")
-		}
-	}
-
-	log.WithField("bootstrapTime", time.Since(bootstrapTimestamp)).
-		Info("Daemon initialization completed")
-
-	if option.Config.WriteCNIConfigurationWhenReady != "" {
-		input, err := os.ReadFile(option.Config.ReadCNIConfiguration)
-		if err != nil {
-			log.WithError(err).Fatal("Unable to read CNI configuration file")
-		}
-
-		if err = os.WriteFile(option.Config.WriteCNIConfigurationWhenReady, input, 0644); err != nil {
-			log.WithError(err).Fatalf("Unable to write CNI configuration file to %s", option.Config.WriteCNIConfigurationWhenReady)
-		} else {
-			log.Infof("Wrote CNI configuration file to %s", option.Config.WriteCNIConfigurationWhenReady)
-		}
-	}
-
-	errs := make(chan error, 1)
-
-	go func() {
-		errs <- srv.Serve()
-	}()
-
-	if k8s.IsEnabled() {
-		bootstrapStats.k8sInit.Start()
-		k8s.Client().MarkNodeReady(d.k8sWatcher, nodeTypes.GetName())
-		bootstrapStats.k8sInit.End(true)
-	}
-
-	bootstrapStats.overall.End(true)
-	bootstrapStats.updateMetrics()
-	go d.launchHubble()
-
-	err = option.Config.StoreInFile(option.Config.StateDir)
-	if err != nil {
-		log.WithError(err).Error("Unable to store Cilium's configuration")
-	}
-
-	err = option.StoreViperInFile(option.Config.StateDir)
-	if err != nil {
-		log.WithError(err).Error("Unable to store Viper's configuration")
-	}
-
-	select {
-	case err := <-metricsErrs:
-		if err != nil {
-			log.WithError(err).Fatal("Cannot start metrics server")
-		}
-	case err := <-errs:
-		if err != nil {
-			log.WithError(err).Fatal("Error returned from non-returning Serve() call")
-		}
 	}
 }
 
