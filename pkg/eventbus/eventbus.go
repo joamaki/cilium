@@ -50,7 +50,6 @@ func (builder *Builder) Subscribe(empty Event, reason string, handler func(event
 	}
 
 	sub := &subscriber{
-		active:   atomicBool{1},
 		reason:   reason,
 		from:     from,
 		typeId:   typeId,
@@ -58,7 +57,7 @@ func (builder *Builder) Subscribe(empty Event, reason string, handler func(event
 		handler:  handler,
 	}
 	builder.subs = append(builder.subs, sub)
-	return func() { sub.active.unset() }
+	return func() { sub.handler = nil }
 }
 
 type PublishFunc func(ev Event) error
@@ -160,15 +159,15 @@ func (pub *publisher) publish(ev Event) error {
 	}
 
 	for i := range pub.subs {
-		if pub.subs[i].active.get() {
-			pub.subs[i].handler(ev)
+		handler := pub.subs[i].handler
+		if handler != nil {
+			handler(ev)
 		}
 	}
 	return nil
 }
 
 type subscriber struct {
-	active   atomicBool
 	reason   string
 	from     string
 	typeId   eventTypeId
