@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/vishvananda/netlink"
+	"go.uber.org/fx"
 	"google.golang.org/grpc"
 
 	"github.com/cilium/cilium/api/v1/server"
@@ -64,6 +65,7 @@ import (
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/recorder"
 	"github.com/cilium/cilium/pkg/version"
 )
 
@@ -1680,7 +1682,13 @@ func (d *Daemon) instantiateBGPControlPlane(ctx context.Context) error {
 	return nil
 }
 
-func (d *Daemon) instantiateAPI() *restapi.CiliumAPIAPI {
+type apiHandles struct {
+	fx.In
+
+	rec *recorder.Recorder
+}
+
+func instantiateAPI(h apiHandles, d *Daemon) *restapi.CiliumAPIAPI {
 	swaggerSpec, err := loads.Analyzed(server.SwaggerJSON, "")
 	if err != nil {
 		log.WithError(err).Fatal("Cannot load swagger spec")
@@ -1754,15 +1762,15 @@ func (d *Daemon) instantiateAPI() *restapi.CiliumAPIAPI {
 	restAPI.ServiceGetServiceHandler = NewGetServiceHandler(d.svc)
 
 	// /recorder/{id}/
-	restAPI.RecorderGetRecorderIDHandler = NewGetRecorderIDHandler(d.rec)
-	restAPI.RecorderDeleteRecorderIDHandler = NewDeleteRecorderIDHandler(d.rec)
-	restAPI.RecorderPutRecorderIDHandler = NewPutRecorderIDHandler(d.rec)
+	restAPI.RecorderGetRecorderIDHandler = NewGetRecorderIDHandler(h.rec)
+	restAPI.RecorderDeleteRecorderIDHandler = NewDeleteRecorderIDHandler(h.rec)
+	restAPI.RecorderPutRecorderIDHandler = NewPutRecorderIDHandler(h.rec)
 
 	// /recorder/
-	restAPI.RecorderGetRecorderHandler = NewGetRecorderHandler(d.rec)
+	restAPI.RecorderGetRecorderHandler = NewGetRecorderHandler(h.rec)
 
 	// /recorder/masks
-	restAPI.RecorderGetRecorderMasksHandler = NewGetRecorderMasksHandler(d.rec)
+	restAPI.RecorderGetRecorderMasksHandler = NewGetRecorderMasksHandler(h.rec)
 
 	// /prefilter/
 	restAPI.PrefilterGetPrefilterHandler = NewGetPrefilterHandler(d)

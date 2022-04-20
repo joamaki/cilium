@@ -30,7 +30,7 @@ import (
 	"github.com/cilium/cilium/pkg/hubble/parser"
 	"github.com/cilium/cilium/pkg/hubble/peer"
 	"github.com/cilium/cilium/pkg/hubble/peer/serviceoption"
-	"github.com/cilium/cilium/pkg/hubble/recorder"
+	hubblerecorder "github.com/cilium/cilium/pkg/hubble/recorder"
 	"github.com/cilium/cilium/pkg/hubble/recorder/recorderoption"
 	"github.com/cilium/cilium/pkg/hubble/recorder/sink"
 	"github.com/cilium/cilium/pkg/hubble/server"
@@ -43,6 +43,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
+	"github.com/cilium/cilium/pkg/recorder"
 )
 
 func (d *Daemon) getHubbleStatus(ctx context.Context) *models.HubbleStatus {
@@ -85,7 +86,7 @@ func (d *Daemon) getHubbleStatus(ctx context.Context) *models.HubbleStatus {
 	return hubbleStatus
 }
 
-func (d *Daemon) launchHubble() {
+func launchHubble(d *Daemon, rec *recorder.Recorder) {
 	logger := logging.DefaultLogger.WithField(logfields.LogSubsys, "hubble")
 	if !option.Config.EnableHubble {
 		logger.Info("Hubble server is disabled")
@@ -177,7 +178,7 @@ func (d *Daemon) launchHubble() {
 			return
 		}
 		d.monitorAgent.RegisterNewConsumer(dispatch)
-		svc, err := recorder.NewService(d.rec, dispatch,
+		svc, err := hubblerecorder.NewService(rec, dispatch,
 			recorderoption.WithStoragePath(option.Config.HubbleRecorderStoragePath))
 		if err != nil {
 			logger.WithError(err).Error("Failed to initialize Hubble recorder service")

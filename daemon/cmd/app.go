@@ -11,7 +11,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/cilium/cilium/api/v1/server"
-	"github.com/cilium/cilium/api/v1/server/restapi"
 	"github.com/cilium/cilium/pkg/aws/eni"
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
@@ -30,6 +29,7 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/recorder"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
 )
 
@@ -91,6 +91,7 @@ func runApp(cmd *cobra.Command) {
 		linuxdatapathModule,
 		fx.Provide(newEndpointManager),
 		daemonModule,
+		recorder.Module,
 		optional(option.Config.EnableIPMasqAgent, ipmasqAgentModule),
 		apiServerModule,
 
@@ -159,15 +160,15 @@ func newEndpointManager(ctx context.Context) *endpointmanager.EndpointManager {
 	return WithDefaultEndpointManager(ctx, endpoint.CheckHealth)
 }
 
-func registerDaemonStart(lc fx.Lifecycle, d *Daemon, restoredEndpoints *endpointRestoreState) {
+func registerDaemonStart(lc fx.Lifecycle, d *Daemon, restoredEndpoints *endpointRestoreState, rec *recorder.Recorder) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			return onDaemonStart(d, restoredEndpoints)
+			return onDaemonStart(d, restoredEndpoints, rec)
 		},
 	})
 }
 
-func onDaemonStart(d *Daemon, restoredEndpoints *endpointRestoreState) error {
+func onDaemonStart(d *Daemon, restoredEndpoints *endpointRestoreState, rec *recorder.Recorder) error {
 
 	bootstrapStats.enableConntrack.Start()
 	log.Info("Starting connection tracking garbage collector")
@@ -218,7 +219,7 @@ func onDaemonStart(d *Daemon, restoredEndpoints *endpointRestoreState) error {
 	writeCNIConfig()
 	markNodeReady(d)
 
-	go d.launchHubble()
+	go launchHubble(d, rec)
 	storeConfigs()
 
 	return nil
@@ -379,7 +380,7 @@ var apiServerModule = fx.Module(
 	"api-server",
 
 	fx.Provide(
-		func(d *Daemon) *restapi.CiliumAPIAPI { return d.instantiateAPI() },
+		instantiateAPI,
 		server.NewServer,
 	),
 
