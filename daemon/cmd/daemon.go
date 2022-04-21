@@ -1080,18 +1080,18 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 
 // WithDefaultEndpointManager creates the default endpoint manager with a
 // functional endpoint synchronizer.
-func WithDefaultEndpointManager(ctx context.Context, checker endpointmanager.EndpointCheckerFunc) *endpointmanager.EndpointManager {
-	mgr := WithCustomEndpointManager(&watchers.EndpointSynchronizer{})
+func WithDefaultEndpointManager(ctx context.Context, checker endpointmanager.EndpointCheckerFunc) (*endpointmanager.EndpointManager, endpointmanager.EventSources) {
+	mgr, srcs := WithCustomEndpointManager(&watchers.EndpointSynchronizer{})
 	if option.Config.EndpointGCInterval > 0 {
 		mgr = mgr.WithPeriodicEndpointGC(ctx, checker, option.Config.EndpointGCInterval)
 	}
-	return mgr
+	return mgr, srcs
 }
 
 // WithCustomEndpointManager creates the custom endpoint manager with the
 // provided endpoint synchronizer. This is useful for tests which want to mock
 // out the real endpoint synchronizer.
-func WithCustomEndpointManager(s endpointmanager.EndpointResourceSynchronizer) *endpointmanager.EndpointManager {
+func WithCustomEndpointManager(s endpointmanager.EndpointResourceSynchronizer) (*endpointmanager.EndpointManager, endpointmanager.EventSources) {
 	return endpointmanager.NewEndpointManager(s)
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/fx"
 
 	"github.com/cilium/cilium/pkg/addressing"
 	"github.com/cilium/cilium/pkg/completion"
@@ -21,6 +22,7 @@ import (
 	endpointid "github.com/cilium/cilium/pkg/endpoint/id"
 	"github.com/cilium/cilium/pkg/endpoint/regeneration"
 	"github.com/cilium/cilium/pkg/endpointmanager/idallocator"
+	"github.com/cilium/cilium/pkg/eventsource"
 	"github.com/cilium/cilium/pkg/identity/cache"
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/k8s/watchers/subscriber"
@@ -80,7 +82,29 @@ type EndpointManager struct {
 	// endpoints for removal on one run of the controller, then in the
 	// subsequent controller run will remove the endpoints.
 	markedEndpoints []uint16
+
+	publishEndpointCreated func(ev EndpointCreatedEvent)
+	publishEndpointDeleted func(ev EndpointDeletedEvent)
 }
+
+type EndpointCreatedEvent struct {
+	Endpoint *endpoint.Endpoint
+}
+type EndpointCreatedSource eventsource.EventSource[EndpointCreatedEvent]
+
+type EndpointDeletedEvent struct {
+	Endpoint *endpoint.Endpoint
+	Config endpoint.DeleteConfig
+}
+type EndpointDeletedSource eventsource.EventSource[EndpointDeletedEvent]
+
+type EventSources struct {
+	fx.Out
+
+	EndpointCreated EndpointCreatedSource
+	EndpointDeleted EndpointDeletedSource
+}
+
 
 // EndpointResourceSynchronizer is an interface which synchronizes CiliumEndpoint
 // resources with Kubernetes.
@@ -94,7 +118,7 @@ type EndpointResourceSynchronizer interface {
 type endpointDeleteFunc func(*endpoint.Endpoint, endpoint.DeleteConfig) []error
 
 // NewEndpointManager creates a new EndpointManager.
-func NewEndpointManager(epSynchronizer EndpointResourceSynchronizer) *EndpointManager {
+func NewEndpointManager(epSynchronizer EndpointResourceSynchronizer) (*EndpointManager, EventSources)  {
 	mgr := EndpointManager{
 		endpoints:                    make(map[uint16]*endpoint.Endpoint),
 		endpointsAux:                 make(map[string]*endpoint.Endpoint),
@@ -104,8 +128,13 @@ func NewEndpointManager(epSynchronizer EndpointResourceSynchronizer) *EndpointMa
 	}
 	mgr.deleteEndpoint = mgr.removeEndpoint
 
-	return &mgr
+	var srcs EventSources
+	mgr.publishEndpointCreated, srcs.EndpointCreated = eventsource.NewEventSource[EndpointCreatedEvent]()
+	mgr.publishEndpointDeleted, srcs.EndpointDeleted = eventsource.NewEventSource[EndpointDeletedEvent]()
+
+	return &mgr, srcs
 }
+
 
 // WithPeriodicEndpointGC runs a controller to periodically garbage collect
 // endpoints that match the specified EndpointCheckerFunc.
@@ -382,6 +411,8 @@ func (mgr *EndpointManager) removeEndpoint(ep *endpoint.Endpoint, conf endpoint.
 	}
 	mgr.mutex.RUnlock()
 
+	mgr.publishEndpointDeleted(EndpointDeletedEvent{ep, conf})
+
 	return result
 }
 
@@ -612,6 +643,8 @@ func (mgr *EndpointManager) AddEndpoint(owner regeneration.Owner, ep *endpoint.E
 		s.EndpointCreated(ep)
 	}
 	mgr.mutex.RUnlock()
+
+	mgr.publishEndpointCreated(EndpointCreatedEvent{ep})
 
 	return nil
 }

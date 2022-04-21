@@ -106,6 +106,8 @@ func runApp(cmd *cobra.Command) {
 		apiServerModule,
 		pinit.Module,
 
+		fx.Invoke(testEndpointManagerEvents),
+
 		// NOTE: uber/fx executes module's invokes first, and then processes the submodules
 		// and their invokes.
 		fx.Module(
@@ -185,7 +187,13 @@ func preInit() error {
 	return nil
 }
 
-func newEndpointManager(ctx context.Context) *endpointmanager.EndpointManager {
+func testEndpointManagerEvents(src endpointmanager.EndpointCreatedSource) {
+	src.Subscribe("test", func(ev endpointmanager.EndpointCreatedEvent) {
+		log.Infof("XXX Endpoint created: %v", ev)
+	})
+}
+
+func newEndpointManager(ctx context.Context) (*endpointmanager.EndpointManager, endpointmanager.EventSources) {
 	return WithDefaultEndpointManager(ctx, endpoint.CheckHealth)
 }
 
