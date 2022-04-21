@@ -19,20 +19,24 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/fx"
 
 	"github.com/cilium/cilium/api/v1/models"
 	. "github.com/cilium/cilium/api/v1/server/restapi/policy"
 	"github.com/cilium/cilium/pkg/api"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/fqdn"
 	"github.com/cilium/cilium/pkg/fqdn/dnsproxy"
 	"github.com/cilium/cilium/pkg/fqdn/matchpattern"
 	"github.com/cilium/cilium/pkg/identity"
 	secIDCache "github.com/cilium/cilium/pkg/identity/cache"
+	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/pinit"
 	policyApi "github.com/cilium/cilium/pkg/policy/api"
 	"github.com/cilium/cilium/pkg/proxy"
 	"github.com/cilium/cilium/pkg/proxy/accesslog"
@@ -146,11 +150,20 @@ func (d *Daemon) updateSelectorCacheFQDNs(ctx context.Context, selectors map[pol
 	return d.endpointManager.UpdatePolicyMaps(ctx, notifyWg)
 }
 
-// bootstrapFQDN initializes the toFQDNs related subsystems: dnsNameManager and the DNS proxy.
-// dnsNameManager will use the default resolver and, implicitly, the
-// default DNS cache. The proxy binds to all interfaces, and uses the
-// configured DNS proxy port (this may be 0 and so OS-assigned).
-func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, preCachePath string) (err error) {
+var nameManagerModule = fx.Module(
+	"dns-name-manager",
+
+	fx.Provide(
+		newFQDNConfig,
+		fqdn.NewNameManager,
+	),
+
+	fx.Invoke(
+		initNameManager,
+	),
+)
+
+func newFQDNConfig(d *Daemon) fqdn.Config {
 	cfg := fqdn.Config{
 		MinTTL:          option.Config.ToFQDNsMinTTL,
 		Cache:           fqdn.NewDNSCache(option.Config.ToFQDNsMinTTL),
@@ -160,11 +173,43 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 	// tracks which api.FQDNSelector are present in policy which apply to
 	// locally running endpoints.
 	cfg.Cache.DisableCleanupTrack()
+	return cfg
+}
 
-	rg := fqdn.NewNameManager(cfg)
-	d.policy.GetSelectorCache().SetLocalIdentityNotifier(rg)
-	d.dnsNameManager = rg
+func initNameManager(lc fx.Lifecycle, pi *pinit.ParInit, cfg fqdn.Config, nm *fqdn.NameManager, d *Daemon, restoredEndpoints *endpointRestoreState) {
+	d.policy.GetSelectorCache().SetLocalIdentityNotifier(nm)
 
+	pi.Register(pinit.C0, "start FQDN bootstrap", func() error {
+		bootstrapStats.fqdn.Start()
+		log.Info("Starting FQDN bootstrap")
+		err := bootstrapFQDN(cfg, nm, d, restoredEndpoints.possible, option.Config.ToFQDNsPreCache)
+		bootstrapStats.fqdn.End(true)
+		return err
+	})
+
+	pi.Register(pinit.C1, "complete FQDN bootstrap", func() error {
+		// XXX: is this too late?
+		// old comment:
+		// iptables rules can be updated only after d.init() intializes the iptables above.
+		err := d.updateDNSDatapathRules()
+		if err != nil {
+			return err
+		}
+
+		nm.CompleteBootstrap()
+		return nil
+	})
+
+}
+
+// bootstrapFQDN initializes the toFQDNs related subsystems: dnsNameManager and the DNS proxy.
+// dnsNameManager will use the default resolver and, implicitly, the
+// default DNS cache. The proxy binds to all interfaces, and uses the
+// configured DNS proxy port (this may be 0 and so OS-assigned).
+func bootstrapFQDN(
+	cfg fqdn.Config, nm *fqdn.NameManager, d *Daemon,
+	possibleEndpoints map[uint16]*endpoint.Endpoint, preCachePath string,
+) (err error) {
 	// Controller to cleanup TTL expired entries from the DNS policies.
 	// dns-garbage-collector-job runs the logic to remove stale or undesired
 	// entries from the DNS caches. This is done for all per-EP DNSCache
@@ -249,7 +294,7 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 			cfg.Cache.ReplaceFromCacheByNames(namesToClean, caches...)
 
 			metrics.FQDNGarbageCollectorCleanedTotal.Add(float64(len(namesToClean)))
-			_, err := d.dnsNameManager.ForceGenerateDNS(context.TODO(), namesToClean)
+			_, err := nm.ForceGenerateDNS(context.TODO(), namesToClean)
 			namesCount := len(namesToClean)
 			// Limit the amount of info level logging to some sane amount
 			if namesCount > 20 {
@@ -273,7 +318,7 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 			// We do not stop the agent here. It is safer to continue with best effort
 			// than to enter crash backoffs when this file is broken.
 		} else {
-			d.dnsNameManager.GetDNSCache().UpdateFromCache(precache, nil)
+			nm.GetDNSCache().UpdateFromCache(precache, nil)
 		}
 	}
 
@@ -282,7 +327,7 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 	// below mimics the logic found in the dns-garbage-collector controller.
 	// Note: This is TTL aware, and expired data will not be used (e.g. when
 	// restoring after a long delay).
-	globalCache := d.dnsNameManager.GetDNSCache()
+	globalCache := nm.GetDNSCache()
 	now := time.Now()
 	for _, possibleEP := range possibleEndpoints {
 		// Upgrades from old ciliums have this nil
@@ -325,9 +370,10 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 	if err != nil {
 		return err
 	}
+
 	proxy.DefaultDNSProxy, err = dnsproxy.StartDNSProxy("", port, option.Config.ToFQDNsEnableDNSCompression,
 		option.Config.DNSMaxIPsPerRestoredRule, d.lookupEPByIP, d.LookupSecIDByIP, d.lookupIPsBySecID,
-		d.notifyOnDNSMsg)
+		dnsMsgNotifier{nm, d.ipcache}.notifyOnDNSMsg)
 	if err == nil {
 		// Increase the ProxyPort reference count so that it will never get released.
 		err = d.l7Proxy.SetProxyPort(proxy.DNSProxyName, proxy.ProxyTypeDNS, proxy.DefaultDNSProxy.GetBindPort(), false)
@@ -382,6 +428,11 @@ func (d *Daemon) lookupIPsBySecID(nid identity.NumericIdentity) []string {
 	return d.ipcache.LookupByIdentity(nid)
 }
 
+type dnsMsgNotifier struct {
+	nm      *fqdn.NameManager
+	ipcache *ipcache.IPCache
+}
+
 // NotifyOnDNSMsg handles DNS data in the daemon by emitting monitor
 // events, proxy metrics and storing DNS data in the DNS cache. This may
 // result in rule generation.
@@ -394,7 +445,7 @@ func (d *Daemon) lookupIPsBySecID(nid identity.NumericIdentity) []string {
 // epIPPort and serverAddr should match the original request, where epAddr is
 // the source for egress (the only case current).
 // serverID is the destination server security identity at the time of the DNS event.
-func (d *Daemon) notifyOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, epIPPort string, serverID identity.NumericIdentity, serverAddr string, msg *dns.Msg, protocol string, allowed bool, stat *dnsproxy.ProxyRequestContext) error {
+func (d dnsMsgNotifier) notifyOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, epIPPort string, serverID identity.NumericIdentity, serverAddr string, msg *dns.Msg, protocol string, allowed bool, stat *dnsproxy.ProxyRequestContext) error {
 	var protoID = u8proto.ProtoIDs[strings.ToLower(protocol)]
 	var verdict accesslog.FlowVerdict
 	var reason string
@@ -516,7 +567,7 @@ func (d *Daemon) notifyOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, epI
 		defer updateCancel()
 		updateStart := time.Now()
 
-		wg, newlyAllocatedIdentities, err := d.dnsNameManager.UpdateGenerateDNS(updateCtx, lookupTime, map[string]*fqdn.DNSIPRecords{
+		wg, newlyAllocatedIdentities, err := d.nm.UpdateGenerateDNS(updateCtx, lookupTime, map[string]*fqdn.DNSIPRecords{
 			qname: {
 				IPs: responseIPs,
 				TTL: int(TTL),
@@ -587,16 +638,17 @@ func (h *getFqdnCache) Handle(params GetFqdnCacheParams) middleware.Responder {
 }
 
 type deleteFqdnCache struct {
-	daemon *Daemon
+	nameManager     *fqdn.NameManager
+	endpointManager *endpointmanager.EndpointManager
 }
 
-func NewDeleteFqdnCacheHandler(d *Daemon) DeleteFqdnCacheHandler {
-	return &deleteFqdnCache{daemon: d}
+func NewDeleteFqdnCacheHandler(nm *fqdn.NameManager, em *endpointmanager.EndpointManager) DeleteFqdnCacheHandler {
+	return &deleteFqdnCache{nm, em}
 }
 
 func (h *deleteFqdnCache) Handle(params DeleteFqdnCacheParams) middleware.Responder {
 	// endpoints we want to modify
-	endpoints := h.daemon.endpointManager.GetEndpoints()
+	endpoints := h.endpointManager.GetEndpoints()
 
 	matchPatternStr := ""
 	if params.Matchpattern != nil {
@@ -604,14 +656,14 @@ func (h *deleteFqdnCache) Handle(params DeleteFqdnCacheParams) middleware.Respon
 	}
 
 	namesToRegen, err := deleteDNSLookups(
-		h.daemon.dnsNameManager.GetDNSCache(),
+		h.nameManager.GetDNSCache(),
 		endpoints,
 		time.Now(),
 		matchPatternStr)
 	if err != nil {
 		return api.Error(DeleteFqdnCacheBadRequestCode, err)
 	}
-	h.daemon.dnsNameManager.ForceGenerateDNS(context.TODO(), namesToRegen)
+	h.nameManager.ForceGenerateDNS(context.TODO(), namesToRegen)
 	return NewDeleteFqdnCacheOK()
 }
 
@@ -659,15 +711,15 @@ func (h *getFqdnCacheID) Handle(params GetFqdnCacheIDParams) middleware.Responde
 }
 
 type getFqdnNamesHandler struct {
-	daemon *Daemon
+	nm *fqdn.NameManager
 }
 
-func NewGetFqdnNamesHandler(d *Daemon) GetFqdnNamesHandler {
-	return &getFqdnNamesHandler{daemon: d}
+func NewGetFqdnNamesHandler(nm *fqdn.NameManager) GetFqdnNamesHandler {
+	return &getFqdnNamesHandler{nm}
 }
 
 func (h *getFqdnNamesHandler) Handle(params GetFqdnNamesParams) middleware.Responder {
-	payload := h.daemon.dnsNameManager.GetModel()
+	payload := h.nm.GetModel()
 	return NewGetFqdnNamesOK().WithPayload(payload)
 }
 

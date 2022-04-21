@@ -39,12 +39,15 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/loader"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/defaults"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/flowdebug"
+	"github.com/cilium/cilium/pkg/fqdn"
 	"github.com/cilium/cilium/pkg/hubble/exporter/exporteroption"
 	"github.com/cilium/cilium/pkg/hubble/observer/observeroption"
 	"github.com/cilium/cilium/pkg/identity"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
+	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/kvstore"
@@ -1685,7 +1688,10 @@ func (d *Daemon) instantiateBGPControlPlane(ctx context.Context) error {
 type apiHandles struct {
 	fx.In
 
-	rec *recorder.Recorder
+	Rec             *recorder.Recorder
+	NameManager     *fqdn.NameManager
+	EndpointManager *endpointmanager.EndpointManager
+	IPCache         *ipcache.IPCache
 }
 
 func instantiateAPI(h apiHandles, d *Daemon) *restapi.CiliumAPIAPI {
@@ -1762,15 +1768,15 @@ func instantiateAPI(h apiHandles, d *Daemon) *restapi.CiliumAPIAPI {
 	restAPI.ServiceGetServiceHandler = NewGetServiceHandler(d.svc)
 
 	// /recorder/{id}/
-	restAPI.RecorderGetRecorderIDHandler = NewGetRecorderIDHandler(h.rec)
-	restAPI.RecorderDeleteRecorderIDHandler = NewDeleteRecorderIDHandler(h.rec)
-	restAPI.RecorderPutRecorderIDHandler = NewPutRecorderIDHandler(h.rec)
+	restAPI.RecorderGetRecorderIDHandler = NewGetRecorderIDHandler(h.Rec)
+	restAPI.RecorderDeleteRecorderIDHandler = NewDeleteRecorderIDHandler(h.Rec)
+	restAPI.RecorderPutRecorderIDHandler = NewPutRecorderIDHandler(h.Rec)
 
 	// /recorder/
-	restAPI.RecorderGetRecorderHandler = NewGetRecorderHandler(h.rec)
+	restAPI.RecorderGetRecorderHandler = NewGetRecorderHandler(h.Rec)
 
 	// /recorder/masks
-	restAPI.RecorderGetRecorderMasksHandler = NewGetRecorderMasksHandler(h.rec)
+	restAPI.RecorderGetRecorderMasksHandler = NewGetRecorderMasksHandler(h.Rec)
 
 	// /prefilter/
 	restAPI.PrefilterGetPrefilterHandler = NewGetPrefilterHandler(d)
@@ -1797,9 +1803,9 @@ func instantiateAPI(h apiHandles, d *Daemon) *restapi.CiliumAPIAPI {
 	if option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
 		// /fqdn/cache
 		restAPI.PolicyGetFqdnCacheHandler = NewGetFqdnCacheHandler(d)
-		restAPI.PolicyDeleteFqdnCacheHandler = NewDeleteFqdnCacheHandler(d)
+		restAPI.PolicyDeleteFqdnCacheHandler = NewDeleteFqdnCacheHandler(h.NameManager, h.EndpointManager)
 		restAPI.PolicyGetFqdnCacheIDHandler = NewGetFqdnCacheIDHandler(d)
-		restAPI.PolicyGetFqdnNamesHandler = NewGetFqdnNamesHandler(d)
+		restAPI.PolicyGetFqdnNamesHandler = NewGetFqdnNamesHandler(h.NameManager)
 	}
 
 	// /ip/

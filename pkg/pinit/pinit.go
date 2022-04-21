@@ -89,9 +89,17 @@ func (p *ParInit) Execute(ctx context.Context) error {
 		errs := make(chan error, len(fns))
 		defer close(errs)
 
+		log.Debugf("Executing parallel initialization at checkpoint level %d", cp)
+
 		for _, afn := range fns {
+			log.Debugf("Spawning %s", afn.String())
 			go func(afn annInitFunc) {
-				errs <- afn.fn()
+				err := afn.fn()
+				if err != nil {
+					err = fmt.Errorf("%s failed: %w", afn.String(), err)
+				}
+				log.WithError(err).Debugf("%s done", afn.String())
+				errs <- err
 			}(afn)
 		}
 
@@ -107,6 +115,8 @@ func (p *ParInit) Execute(ctx context.Context) error {
 			}
 		}
 	}
+
+	log.Debug("Parallel init done")
 	return nil
 }
 

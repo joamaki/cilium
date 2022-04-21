@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joamaki/genbus"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 
@@ -29,13 +30,14 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/pinit"
 	"github.com/cilium/cilium/pkg/recorder"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
 )
 
 const (
 	startTimeout = 5 * time.Minute
-	stopTimeout  = 5 * time.Minute
+	stopTimeout  = 30 * time.Second
 )
 
 var linuxdatapathModule = fx.Module(
@@ -61,12 +63,17 @@ var daemonModule = fx.Module(
 		func(d *Daemon) *ipcache.IPCache {
 			return d.ipcache
 		},
+		func(d *Daemon) datapath.BaseProgramOwner {
+			return d
+		},
 	),
 
 	fx.Invoke(
 		preInit,
 		validatePostInit,
 		endpointManagerInit,
+		registerEndpointRestoration,
+		registerK8sSynced,
 		registerDaemonStart,
 	),
 )
@@ -88,14 +95,26 @@ func runApp(cmd *cobra.Command) {
 		fx.Supply(cmd),
 		fx.Invoke(initEnv),
 
+		fx.Provide(genbus.NewBuilder),
+
 		linuxdatapathModule,
 		fx.Provide(newEndpointManager),
 		daemonModule,
+		nameManagerModule,
 		recorder.Module,
 		optional(option.Config.EnableIPMasqAgent, ipmasqAgentModule),
 		apiServerModule,
+		pinit.Module,
 
-		fx.Invoke(writeDotGraph),
+		// NOTE: uber/fx executes module's invokes first, and then processes the submodules
+		// and their invokes.
+		fx.Module(
+			"post init",
+			fx.Invoke(
+				writeDotGraph,
+				buildEventBus,
+			),
+		),
 	)
 
 	if app.Err() != nil {
@@ -138,6 +157,16 @@ func optional(flag bool, opts ...fx.Option) fx.Option {
 	return fx.Invoke()
 }
 
+func buildEventBus(b *genbus.Builder) (*genbus.EventBus, error) {
+	// TODO: add a genbus.Build(b *Builder) (*EventBus, error)
+	// TODO: debug log the event graph
+	bus, err := b.Build()
+	if err == nil {
+		bus.PrintGraph()
+	}
+	return bus, err
+}
+
 func preInit() error {
 	log.Info("Initializing daemon")
 	option.Config.RunMonitorAgent = true
@@ -160,12 +189,40 @@ func newEndpointManager(ctx context.Context) *endpointmanager.EndpointManager {
 	return WithDefaultEndpointManager(ctx, endpoint.CheckHealth)
 }
 
-func registerDaemonStart(lc fx.Lifecycle, d *Daemon, restoredEndpoints *endpointRestoreState, rec *recorder.Recorder) {
+func appendOnStart(lc fx.Lifecycle, f func() error) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			return onDaemonStart(d, restoredEndpoints, rec)
+			return f()
 		},
 	})
+}
+
+func registerDaemonStart(lc fx.Lifecycle, pi *pinit.ParInit, d *Daemon, restoredEndpoints *endpointRestoreState, rec *recorder.Recorder) {
+	pi.Register(pinit.C1, "Daemon startup", func() error {
+		return onDaemonStart(d, restoredEndpoints, rec)
+	})
+}
+
+func registerEndpointRestoration(lc fx.Lifecycle, pi *pinit.ParInit, d *Daemon, restoredEndpoints *endpointRestoreState) error {
+	pi.Register(pinit.C0, "Endpoint restore", func() error {
+		<-d.initRestore(restoredEndpoints)
+		return nil
+	})
+	return nil
+}
+
+func registerK8sSynced(lc fx.Lifecycle, pi *pinit.ParInit, d *Daemon) error {
+	pi.Register(pinit.C0, "Wait for K8s cache sync", func() error {
+		bootstrapStats.k8sInit.Start()
+		if k8s.IsEnabled() {
+			// Wait only for certain caches, but not all!
+			// (Check Daemon.InitK8sSubsystem() for more info)
+			<-d.k8sCachesSynced
+		}
+		bootstrapStats.k8sInit.End(true)
+		return nil
+	})
+	return nil
 }
 
 func onDaemonStart(d *Daemon, restoredEndpoints *endpointRestoreState, rec *recorder.Recorder) error {
@@ -176,24 +233,10 @@ func onDaemonStart(d *Daemon, restoredEndpoints *endpointRestoreState, rec *reco
 		restoredEndpoints.restored, d.endpointManager)
 	bootstrapStats.enableConntrack.End(true)
 
-	bootstrapStats.k8sInit.Start()
-	if k8s.IsEnabled() {
-		// Wait only for certain caches, but not all!
-		// (Check Daemon.InitK8sSubsystem() for more info)
-		<-d.k8sCachesSynced
-	}
-	bootstrapStats.k8sInit.End(true)
-
-	restoreComplete := d.initRestore(restoredEndpoints)
-
 	restoreWgAgent(d.datapath.WireguardAgent())
 
 	if !option.Config.DryMode {
 		go func() {
-			if restoreComplete != nil {
-				<-restoreComplete
-			}
-			d.dnsNameManager.CompleteBootstrap()
 			runMapSweeper(d.endpointManager)
 			restoreCIDRs(d)
 		}()
@@ -204,7 +247,8 @@ func onDaemonStart(d *Daemon, restoredEndpoints *endpointRestoreState, rec *reco
 
 	err := d.SendNotification(monitorAPI.StartMessage(time.Now()))
 	if err != nil {
-		log.WithError(err).Warn("Failed to send agent start monitor message")
+		return err
+		//log.WithError(err).Warn("Failed to send agent start monitor message")
 	}
 
 	startNeighborRefresh(d.datapath, d)
@@ -212,7 +256,8 @@ func onDaemonStart(d *Daemon, restoredEndpoints *endpointRestoreState, rec *reco
 	if option.Config.BGPControlPlaneEnabled() {
 		log.Info("Initializing BGP Control Plane")
 		if err := d.instantiateBGPControlPlane(d.ctx); err != nil {
-			log.WithError(err).Fatal("Error returned when instantiating BGP control plane")
+			return err
+			//log.WithError(err).Fatal("Error returned when instantiating BGP control plane")
 		}
 	}
 

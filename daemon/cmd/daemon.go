@@ -41,7 +41,6 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint/regeneration"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/eventqueue"
-	"github.com/cilium/cilium/pkg/fqdn"
 	"github.com/cilium/cilium/pkg/hubble/observer"
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/identity/identitymanager"
@@ -115,10 +114,6 @@ type Daemon struct {
 	ciliumHealth *health.CiliumHealth
 
 	deviceManager *DeviceManager
-
-	// dnsNameManager tracks which api.FQDNSelector are present in policy which
-	// apply to locally running endpoints.
-	dnsNameManager *fqdn.NameManager
 
 	// Used to synchronize generation of daemon's BPF programs and endpoint BPF
 	// programs.
@@ -740,14 +735,6 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 	}
 	bootstrapStats.restore.End(true)
 
-	bootstrapStats.fqdn.Start()
-	err = d.bootstrapFQDN(restoredEndpoints.possible, option.Config.ToFQDNsPreCache)
-	if err != nil {
-		bootstrapStats.fqdn.EndError(err)
-		return nil, restoredEndpoints, err
-	}
-	bootstrapStats.fqdn.End(true)
-
 	if k8s.IsEnabled() {
 		bootstrapStats.k8sInit.Start()
 		// Errors are handled inside WaitForCRDsToRegister. It will fatal on a
@@ -1045,12 +1032,6 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 	bootstrapStats.bpfBase.EndError(err)
 	if err != nil {
 		return nil, restoredEndpoints, fmt.Errorf("error while initializing daemon: %w", err)
-	}
-
-	// iptables rules can be updated only after d.init() intializes the iptables above.
-	err = d.updateDNSDatapathRules()
-	if err != nil {
-		return nil, restoredEndpoints, err
 	}
 
 	// We can only attach the monitor agent once cilium_event has been set up.
