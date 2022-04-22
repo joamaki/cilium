@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joamaki/genbus"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 
@@ -95,8 +94,6 @@ func runApp(cmd *cobra.Command) {
 		fx.Supply(cmd),
 		fx.Invoke(initEnv),
 
-		fx.Provide(genbus.NewBuilder),
-
 		linuxdatapathModule,
 		fx.Provide(newEndpointManager),
 		daemonModule,
@@ -109,12 +106,12 @@ func runApp(cmd *cobra.Command) {
 		fx.Invoke(testEndpointManagerEvents),
 
 		// NOTE: uber/fx executes module's invokes first, and then processes the submodules
-		// and their invokes.
+		// and their invokes, which is why we'll have to wrap up the invokes here into a module
+		// if we want them to run after the invokes of the modules we've listed above.
 		fx.Module(
 			"post init",
 			fx.Invoke(
 				writeDotGraph,
-				buildEventBus,
 			),
 		),
 	)
@@ -157,16 +154,6 @@ func optional(flag bool, opts ...fx.Option) fx.Option {
 		return fx.Options(opts...)
 	}
 	return fx.Invoke()
-}
-
-func buildEventBus(b *genbus.Builder) (*genbus.EventBus, error) {
-	// TODO: add a genbus.Build(b *Builder) (*EventBus, error)
-	// TODO: debug log the event graph
-	bus, err := b.Build()
-	if err == nil {
-		bus.PrintGraph()
-	}
-	return bus, err
 }
 
 func preInit() error {
