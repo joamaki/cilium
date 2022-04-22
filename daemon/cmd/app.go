@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/cilium/cilium/api/v1/server"
 	"github.com/cilium/cilium/pkg/aws/eni"
@@ -102,6 +103,11 @@ func runApp(cmd *cobra.Command) {
 		optional(option.Config.EnableIPMasqAgent, ipmasqAgentModule),
 		apiServerModule,
 		pinit.Module,
+
+
+		// Module for EventSource[AddEvent[*v1.Node]] etc.
+		k8s.NewGenWatcherModule[*v1.Node]("nodes", nodeTypes.GetName()),
+		fx.Invoke(dumpNodeEvents),
 
 		fx.Invoke(testEndpointManagerEvents),
 
@@ -520,4 +526,11 @@ func writeDotGraph(dot fx.DotGraph) {
 	if option.Config.DotGraphOutputFile != "" {
 		os.WriteFile(option.Config.DotGraphOutputFile, []byte(dot), 0644)
 	}
+}
+
+
+func dumpNodeEvents(sources k8s.Sources[*v1.Node]) {
+	sources.Added.Subscribe("log added", func(added k8s.AddEvent[*v1.Node]) {
+		log.Infof("NODE ADDED: %v", added.NewObject)
+	})
 }
