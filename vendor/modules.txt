@@ -521,9 +521,6 @@ github.com/jeremywohl/flatten
 # github.com/jmespath/go-jmespath v0.4.0
 ## explicit; go 1.14
 github.com/jmespath/go-jmespath
-# github.com/joamaki/genbus v0.0.0-20220408123444-e9436b1139ed
-## explicit; go 1.18
-github.com/joamaki/genbus
 # github.com/josharian/intern v1.0.0
 ## explicit; go 1.5
 github.com/josharian/intern
@@ -849,10 +846,12 @@ go.uber.org/dig/internal/graph
 ## explicit; go 1.17
 go.uber.org/fx
 go.uber.org/fx/fxevent
+go.uber.org/fx/fxtest
 go.uber.org/fx/internal/fxclock
 go.uber.org/fx/internal/fxlog
 go.uber.org/fx/internal/fxreflect
 go.uber.org/fx/internal/lifecycle
+go.uber.org/fx/internal/testutil
 # go.uber.org/goleak v1.1.12
 ## explicit; go 1.13
 go.uber.org/goleak
