@@ -23,34 +23,37 @@ type K8sInformerFactory = informers.SharedInformerFactory
 // SharedInformerModule builds and starts the informer factories for kubernetes and cilium.
 var SharedInformerModule = fx.Module(
 	"shared-informers",
-	fx.Provide(
-		func(lc fx.Lifecycle, k8sClient *K8sClient, ciliumClient *K8sCiliumClient) (K8sInformerFactory, CiliumInformerFactory) {
-			k8sFactory := informers.NewSharedInformerFactory(k8sClient, 0)
-			ciliumFactory := externalversions.NewSharedInformerFactory(ciliumClient, 0)
-
-			stopCh := make(chan struct{})
-			lc.Append(fx.Hook{
-				  OnStart: func(context.Context) error {
-					  k8sFactory.Start(stopCh)
-					  ciliumFactory.Start(stopCh)
-					  return nil
-				  },
-				  OnStop: func(context.Context) error {
-					  close(stopCh)
-					  return nil
-				  },
-			})
-			return k8sFactory, ciliumFactory
-		},
-	),
+	fx.Provide(newSharedInformers),
 )
 
+func newSharedInformers(lc fx.Lifecycle, k8sClient *K8sClient, ciliumClient *K8sCiliumClient) (K8sInformerFactory, CiliumInformerFactory) {
+	k8sFactory := informers.NewSharedInformerFactory(k8sClient, 0)
+	ciliumFactory := externalversions.NewSharedInformerFactory(ciliumClient, 0)
+
+	stopCh := make(chan struct{})
+	lc.Append(fx.Hook{
+		  OnStart: func(context.Context) error {
+			  k8sFactory.Start(stopCh)
+			  ciliumFactory.Start(stopCh)
+			  return nil
+		  },
+		  OnStop: func(context.Context) error {
+			  close(stopCh)
+			  return nil
+		  },
+	})
+	return k8sFactory, ciliumFactory
+}
 
 type K8sKey struct {
 	// Namespace is optional and not applicable to all resource types.
 	Namespace string
 	Name string
 }
+
+// TODO: this API should be exposed to other modules in a way that doesn't pull in the full
+// k8s dependencies. See commit ce5b0329fe3d0c0ec80a3c14dd344f3cc053e7d1 that moved a lot of
+// business logic into pkg/k8s for this reason.
 
 // K8sResource provides access to a K8s resource.
 type K8sResource[T k8sRuntime.Object] interface {
