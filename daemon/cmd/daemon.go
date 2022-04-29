@@ -1238,6 +1238,10 @@ func (d *Daemon) ReloadOnDeviceChange(devices []string) {
 		return
 	}
 	wg.Wait()
+
+	// Reload Bandwidth Manager.
+	bandwidth.SetupDevices(devices)
+
 }
 
 // Close shuts down a daemon
