@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/probes"
+	"github.com/cilium/cilium/pkg/datapath/linux/route"
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -43,10 +44,11 @@ var (
 
 type DeviceManager struct {
 	lock.Mutex
-	devices map[string]struct{}
-	filter  deviceFilter
-	handle  *netlink.Handle
-	netns   netns.NsHandle
+	defaultRouteDevice string
+	devices            map[string]struct{}
+	filter             deviceFilter
+	handle             *netlink.Handle
+	netns              netns.NsHandle
 }
 
 func NewDeviceManager() (*DeviceManager, error) {
@@ -163,19 +165,36 @@ func (dm *DeviceManager) Detect() ([]string, error) {
 		}
 	}
 
+	dm.updateDefaultRouteDevice()
 	deviceList := dm.getDeviceList()
 	option.Config.SetDevices(deviceList)
 	log.WithField(logfields.Devices, deviceList).Info("Detected devices")
 	return deviceList, nil
 }
 
-func (dm *DeviceManager) getDeviceList() []string {
-	devs := make([]string, 0, len(dm.devices))
-	for dev := range dm.devices {
-		devs = append(devs, dev)
+func (dm *DeviceManager) updateDefaultRouteDevice() {
+	defaultLink, err := route.NodeDeviceWithDefaultRoute(option.Config.EnableIPv4, option.Config.EnableIPv6)
+	if err == nil {
+		dm.defaultRouteDevice = defaultLink.Attrs().Name
 	}
-	sort.Strings(devs)
-	return devs
+}
+
+func (dm *DeviceManager) getDeviceList() []string {
+	deviceList := make([]string, 0, len(dm.devices))
+	for dev := range dm.devices {
+		deviceList = append(deviceList, dev)
+	}
+	// Sort the devices by name, but keep the default route device first.
+	sort.Slice(deviceList, func(i, j int) bool {
+		if deviceList[i] == dm.defaultRouteDevice {
+			return true
+		} else if deviceList[j] == dm.defaultRouteDevice {
+			return false
+		} else {
+			return deviceList[i] < deviceList[j]
+		}
+	})
+	return deviceList
 }
 
 // Exclude devices that have one or more of these flags set.
@@ -371,6 +390,7 @@ func (dm *DeviceManager) Listen(ctx context.Context) (chan []string, error) {
 				if update.Type == unix.RTM_NEWROUTE {
 					dm.Lock()
 					devicesChanged = dm.updateDevicesFromRoutes(l3DevOK, []netlink.Route{update.Route})
+					dm.updateDefaultRouteDevice()
 					devices = dm.getDeviceList()
 					dm.Unlock()
 				}
@@ -383,6 +403,7 @@ func (dm *DeviceManager) Listen(ctx context.Context) (chan []string, error) {
 						delete(dm.devices, name)
 						devicesChanged = true
 					}
+					dm.updateDefaultRouteDevice()
 					devices = dm.getDeviceList()
 					dm.Unlock()
 				}

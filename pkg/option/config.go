@@ -2512,9 +2512,6 @@ func (c *DaemonConfig) GetDefaultEncryptionInterface() string {
 	if len(c.EncryptInterface) > 0 {
 		return c.EncryptInterface[0]
 	} else if devs := c.GetDevices(); len(devs) > 0 {
-		// FIXME: or use the device with default route? (NodeDeviceWithDefaultRoute)
-		// ... could also make device manager sort them so that default route device
-		// comes first.
 		return devs[0]
 	}
 	return ""
