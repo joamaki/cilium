@@ -369,7 +369,7 @@ func (l *Loader) replaceNetworkDatapath(ctx context.Context, interfaces []string
 	if err := compileNetwork(ctx); err != nil {
 		log.WithError(err).Fatal("failed to compile encryption programs")
 	}
-	for _, iface := range option.Config.EncryptInterface {
+	for _, iface := range interfaces {
 		finalize, err := replaceDatapath(ctx, iface, networkObj, symbolFromNetwork, dirIngress, false, "")
 		if err != nil {
 			log.WithField(logfields.Interface, iface).WithError(err).Fatal("Load encryption network failed")

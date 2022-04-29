@@ -178,13 +178,18 @@ func (l *Loader) reinitializeIPSec(ctx context.Context) error {
 		return nil
 	}
 
-	interfaces := option.Config.EncryptInterface
-	if option.Config.IPAM == ipamOption.IPAMENI {
-		// IPAMENI mode supports multiple network facing interfaces that
-		// will all need Encrypt logic applied in order to decrypt any
-		// received encrypted packets. This logic will attach to all
-		// !veth devices. Only use if user has not configured interfaces.
-		if len(interfaces) == 0 {
+	var interfaces []string
+	if len(option.Config.EncryptInterface) > 0 {
+		// Use the manually specified interfaces
+		interfaces = option.Config.EncryptInterface
+	} else {
+		if !option.Config.EnableRuntimeDeviceDetection && option.Config.IPAM == ipamOption.IPAMENI {
+			// IPAMENI mode supports multiple network facing interfaces that
+			// will all need Encrypt logic applied in order to decrypt any
+			// received encrypted packets. This logic will attach to all
+			// !veth devices. Only use if user has not configured interfaces.
+			// This workaround can be dropped when EnableRuntimeDeviceDetection is enabled
+			// by default.
 			if links, err := netlink.LinkList(); err == nil {
 				for _, link := range links {
 					isVirtual, err := ethtool.IsVirtualDriver(link.Attrs().Name)
@@ -193,7 +198,9 @@ func (l *Loader) reinitializeIPSec(ctx context.Context) error {
 					}
 				}
 			}
-			option.Config.EncryptInterface = interfaces
+		} else {
+			// No specific encryption interfaces specified, use the normal datapath devices.
+			interfaces = option.Config.GetDevices()
 		}
 	}
 

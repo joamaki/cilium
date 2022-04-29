@@ -491,11 +491,9 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 	if option.Config.EnableIPSec {
 		a := byteorder.NetIPv4ToHost32(node.GetIPv4())
 		cDefinesMap["IPV4_ENCRYPT_IFACE"] = fmt.Sprintf("%d", a)
-		if iface := option.Config.EncryptInterface; len(iface) != 0 {
-			link, err := netlink.LinkByName(iface[0])
-			if err == nil {
-				cDefinesMap["ENCRYPT_IFACE"] = fmt.Sprintf("%d", link.Attrs().Index)
-			}
+		link, err := netlink.LinkByName(option.Config.GetDefaultEncryptionInterface())
+		if err == nil {
+			cDefinesMap["ENCRYPT_IFACE"] = fmt.Sprintf("%d", link.Attrs().Index)
 		}
 		// If we are using EKS or AKS IPAM modes, we should use IP_POOLS
 		// datapath as the pod subnets will be auto-discovered later at

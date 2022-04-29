@@ -1475,19 +1475,6 @@ func initEnv(cmd *cobra.Command) {
 		}
 	}
 
-	// IPAMENI IPSec is configured from Reinitialize() to pull in devices
-	// that may be added or removed at runtime.
-	if option.Config.EnableIPSec &&
-		!option.Config.TunnelingEnabled() &&
-		len(option.Config.EncryptInterface) == 0 &&
-		option.Config.IPAM != ipamOption.IPAMENI {
-		link, err := linuxdatapath.NodeDeviceNameWithDefaultRoute()
-		if err != nil {
-			log.WithError(err).Fatal("Ipsec default interface lookup failed, consider \"encrypt-interface\" to manually configure interface.")
-		}
-		option.Config.EncryptInterface = append(option.Config.EncryptInterface, link)
-	}
-
 	if option.Config.TunnelingEnabled() && option.Config.EnableAutoDirectRouting {
 		log.Fatalf("%s cannot be used with tunneling. Packets must be routed through the tunnel device.", option.EnableAutoDirectRoutingName)
 	}

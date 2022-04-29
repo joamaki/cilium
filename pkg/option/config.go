@@ -2503,6 +2503,23 @@ func (c *DaemonConfig) DirectRoutingDeviceRequired() bool {
 	return (c.EnableNodePort || BPFHostRoutingEnabled) && !c.TunnelingEnabled()
 }
 
+// getDefaultEncryptionInterface() is needed to find the interface used when
+// populating neighbor table and doing arpRequest. For most configurations
+// there is only a single interface so choosing [0] works by choosing the only
+// interface. However EKS, uses multiple interfaces, but fortunately for us
+// in EKS any interface would work so pick the [0] index here as well.
+func (c *DaemonConfig) GetDefaultEncryptionInterface() string {
+	if len(c.EncryptInterface) > 0 {
+		return c.EncryptInterface[0]
+	} else if devs := c.GetDevices(); len(devs) > 0 {
+		// FIXME: or use the device with default route? (NodeDeviceWithDefaultRoute)
+		// ... could also make device manager sort them so that default route device
+		// comes first.
+		return devs[0]
+	}
+	return ""
+}
+
 // EnableK8sLeasesFallbackDiscovery enables using direct API probing as a fallback to check
 // for the support of Leases when discovering API groups is not possible.
 func (c *DaemonConfig) EnableK8sLeasesFallbackDiscovery() {
