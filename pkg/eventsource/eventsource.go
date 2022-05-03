@@ -15,6 +15,7 @@ type Event interface {
 
 type EventSource[E Event] interface {
 	Subscribe(name string, handler func(event E)) UnsubscribeFunc
+	SubscribeChan(name string, bufferSize int) (<-chan E, UnsubscribeFunc)
 }
 
 type eventSource[E Event] struct {
@@ -26,16 +27,7 @@ type PublishFunc[E Event] func(ev E)
 
 func NewEventSource[E Event]() (PublishFunc[E], EventSource[E]) {
 	src := &eventSource[E]{}
-
-	publish := func(ev E) {
-		src.RLock()
-		for _, sub := range src.subs {
-			sub.handler(ev)
-		}
-		src.RUnlock()
-	}
-
-	return publish, src
+	return src.publish, src
 }
 
 type subscriber[E Event] struct {
@@ -45,6 +37,14 @@ type subscriber[E Event] struct {
 }
 
 type UnsubscribeFunc func()
+
+func (src *eventSource[E]) publish(event E) {
+	src.RLock()
+	for _, sub := range src.subs {
+		sub.handler(event)
+	}
+	src.RUnlock()
+}
 
 func (src *eventSource[E]) Subscribe(name string, handler func(event E)) UnsubscribeFunc {
 	src.Lock()
@@ -69,11 +69,47 @@ func (src *eventSource[E]) Subscribe(name string, handler func(event E)) Unsubsc
 
 		for i := range src.subs {
 			if src.subs[i] == sub {
-				deleteUnordered(src.subs, i)
+				src.subs = deleteUnordered(src.subs, i)
 				break
 			}
 		}
 	}
+}
+
+func (src *eventSource[E]) SubscribeChan(name string, bufferSize int) (<-chan E, UnsubscribeFunc) {
+	src.Lock()
+	defer src.Unlock()
+
+	from := "<unknown>"
+	if pc, _, lineNum, ok := runtime.Caller(1); ok {
+		if fn := runtime.FuncForPC(pc); fn != nil {
+			from = fmt.Sprintf("%s#%d", fn.Name(), lineNum)
+		}
+	}
+
+	events := make(chan E, bufferSize)
+
+	sub := &subscriber[E]{
+		name:     name,
+		from:     from,
+		handler:  func(event E) { events <- event },
+	}
+	src.subs = append(src.subs, sub)
+
+	unsub := func() {
+		src.Lock()
+		defer src.Unlock()
+
+		for i := range src.subs {
+			if src.subs[i] == sub {
+				src.subs = deleteUnordered(src.subs, i)
+				break
+			}
+		}
+		close(events)
+	}
+
+	return events, unsub
 }
 
 func deleteUnordered[T any](slice []T, index int) []T {
