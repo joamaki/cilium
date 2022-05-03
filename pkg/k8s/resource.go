@@ -110,6 +110,20 @@ func Nodes(factory informers.SharedInformerFactory, _ CiliumInformerFactory) inf
 	}
 }
 
+func Services(factory informers.SharedInformerFactory, _ CiliumInformerFactory) informerAndLister[*v1.Service] {
+	services := factory.Core().V1().Services()
+	lister := services.Lister()
+	return informerAndLister[*v1.Service]{
+		services.Informer(),
+		genericLister[*v1.Service]{
+			List: lister.List,
+			Get: func(key K8sKey) (*v1.Service, error) {
+				return lister.Services(key.Namespace).Get(key.Name)
+			},
+		},
+	}
+}
+
 func CiliumNode(_ K8sInformerFactory, factory CiliumInformerFactory) informerAndLister[*cilium_v2.CiliumNode] {
 	informer := factory.Cilium().V2().CiliumNodes().Informer()
 	lister := factory.Cilium().V2().CiliumNodes().Lister()
