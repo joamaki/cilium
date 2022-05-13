@@ -16,6 +16,7 @@ func runApp() {
 		fx.Supply(fx.Annotate(ctx, fx.As(new(context.Context)))),
 		cleanerModule,
 		fx.Provide(daemonModule),
+		gopsModule,
 		fx.Invoke(func(*Daemon) {}),
 
 		// The first thing to do when stopping is to cancel the
