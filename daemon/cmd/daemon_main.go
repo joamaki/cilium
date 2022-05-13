@@ -40,7 +40,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/maps"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/defaults"
-	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/flowdebug"
 	"github.com/cilium/cilium/pkg/hubble/exporter/exporteroption"
@@ -1602,7 +1602,16 @@ func (d *Daemon) initKVStore() {
 	}
 }
 
-func daemonModule(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner) (*Daemon, error) {
+type daemonModuleParams struct {
+	fx.In
+
+	Ctx        context.Context
+	Cleaner    *daemonCleanup
+	Shutdowner fx.Shutdowner
+	EpMgr      endpointmanager.EndpointManager
+}
+
+func daemonModule(p daemonModuleParams) (*Daemon, error) {
 	datapathConfig := linuxdatapath.DatapathConfiguration{
 		HostDevice: defaults.HostDevice,
 		ProcFs:     option.Config.ProcFs,
@@ -1637,7 +1646,7 @@ func daemonModule(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shu
 			return nil, fmt.Errorf("failed to initialize wireguard: %w", err)
 		}
 
-		cleaner.cleanupFuncs.Add(func() {
+		p.Cleaner.cleanupFuncs.Add(func() {
 			_ = wgAgent.Close()
 		})
 	} else {
@@ -1653,8 +1662,7 @@ func daemonModule(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shu
 		bootstrapStats.k8sInit.End(true)
 	}
 
-	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
-		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
+	d, restoredEndpoints, err := NewDaemon(p.Ctx, p.Cleaner, p.EpMgr,
 		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent))
 	if err != nil {
 		return nil, fmt.Errorf("daemon creation failed: %w", err)
@@ -1740,7 +1748,7 @@ func daemonModule(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shu
 		}()
 		d.endpointManager.Subscribe(d)
 		// Add the endpoint manager unsubscribe as the last step in cleanup
-		defer cleaner.cleanupFuncs.Add(func() { d.endpointManager.Unsubscribe(d) })
+		defer p.Cleaner.cleanupFuncs.Add(func() { d.endpointManager.Unsubscribe(d) })
 	}
 
 	// Migrating the ENI datapath must happen before the API is served to
@@ -1770,17 +1778,19 @@ func daemonModule(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shu
 
 	bootstrapStats.healthCheck.Start()
 	if option.Config.EnableHealthChecking {
-		d.initHealth(cleaner)
+		d.initHealth(p.Cleaner)
 	}
 	bootstrapStats.healthCheck.End(true)
 
-	d.startStatusCollector(cleaner)
+	d.startStatusCollector(p.Cleaner)
 
 	go func(errs <-chan error) {
-		err := <-errs
-		if err != nil {
-			log.WithError(err).Error("Cannot start metrics server")
-			shutdowner.Shutdown()
+		if errs != nil {
+			err := <-errs
+			if err != nil {
+				log.WithError(err).Error("Cannot start metrics server")
+				p.Shutdowner.Shutdown()
+			}
 		}
 	}(initMetrics())
 

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/fx"
+	"go.uber.org/fx/fxtest"
 	. "gopkg.in/check.v1"
 
 	"github.com/cilium/cilium/pkg/addressing"
@@ -33,17 +35,25 @@ import (
 // Hook up gocheck into the "go test" runner.
 func Test(t *testing.T) { TestingT(t) }
 
-func (mgr *EndpointManager) waitEndpointRemoved(ep *endpoint.Endpoint, conf endpoint.DeleteConfig) []error {
-	mgr.unexpose(ep)
-	ep.Stop()
-	return nil
-}
-
-// WaitEndpointRemoved waits until all operations associated with Remove of
+// waitEndpointRemoved waits until all operations associated with Remove of
 // the endpoint have been completed.
 // Note: only used for unit tests, to avoid ep.Delete()
-func (mgr *EndpointManager) WaitEndpointRemoved(ep *endpoint.Endpoint) {
-	mgr.waitEndpointRemoved(ep, endpoint.DeleteConfig{})
+func waitEndpointRemoved(mgr *endpointManager, ep *endpoint.Endpoint) {
+	mgr.unexpose(ep)
+	ep.Stop()
+}
+
+func startEndpointManager(c *C, gcParams *PeriodicEndpointGCParams) (*endpointManager, func()) {
+	var mgr EndpointManager
+	app := fxtest.New(c,
+		fx.Supply(
+			fx.Annotate(&dummyEpSyncher{}, fx.As(new(EndpointResourceSynchronizer))),
+			gcParams,
+		),
+		Module,
+		fx.Populate(&mgr),
+	).RequireStart()
+	return mgr.(*endpointManager), app.RequireStop
 }
 
 type EndpointManagerSuite struct {
@@ -119,7 +129,10 @@ func (epSync *dummyEpSyncher) DeleteK8sCiliumEndpointSync(e *endpoint.Endpoint) 
 
 func (s *EndpointManagerSuite) TestLookup(c *C) {
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	type args struct {
 		id string
 	}
@@ -156,7 +169,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 			name: "endpoint by cilium local ID",
 			preTestRun: func() {
 				ep.ID = 1234
-				mgr.expose(ep)
+				mgr.RestoreEndpoint(ep)
 			},
 			setupArgs: func() args {
 				return args{
@@ -171,7 +184,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
 				ep.ID = 0
 			},
@@ -180,7 +193,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 			name: "endpoint by cilium global ID",
 			preTestRun: func() {
 				ep.ID = 1234
-				mgr.expose(ep)
+				mgr.RestoreEndpoint(ep)
 			},
 			setupArgs: func() args {
 				return args{
@@ -194,7 +207,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
 				ep.ID = 0
 			},
@@ -203,7 +216,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 			name: "endpoint by container ID",
 			preTestRun: func() {
 				ep.SetContainerID("1234")
-				mgr.expose(ep)
+				mgr.RestoreEndpoint(ep)
 			},
 			setupArgs: func() args {
 				return args{
@@ -218,7 +231,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
 				ep.SetContainerID("")
 			},
@@ -227,7 +240,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 			name: "endpoint by docker endpoint ID",
 			preTestRun: func() {
 				ep.SetDockerEndpointID("1234")
-				mgr.expose(ep)
+				mgr.RestoreEndpoint(ep)
 			},
 			setupArgs: func() args {
 				return args{
@@ -242,7 +255,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
 				ep.SetDockerEndpointID("")
 			},
@@ -251,7 +264,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 			name: "endpoint by container name",
 			preTestRun: func() {
 				ep.SetContainerName("foo")
-				mgr.expose(ep)
+				mgr.RestoreEndpoint(ep)
 			},
 			setupArgs: func() args {
 				return args{
@@ -266,7 +279,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
 				ep.SetContainerName("")
 			},
@@ -276,7 +289,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 			preTestRun: func() {
 				ep.SetK8sNamespace("default")
 				ep.SetK8sPodName("foo")
-				mgr.expose(ep)
+				mgr.RestoreEndpoint(ep)
 			},
 			setupArgs: func() args {
 				return args{
@@ -291,7 +304,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
 				ep.SetK8sPodName("")
 			},
@@ -302,7 +315,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				ipv4, err := addressing.NewCiliumIPv4("127.0.0.1")
 				ep.IPv4 = ipv4
 				c.Assert(err, IsNil)
-				mgr.expose(ep)
+				mgr.RestoreEndpoint(ep)
 			},
 			setupArgs: func() args {
 				return args{
@@ -317,7 +330,7 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 10, endpoint.StateReady)
 				ep.IPv4 = nil
 			},
@@ -371,7 +384,9 @@ func (s *EndpointManagerSuite) TestLookup(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestLookupCiliumID(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 2, endpoint.StateReady)
 	type args struct {
 		id uint16
@@ -405,7 +420,7 @@ func (s *EndpointManagerSuite) TestLookupCiliumID(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep.ID = 0
 			},
 		},
@@ -440,7 +455,9 @@ func (s *EndpointManagerSuite) TestLookupCiliumID(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestLookupContainerID(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 3, endpoint.StateReady)
 	type args struct {
 		id string
@@ -474,7 +491,7 @@ func (s *EndpointManagerSuite) TestLookupContainerID(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep.SetContainerID("")
 			},
 		},
@@ -507,7 +524,9 @@ func (s *EndpointManagerSuite) TestLookupContainerID(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestLookupIPv4(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 4, endpoint.StateReady)
 	type args struct {
 		ip string
@@ -543,7 +562,7 @@ func (s *EndpointManagerSuite) TestLookupIPv4(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep.IPv4 = nil
 			},
 		},
@@ -576,7 +595,9 @@ func (s *EndpointManagerSuite) TestLookupIPv4(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestLookupPodName(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 5, endpoint.StateReady)
 	type args struct {
 		podName string
@@ -611,7 +632,7 @@ func (s *EndpointManagerSuite) TestLookupPodName(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep.IPv4 = nil
 			},
 		},
@@ -644,7 +665,9 @@ func (s *EndpointManagerSuite) TestLookupPodName(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestUpdateReferences(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 6, endpoint.StateReady)
 	type args struct {
 		ep *endpoint.Endpoint
@@ -687,7 +710,7 @@ func (s *EndpointManagerSuite) TestUpdateReferences(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep.SetK8sNamespace("")
 				ep.SetK8sPodName("")
 				ep.SetContainerID("")
@@ -722,7 +745,9 @@ func (s *EndpointManagerSuite) TestUpdateReferences(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestRemove(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 7, endpoint.StateReady)
 	type args struct {
 	}
@@ -762,7 +787,9 @@ func (s *EndpointManagerSuite) TestRemove(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestHasGlobalCT(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 1, endpoint.StateReady)
 	type args struct {
 		ep *endpoint.Endpoint
@@ -790,7 +817,7 @@ func (s *EndpointManagerSuite) TestHasGlobalCT(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 1, endpoint.StateReady)
 				ep.ID = 0
 				ep.Options = nil
@@ -810,7 +837,7 @@ func (s *EndpointManagerSuite) TestHasGlobalCT(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 1, endpoint.StateReady)
 				ep.ID = 0
 				ep.Options = nil
@@ -827,7 +854,9 @@ func (s *EndpointManagerSuite) TestHasGlobalCT(c *C) {
 }
 
 func (s *EndpointManagerSuite) TestWaitForEndpointsAtPolicyRev(c *C) {
-	mgr := NewEndpointManager(&dummyEpSyncher{})
+	mgr, stop := startEndpointManager(c, nil)
+	defer stop()
+
 	ep := endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 1, endpoint.StateReady)
 	type args struct {
 		ctx    context.Context
@@ -865,7 +894,7 @@ func (s *EndpointManagerSuite) TestWaitForEndpointsAtPolicyRev(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 1, endpoint.StateReady)
 			},
 		},
@@ -891,7 +920,7 @@ func (s *EndpointManagerSuite) TestWaitForEndpointsAtPolicyRev(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 1, endpoint.StateReady)
 			},
 		},
@@ -917,7 +946,7 @@ func (s *EndpointManagerSuite) TestWaitForEndpointsAtPolicyRev(c *C) {
 				}
 			},
 			postTestRun: func() {
-				mgr.WaitEndpointRemoved(ep)
+				waitEndpointRemoved(mgr, ep)
 				ep = endpoint.NewEndpointWithState(s, s, ipcache.NewIPCache(nil), &endpoint.FakeEndpointProxy{}, testidentity.NewMockIdentityAllocator(nil), 1, endpoint.StateReady)
 			},
 		},

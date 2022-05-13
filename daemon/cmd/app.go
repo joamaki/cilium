@@ -11,6 +11,9 @@ import (
 
 	"github.com/cilium/cilium/api/v1/server"
 	"github.com/cilium/cilium/api/v1/server/restapi"
+	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/endpointmanager"
+	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/option"
 )
 
@@ -19,13 +22,28 @@ func runApp() {
 	app := fx.New(
 		fx.WithLogger(newAppLogger),
 		fx.Supply(fx.Annotate(ctx, fx.As(new(context.Context)))),
-		cleanerModule,
 
-		fx.Provide(daemonModule),
 		gopsModule,
-		server.Module,
+		cleanerModule,
+		fx.Provide(daemonModule),
+
 		fx.Provide(provideAPI),
 		fx.Invoke(configureAPI),
+		server.Module,
+
+		fx.Supply(
+			fx.Annotate(
+				&watchers.EndpointSynchronizer{},
+				fx.As(new(endpointmanager.EndpointResourceSynchronizer))),
+		),
+		optional(
+			option.Config.EndpointGCInterval > 0,
+			fx.Supply(&endpointmanager.PeriodicEndpointGCParams{
+				Interval:    option.Config.EndpointGCInterval,
+				CheckHealth: endpoint.CheckHealth,
+			}),
+		),
+		endpointmanager.Module,
 
 		// The first thing to do when stopping is to cancel the
 		// daemon-wide context.
@@ -63,4 +81,11 @@ func configureAPI(srv *server.Server) {
 	srv.GracefulTimeout = time.Second
 	srv.ConfigureAPI()
 	bootstrapStats.initAPI.End(true)
+}
+
+func optional(flag bool, opts ...fx.Option) fx.Option {
+	if flag {
+		return fx.Options(opts...)
+	}
+	return fx.Invoke()
 }
