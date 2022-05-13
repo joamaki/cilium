@@ -15,7 +15,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -23,7 +22,8 @@ import (
 
 	"github.com/go-openapi/swag"
 	"golang.org/x/net/netutil"
-	"golang.org/x/sys/unix"
+
+	"go.uber.org/fx"
 
 	"github.com/cilium/cilium/api/v1/server/restapi"
 	"github.com/cilium/cilium/pkg/api"
@@ -43,13 +43,23 @@ func init() {
 	}
 }
 
-// NewServer creates a new api cilium API server but does not configure it
-func NewServer(api *restapi.CiliumAPIAPI) *Server {
+var Module = fx.Module(
+	"cilium API server",
+	fx.Provide(newServer),
+)
+
+// newServer creates a new api cilium API server but does not configure it
+func newServer(lc fx.Lifecycle, api *restapi.CiliumAPIAPI) *Server {
 	s := new(Server)
 
 	s.shutdown = make(chan struct{})
 	s.api = api
-	s.interrupt = make(chan os.Signal, 1)
+
+	lc.Append(fx.Hook{
+		OnStart: s.startHook,
+		OnStop:  s.stopHook,
+	})
+
 	return s
 }
 
@@ -101,8 +111,22 @@ type Server struct {
 	hasListeners bool
 	shutdown     chan struct{}
 	shuttingDown int32
-	interrupted  bool
-	interrupt    chan os.Signal
+
+	shutdowner fx.Shutdowner
+}
+
+func (s *Server) startHook(context.Context) error {
+	go func() {
+		if err := s.Serve(); err != nil {
+			s.Logf("Serve() encountered an error: %s", err)
+			s.shutdowner.Shutdown()
+		}
+	}()
+	return nil
+}
+
+func (s *Server) stopHook(context.Context) error {
+	return s.Shutdown()
 }
 
 // Logf logs message either via defined user logger or via system one if no user logger is defined.
@@ -169,9 +193,6 @@ func (s *Server) Serve() (err error) {
 	}
 
 	wg := new(sync.WaitGroup)
-	once := new(sync.Once)
-	signalNotify(s.interrupt)
-	go handleInterrupt(once, s)
 
 	servers := []*http.Server{}
 
@@ -499,24 +520,4 @@ func (s *Server) TLSListener() (net.Listener, error) {
 		}
 	}
 	return s.httpsServerL, nil
-}
-
-func handleInterrupt(once *sync.Once, s *Server) {
-	once.Do(func() {
-		for range s.interrupt {
-			if s.interrupted {
-				s.Logf("Server already shutting down")
-				continue
-			}
-			s.interrupted = true
-			s.Logf("Shutting down... ")
-			if err := s.Shutdown(); err != nil {
-				s.Logf("HTTP server Shutdown: %v", err)
-			}
-		}
-	})
-}
-
-func signalNotify(interrupt chan<- os.Signal) {
-	signal.Notify(interrupt, unix.SIGINT, unix.SIGTERM)
 }

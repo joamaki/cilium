@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/loads"
-	gops "github.com/google/gops/agent"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -109,17 +108,6 @@ var (
 				genMarkdown(cmd, cmdRefDir)
 				os.Exit(0)
 			}
-
-			// Open socket for using gops to get stacktraces of the agent.
-			addr := fmt.Sprintf("127.0.0.1:%d", viper.GetInt(option.GopsPort))
-			addrField := logrus.Fields{"address": addr}
-			if err := gops.Listen(gops.Options{
-				Addr:                   addr,
-				ReuseSocketAddrAndPort: true,
-			}); err != nil {
-				log.WithError(err).WithFields(addrField).Fatal("Cannot start gops server")
-			}
-			log.WithFields(addrField).Info("Started gops server")
 
 			bootstrapStats.earlyInit.Start()
 			initEnv(cmd)
@@ -1803,17 +1791,6 @@ func daemonModule(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shu
 		}
 	}
 
-	bootstrapStats.initAPI.Start()
-	srv := server.NewServer(d.instantiateAPI())
-	srv.EnabledListeners = []string{"unix"}
-	srv.SocketPath = option.Config.SocketPath
-	srv.ReadTimeout = apiTimeout
-	srv.WriteTimeout = apiTimeout
-	cleaner.cleanupFuncs.Add(func() { srv.Shutdown() })
-
-	srv.ConfigureAPI()
-	bootstrapStats.initAPI.End(true)
-
 	err = d.SendNotification(monitorAPI.StartMessage(time.Now()))
 	if err != nil {
 		log.WithError(err).Warn("Failed to send agent start monitor message")
@@ -1863,14 +1840,6 @@ func daemonModule(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shu
 			log.Infof("Wrote CNI configuration file to %s", option.Config.WriteCNIConfigurationWhenReady)
 		}
 	}
-
-	go func() {
-		err := srv.Serve()
-		if err != nil {
-			log.WithError(err).Error("Error returned from non-returning Serve() call")
-			shutdowner.Shutdown()
-		}
-	}()
 
 	bootstrapStats.overall.End(true)
 	bootstrapStats.updateMetrics()

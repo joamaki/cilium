@@ -279,8 +279,7 @@ func configureTLS(tlsConfig *tls.Config) {
 }
 
 var (
-	// ServerCtx and ServerCancel
-	ServerCtx, serverCancel = context.WithCancel(context.Background())
+	serverCtx, serverCancel = context.WithCancel(context.Background())
 )
 
 // As soon as server is initialized but not run yet, this function will be called.
@@ -289,7 +288,7 @@ var (
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *http.Server, scheme, addr string) {
 	s.BaseContext = func(_ net.Listener) context.Context {
-		return ServerCtx
+		return serverCtx
 	}
 }
 
