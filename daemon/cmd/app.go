@@ -26,6 +26,8 @@ func runApp() {
 
 		gopsModule,
 		cleanerModule,
+		healthzModule,
+
 		fx.Provide(daemonModule),
 		fx.Provide(daemonLift),
 
