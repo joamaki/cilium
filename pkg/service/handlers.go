@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package cmd
+package service
 
 import (
 	"fmt"
@@ -13,14 +13,13 @@ import (
 	"github.com/cilium/cilium/pkg/api"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	"github.com/cilium/cilium/pkg/service"
 )
 
 type putServiceID struct {
-	svc *service.Service
+	svc *Service
 }
 
-func NewPutServiceIDHandler(svc *service.Service) PutServiceIDHandler {
+func NewPutServiceIDHandler(svc *Service) PutServiceIDHandler {
 	return &putServiceID{svc: svc}
 }
 
@@ -118,10 +117,10 @@ func (h *putServiceID) Handle(params PutServiceIDParams) middleware.Responder {
 }
 
 type deleteServiceID struct {
-	svc *service.Service
+	svc *Service
 }
 
-func NewDeleteServiceIDHandler(svc *service.Service) DeleteServiceIDHandler {
+func NewDeleteServiceIDHandler(svc *Service) DeleteServiceIDHandler {
 	return &deleteServiceID{svc: svc}
 }
 
@@ -142,10 +141,10 @@ func (h *deleteServiceID) Handle(params DeleteServiceIDParams) middleware.Respon
 }
 
 type getServiceID struct {
-	svc *service.Service
+	svc *Service
 }
 
-func NewGetServiceIDHandler(svc *service.Service) GetServiceIDHandler {
+func NewGetServiceIDHandler(svc *Service) GetServiceIDHandler {
 	return &getServiceID{svc: svc}
 }
 
@@ -159,10 +158,10 @@ func (h *getServiceID) Handle(params GetServiceIDParams) middleware.Responder {
 }
 
 type getService struct {
-	svc *service.Service
+	svc *Service
 }
 
-func NewGetServiceHandler(svc *service.Service) GetServiceHandler {
+func NewGetServiceHandler(svc *Service) GetServiceHandler {
 	return &getService{svc: svc}
 }
 
@@ -172,7 +171,7 @@ func (h *getService) Handle(params GetServiceParams) middleware.Responder {
 	return NewGetServiceOK().WithPayload(list)
 }
 
-func getServiceList(svc *service.Service) []*models.Service {
+func getServiceList(svc *Service) []*models.Service {
 	svcs := svc.GetDeepCopyServices()
 	list := make([]*models.Service, 0, len(svcs))
 	for _, v := range svcs {

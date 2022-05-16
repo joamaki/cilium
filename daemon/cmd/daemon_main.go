@@ -14,15 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-openapi/loads"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/fx"
 	"google.golang.org/grpc"
 
-	"github.com/cilium/cilium/api/v1/server"
-	"github.com/cilium/cilium/api/v1/server/restapi"
 	"github.com/cilium/cilium/pkg/aws/eni"
 	bgpv1 "github.com/cilium/cilium/pkg/bgpv1/agent"
 	"github.com/cilium/cilium/pkg/bgpv1/gobgp"
@@ -1876,126 +1873,6 @@ func (d *Daemon) instantiateBGPControlPlane(ctx context.Context) error {
 	}
 	d.bgpControlPlaneController = ctrl
 	return nil
-}
-
-func (d *Daemon) instantiateAPI() *restapi.CiliumAPIAPI {
-	swaggerSpec, err := loads.Analyzed(server.SwaggerJSON, "")
-	if err != nil {
-		log.WithError(err).Fatal("Cannot load swagger spec")
-	}
-
-	log.Info("Initializing Cilium API")
-	restAPI := restapi.NewCiliumAPIAPI(swaggerSpec)
-
-	restAPI.Logger = log.Infof
-
-	// /healthz/
-	restAPI.DaemonGetHealthzHandler = NewGetHealthzHandler(d)
-
-	// /cluster/nodes
-	restAPI.DaemonGetClusterNodesHandler = NewGetClusterNodesHandler(d)
-
-	// /config/
-	restAPI.DaemonGetConfigHandler = NewGetConfigHandler(d)
-	restAPI.DaemonPatchConfigHandler = NewPatchConfigHandler(d)
-
-	if option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
-		// /endpoint/
-		restAPI.EndpointGetEndpointHandler = NewGetEndpointHandler(d)
-
-		// /endpoint/{id}
-		restAPI.EndpointGetEndpointIDHandler = NewGetEndpointIDHandler(d)
-		restAPI.EndpointPutEndpointIDHandler = NewPutEndpointIDHandler(d)
-		restAPI.EndpointPatchEndpointIDHandler = NewPatchEndpointIDHandler(d)
-		restAPI.EndpointDeleteEndpointIDHandler = NewDeleteEndpointIDHandler(d)
-
-		// /endpoint/{id}config/
-		restAPI.EndpointGetEndpointIDConfigHandler = NewGetEndpointIDConfigHandler(d)
-		restAPI.EndpointPatchEndpointIDConfigHandler = NewPatchEndpointIDConfigHandler(d)
-
-		// /endpoint/{id}/labels/
-		restAPI.EndpointGetEndpointIDLabelsHandler = NewGetEndpointIDLabelsHandler(d)
-		restAPI.EndpointPatchEndpointIDLabelsHandler = NewPatchEndpointIDLabelsHandler(d)
-
-		// /endpoint/{id}/log/
-		restAPI.EndpointGetEndpointIDLogHandler = NewGetEndpointIDLogHandler(d)
-
-		// /endpoint/{id}/healthz
-		restAPI.EndpointGetEndpointIDHealthzHandler = NewGetEndpointIDHealthzHandler(d)
-
-		// /identity/
-		restAPI.PolicyGetIdentityHandler = newGetIdentityHandler(d)
-		restAPI.PolicyGetIdentityIDHandler = newGetIdentityIDHandler(d.identityAllocator)
-
-		// /identity/endpoints
-		restAPI.PolicyGetIdentityEndpointsHandler = newGetIdentityEndpointsIDHandler(d)
-
-		// /policy/
-		restAPI.PolicyGetPolicyHandler = newGetPolicyHandler(d.policy)
-		restAPI.PolicyPutPolicyHandler = newPutPolicyHandler(d)
-		restAPI.PolicyDeletePolicyHandler = newDeletePolicyHandler(d)
-		restAPI.PolicyGetPolicySelectorsHandler = newGetPolicyCacheHandler(d)
-
-		// /policy/resolve/
-		restAPI.PolicyGetPolicyResolveHandler = NewGetPolicyResolveHandler(d)
-
-		// /lrp/
-		restAPI.ServiceGetLrpHandler = NewGetLrpHandler(d.redirectPolicyManager)
-	}
-
-	// /service/{id}/
-	restAPI.ServiceGetServiceIDHandler = NewGetServiceIDHandler(d.svc)
-	restAPI.ServiceDeleteServiceIDHandler = NewDeleteServiceIDHandler(d.svc)
-	restAPI.ServicePutServiceIDHandler = NewPutServiceIDHandler(d.svc)
-
-	// /service/
-	restAPI.ServiceGetServiceHandler = NewGetServiceHandler(d.svc)
-
-	// /recorder/{id}/
-	restAPI.RecorderGetRecorderIDHandler = NewGetRecorderIDHandler(d.rec)
-	restAPI.RecorderDeleteRecorderIDHandler = NewDeleteRecorderIDHandler(d.rec)
-	restAPI.RecorderPutRecorderIDHandler = NewPutRecorderIDHandler(d.rec)
-
-	// /recorder/
-	restAPI.RecorderGetRecorderHandler = NewGetRecorderHandler(d.rec)
-
-	// /recorder/masks
-	restAPI.RecorderGetRecorderMasksHandler = NewGetRecorderMasksHandler(d.rec)
-
-	// /prefilter/
-	restAPI.PrefilterGetPrefilterHandler = NewGetPrefilterHandler(d)
-	restAPI.PrefilterDeletePrefilterHandler = NewDeletePrefilterHandler(d)
-	restAPI.PrefilterPatchPrefilterHandler = NewPatchPrefilterHandler(d)
-
-	if option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
-		// /ipam/{ip}/
-		restAPI.IpamPostIpamHandler = NewPostIPAMHandler(d)
-		restAPI.IpamPostIpamIPHandler = NewPostIPAMIPHandler(d)
-		restAPI.IpamDeleteIpamIPHandler = NewDeleteIPAMIPHandler(d)
-	}
-
-	// /debuginfo
-	restAPI.DaemonGetDebuginfoHandler = NewGetDebugInfoHandler(d)
-
-	// /map
-	restAPI.DaemonGetMapHandler = NewGetMapHandler(d)
-	restAPI.DaemonGetMapNameHandler = NewGetMapNameHandler(d)
-
-	// metrics
-	restAPI.MetricsGetMetricsHandler = NewGetMetricsHandler(d)
-
-	if option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
-		// /fqdn/cache
-		restAPI.PolicyGetFqdnCacheHandler = NewGetFqdnCacheHandler(d)
-		restAPI.PolicyDeleteFqdnCacheHandler = NewDeleteFqdnCacheHandler(d)
-		restAPI.PolicyGetFqdnCacheIDHandler = NewGetFqdnCacheIDHandler(d)
-		restAPI.PolicyGetFqdnNamesHandler = NewGetFqdnNamesHandler(d)
-	}
-
-	// /ip/
-	restAPI.PolicyGetIPHandler = NewGetIPHandler(d)
-
-	return restAPI
 }
 
 func initSockmapOption() {

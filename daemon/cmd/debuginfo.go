@@ -15,6 +15,7 @@ import (
 	"github.com/cilium/cilium/api/v1/server/restapi/endpoint"
 	"github.com/cilium/cilium/pkg/debug"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/version"
 )
 
@@ -65,6 +66,15 @@ func (h *getDebugInfo) Handle(params restapi.GetDebuginfoParams) middleware.Resp
 	}
 
 	return restapi.NewGetDebuginfoOK().WithPayload(&dr)
+}
+
+func getServiceList(svc *service.Service) []*models.Service {
+	svcs := svc.GetDeepCopyServices()
+	list := make([]*models.Service, 0, len(svcs))
+	for _, v := range svcs {
+		list = append(list, v.GetModel())
+	}
+	return list
 }
 
 func memoryMap(pid int) string {
