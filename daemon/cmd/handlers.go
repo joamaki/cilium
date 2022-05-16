@@ -306,8 +306,6 @@ type UnconvertedAPIHandlers struct {
 	PolicyGetFqdnCacheIDHandler policy.GetFqdnCacheIDHandler
 	// PolicyGetFqdnNamesHandler sets the operation handler for the get fqdn names operation
 	PolicyGetFqdnNamesHandler policy.GetFqdnNamesHandler
-	// PolicyGetIPHandler sets the operation handler for the get IP operation
-	PolicyGetIPHandler policy.GetIPHandler
 	// PolicyGetIdentityHandler sets the operation handler for the get identity operation
 	PolicyGetIdentityHandler policy.GetIdentityHandler
 	// PolicyGetIdentityEndpointsHandler sets the operation handler for the get identity endpoints operation
@@ -447,9 +445,6 @@ func apiHandlerBridge(d *Daemon) UnconvertedAPIHandlers {
 		h.PolicyGetFqdnCacheIDHandler = NewGetFqdnCacheIDHandler(d)
 		h.PolicyGetFqdnNamesHandler = NewGetFqdnNamesHandler(d)
 	}
-
-	// /ip/
-	h.PolicyGetIPHandler = NewGetIPHandler(d)
 
 	return h
 }

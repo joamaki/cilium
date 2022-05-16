@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/egressgateway"
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
+	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/option"
@@ -45,6 +46,7 @@ func runApp() {
 		service.Module,
 		optional(option.Config.EnableIPv4EgressGateway, egressgateway.Module),
 		iptables.Module,
+		ipcache.Module,
 
 		fx.Supply(status.DefaultConfig),
 		status.Module,
@@ -101,6 +103,7 @@ type LiftedFromDaemon struct {
 	fx.Out
 
 	Service *service.Service // For pkg/service/handlers.go.
+	IPCache *ipcache.IPCache
 }
 
 // daemonLift lifts objects from the 'Daemon' struct into the fx graph
@@ -108,6 +111,7 @@ type LiftedFromDaemon struct {
 func daemonLift(d *Daemon) LiftedFromDaemon {
 	return LiftedFromDaemon{
 		Service: d.svc,
+		IPCache: d.ipcache,
 	}
 }
 
