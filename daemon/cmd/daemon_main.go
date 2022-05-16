@@ -1605,10 +1605,11 @@ func (d *Daemon) initKVStore() {
 type daemonModuleParams struct {
 	fx.In
 
-	Ctx        context.Context
-	Cleaner    *daemonCleanup
-	Shutdowner fx.Shutdowner
-	EpMgr      endpointmanager.EndpointManager
+	Ctx             context.Context
+	Cleaner         *daemonCleanup
+	Shutdowner      fx.Shutdowner
+	EpMgr           endpointmanager.EndpointManager
+	IptablesManager *iptables.IptablesManager
 }
 
 func daemonModule(p daemonModuleParams) (*Daemon, error) {
@@ -1624,9 +1625,6 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 	if err := enableIPForwarding(); err != nil {
 		return nil, fmt.Errorf("enabling IP forwarding via sysctl failed: %w", err)
 	}
-
-	iptablesManager := &iptables.IptablesManager{}
-	iptablesManager.Init()
 
 	var wgAgent *wireguard.Agent
 	if option.Config.EnableWireguard {
@@ -1663,7 +1661,7 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 	}
 
 	d, restoredEndpoints, err := NewDaemon(p.Ctx, p.Cleaner, p.EpMgr,
-		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent))
+		linuxdatapath.NewDatapath(datapathConfig, p.IptablesManager, wgAgent))
 	if err != nil {
 		return nil, fmt.Errorf("daemon creation failed: %w", err)
 	}

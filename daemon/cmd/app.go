@@ -11,6 +11,7 @@ import (
 
 	"github.com/cilium/cilium/api/v1/server"
 	"github.com/cilium/cilium/api/v1/server/restapi"
+	"github.com/cilium/cilium/pkg/datapath/iptables"
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
@@ -30,6 +31,8 @@ func runApp() {
 		fx.Provide(provideAPI),
 		fx.Invoke(configureAPI),
 		server.Module,
+
+		iptables.Module,
 
 		fx.Supply(
 			fx.Annotate(
