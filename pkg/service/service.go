@@ -13,7 +13,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.uber.org/multierr"
 
-	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/counter"
 	datapathOpt "github.com/cilium/cilium/pkg/datapath/option"
@@ -22,7 +21,6 @@ import (
 	lb "github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/metrics"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -342,134 +340,6 @@ func (s *Service) GetLastUpdatedTs() time.Time {
 
 func (s *Service) GetCurrentTs() time.Time {
 	return time.Now()
-}
-
-func (s *Service) populateBackendMapV2FromV1(ipv4, ipv6 bool) error {
-	const (
-		v4 = "ipv4"
-		v6 = "ipv6"
-	)
-
-	var (
-		err   error
-		v1Map *bpf.Map
-	)
-
-	enabled := map[string]bool{v4: ipv4, v6: ipv6}
-
-	for v, e := range enabled {
-		if !e {
-			continue
-		}
-
-		copyBackendEntries := func(key bpf.MapKey, value bpf.MapValue) {
-			var (
-				v2Map        *bpf.Map
-				v2BackendKey lbmap.BackendKey
-			)
-
-			if v == v4 {
-				backendKey := key.(lbmap.BackendKey)
-				v2Map = lbmap.Backend4MapV2
-				v2BackendKey = lbmap.NewBackend4KeyV2(backendKey.GetID())
-			} else {
-				backendKey := key.(lbmap.BackendKey)
-				v2Map = lbmap.Backend6MapV2
-				v2BackendKey = lbmap.NewBackend6KeyV2(backendKey.GetID())
-			}
-
-			err := v2Map.Update(v2BackendKey, value.DeepCopyMapValue())
-			if err != nil {
-				log.WithError(err).WithField(logfields.BPFMapName, v2Map.Name()).Warn("Error updating map")
-			}
-		}
-
-		if v == v4 {
-			v1Map = lbmap.Backend4Map
-		} else {
-			v1Map = lbmap.Backend6Map
-		}
-
-		err = v1Map.DumpWithCallback(copyBackendEntries)
-		if err != nil {
-			return fmt.Errorf("Unable to populate %s: %w", v1Map.Name(), err)
-		}
-
-		// V1 backend map will be removed from bpffs at this point,
-		// the map will be actually removed once the last program
-		// referencing it has been removed.
-		err = v1Map.Close()
-		if err != nil {
-			log.WithError(err).WithField(logfields.BPFMapName, v1Map.Name()).Warn("Error closing map")
-		}
-
-		err = v1Map.Unpin()
-		if err != nil {
-			log.WithError(err).WithField(logfields.BPFMapName, v1Map.Name()).Warn("Error unpinning map")
-		}
-
-	}
-	return nil
-}
-
-// InitMaps opens or creates BPF maps used by services.
-//
-// If restore is set to false, entries of the maps are removed.
-func (s *Service) InitMaps(ipv6, ipv4, sockMaps, restore bool) error {
-	s.Lock()
-	defer s.Unlock()
-
-	var (
-		v1BackendMapExistsV4 bool
-		v1BackendMapExistsV6 bool
-	)
-
-	toOpen := []*bpf.Map{}
-	toDelete := []*bpf.Map{}
-	if ipv6 {
-		toOpen = append(toOpen, lbmap.Service6MapV2, lbmap.Backend6MapV2, lbmap.RevNat6Map)
-		if !restore {
-			toDelete = append(toDelete, lbmap.Service6MapV2, lbmap.Backend6MapV2, lbmap.RevNat6Map)
-		}
-		if sockMaps {
-			if err := lbmap.CreateSockRevNat6Map(); err != nil {
-				return err
-			}
-		}
-		v1BackendMapExistsV6 = lbmap.Backend6Map.Open() == nil
-	}
-	if ipv4 {
-		toOpen = append(toOpen, lbmap.Service4MapV2, lbmap.Backend4MapV2, lbmap.RevNat4Map)
-		if !restore {
-			toDelete = append(toDelete, lbmap.Service4MapV2, lbmap.Backend4MapV2, lbmap.RevNat4Map)
-		}
-		if sockMaps {
-			if err := lbmap.CreateSockRevNat4Map(); err != nil {
-				return err
-			}
-		}
-		v1BackendMapExistsV4 = lbmap.Backend4Map.Open() == nil
-	}
-
-	for _, m := range toOpen {
-		if _, err := m.OpenOrCreate(); err != nil {
-			return err
-		}
-	}
-	for _, m := range toDelete {
-		if err := m.DeleteAll(); err != nil {
-			return err
-		}
-	}
-
-	if v1BackendMapExistsV4 || v1BackendMapExistsV6 {
-		log.Info("Backend map v1 exists. Migrating entries to backend map v2.")
-		if err := s.populateBackendMapV2FromV1(v1BackendMapExistsV4, v1BackendMapExistsV6); err != nil {
-			log.WithError(err).Warn("Error populating V2 map from V1 map, might interrupt existing connections during upgrade")
-		}
-	}
-
-	return nil
 }
 
 // UpsertService inserts or updates the given service.

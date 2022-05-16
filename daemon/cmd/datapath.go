@@ -20,7 +20,6 @@ import (
 	datapathIpcache "github.com/cilium/cilium/pkg/datapath/ipcache"
 	"github.com/cilium/cilium/pkg/datapath/linux/ipsec"
 	"github.com/cilium/cilium/pkg/datapath/linux/linux_defaults"
-	"github.com/cilium/cilium/pkg/datapath/linux/probes"
 	"github.com/cilium/cilium/pkg/datapath/linux/route"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/endpointmanager"
@@ -34,7 +33,6 @@ import (
 	"github.com/cilium/cilium/pkg/maps/fragmap"
 	ipcachemap "github.com/cilium/cilium/pkg/maps/ipcache"
 	"github.com/cilium/cilium/pkg/maps/ipmasq"
-	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/maps/lxcmap"
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
 	"github.com/cilium/cilium/pkg/maps/nat"
@@ -352,15 +350,6 @@ func (d *Daemon) initMaps() error {
 		}
 	}
 
-	pm := probes.NewProbeManager()
-	supportedMapTypes := pm.GetMapTypes()
-	createSockRevNatMaps := option.Config.EnableSocketLB &&
-		option.Config.EnableHostServicesUDP && supportedMapTypes.HaveLruHashMapType
-	if err := d.svc.InitMaps(option.Config.EnableIPv6, option.Config.EnableIPv4,
-		createSockRevNatMaps, option.Config.RestoreState); err != nil {
-		log.WithError(err).Fatal("Unable to initialize service maps")
-	}
-
 	possibleCPUs := common.GetNumPossibleCPUs(log)
 
 	if err := eventsmap.InitMap(possibleCPUs); err != nil {
@@ -449,41 +438,6 @@ func (d *Daemon) initMaps() error {
 		// If we are not restoring state, all endpoints can be
 		// deleted. Entries will be re-populated.
 		lxcmap.LXCMap.DeleteAll()
-	}
-
-	if option.Config.EnableSessionAffinity {
-		if _, err := lbmap.AffinityMatchMap.OpenOrCreate(); err != nil {
-			return err
-		}
-		if option.Config.EnableIPv4 {
-			if _, err := lbmap.Affinity4Map.OpenOrCreate(); err != nil {
-				return err
-			}
-		}
-		if option.Config.EnableIPv6 {
-			if _, err := lbmap.Affinity6Map.OpenOrCreate(); err != nil {
-				return err
-			}
-		}
-	}
-
-	if option.Config.EnableSVCSourceRangeCheck {
-		if option.Config.EnableIPv4 {
-			if _, err := lbmap.SourceRange4Map.OpenOrCreate(); err != nil {
-				return err
-			}
-		}
-		if option.Config.EnableIPv6 {
-			if _, err := lbmap.SourceRange6Map.OpenOrCreate(); err != nil {
-				return err
-			}
-		}
-	}
-
-	if option.Config.NodePortAlg == option.NodePortAlgMaglev {
-		if err := lbmap.InitMaglevMaps(option.Config.EnableIPv4, option.Config.EnableIPv6, uint32(option.Config.MaglevTableSize)); err != nil {
-			return fmt.Errorf("initializing maglev maps: %w", err)
-		}
 	}
 
 	return nil

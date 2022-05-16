@@ -15,6 +15,7 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
+	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/service"
 )
@@ -24,6 +25,7 @@ func runApp() {
 	app := fx.New(
 		fx.WithLogger(newAppLogger),
 		fx.Supply(fx.Annotate(ctx, fx.As(new(context.Context)))),
+		fx.Supply(option.Config),
 
 		gopsModule,
 		cleanerModule,
@@ -38,6 +40,7 @@ func runApp() {
 		fx.Invoke(configureAPI),
 
 		server.Module,
+		lbmap.Module,
 		service.Module,
 		optional(option.Config.EnableIPv4EgressGateway, egressgateway.Module),
 

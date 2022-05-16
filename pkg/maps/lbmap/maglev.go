@@ -28,8 +28,8 @@ var (
 	maglevTableSize     uint32
 )
 
-// InitMaglevMaps inits the ipv4 and/or ipv6 maglev outer and inner maps.
-func InitMaglevMaps(ipv4, ipv6 bool, tableSize uint32) error {
+// initMaglevMaps inits the ipv4 and/or ipv6 maglev outer and inner maps.
+func initMaglevMaps(ipv4, ipv6 bool, tableSize uint32) error {
 	// Always try to delete old maps with the wrong M parameter, otherwise
 	// we may end up in a case where there are 2 maps (one for IPv4 and
 	// one for IPv6), one of which is not used, with 2 different table

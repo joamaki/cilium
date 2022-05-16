@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sync/semaphore"
@@ -37,6 +36,7 @@ import (
 	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/loader"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
+	datapathTypes "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/debug"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/egressgateway"
@@ -60,7 +60,6 @@ import (
 	"github.com/cilium/cilium/pkg/maps/ctmap"
 	"github.com/cilium/cilium/pkg/maps/eppolicymap"
 	ipcachemap "github.com/cilium/cilium/pkg/maps/ipcache"
-	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/maps/policymap"
 	"github.com/cilium/cilium/pkg/maps/sockmap"
 	"github.com/cilium/cilium/pkg/metrics"
@@ -357,6 +356,7 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
 func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanager.EndpointManager,
 	cachesSynced CachesSynced, egressGatewayHandlers egressgateway.EgressGatewayHandlers,
+	lbmap datapathTypes.LBMap,
 	dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
 
 	var (
@@ -410,45 +410,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 	ctmap.InitMapInfo(option.Config.CTMapEntriesGlobalTCP, option.Config.CTMapEntriesGlobalAny,
 		option.Config.EnableIPv4, option.Config.EnableIPv6, option.Config.EnableNodePort)
 	policymap.InitMapInfo(option.Config.PolicyMapEntries)
-
-	lbmapInitParams := lbmap.InitParams{
-		IPv4: option.Config.EnableIPv4,
-		IPv6: option.Config.EnableIPv6,
-
-		MaxSockRevNatMapEntries:  option.Config.SockRevNatEntries,
-		ServiceMapMaxEntries:     option.Config.LBMapEntries,
-		BackEndMapMaxEntries:     option.Config.LBMapEntries,
-		RevNatMapMaxEntries:      option.Config.LBMapEntries,
-		AffinityMapMaxEntries:    option.Config.LBMapEntries,
-		SourceRangeMapMaxEntries: option.Config.LBMapEntries,
-		MaglevMapMaxEntries:      option.Config.LBMapEntries,
-	}
-	if option.Config.LBServiceMapEntries > 0 {
-		lbmapInitParams.ServiceMapMaxEntries = option.Config.LBServiceMapEntries
-	}
-	if option.Config.LBBackendMapEntries > 0 {
-		lbmapInitParams.BackEndMapMaxEntries = option.Config.LBBackendMapEntries
-	}
-	if option.Config.LBRevNatEntries > 0 {
-		lbmapInitParams.RevNatMapMaxEntries = option.Config.LBRevNatEntries
-	}
-	if option.Config.LBAffinityMapEntries > 0 {
-		lbmapInitParams.AffinityMapMaxEntries = option.Config.LBAffinityMapEntries
-	}
-	if option.Config.LBSourceRangeMapEntries > 0 {
-		lbmapInitParams.SourceRangeMapMaxEntries = option.Config.LBSourceRangeMapEntries
-	}
-	if option.Config.LBMaglevMapEntries > 0 {
-		lbmapInitParams.MaglevMapMaxEntries = option.Config.LBMaglevMapEntries
-	}
-	lbmap.Init(lbmapInitParams)
-
-	if option.Config.DryMode == false {
-		if err := rlimit.RemoveMemlock(); err != nil {
-			log.WithError(err).Error("unable to set memory resource limits")
-			return nil, nil, fmt.Errorf("unable to set memory resource limits: %w", err)
-		}
-	}
 
 	authKeySize, encryptKeyID, err := setupIPSec()
 	if err != nil {
@@ -618,7 +579,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 	bootstrapStats.proxyStart.End(true)
 
 	// Start service support after proxy support so that we can inject 'd.l7Proxy`.
-	d.svc = service.NewService(&d, d.l7Proxy, d.datapath.LBMap())
+	d.svc = service.NewService(&d, d.l7Proxy, lbmap)
 
 	d.redirectPolicyManager = redirectpolicy.NewRedirectPolicyManager(d.svc)
 	if option.Config.BGPAnnounceLBIP || option.Config.BGPAnnouncePodCIDR {

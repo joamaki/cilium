@@ -20,6 +20,8 @@ import (
 	"go.uber.org/fx"
 	"google.golang.org/grpc"
 
+	"github.com/cilium/ebpf/rlimit"
+
 	"github.com/cilium/cilium/pkg/aws/eni"
 	bgpv1 "github.com/cilium/cilium/pkg/bgpv1/agent"
 	"github.com/cilium/cilium/pkg/bgpv1/gobgp"
@@ -36,6 +38,7 @@ import (
 	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/maps"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
+	datapathTypes "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/egressgateway"
 	"github.com/cilium/cilium/pkg/endpointmanager"
@@ -1298,6 +1301,12 @@ func initEnv(cmd *cobra.Command) {
 		scopedLog.WithError(err).Fatal("Cannot remove existing Cilium sock")
 	}
 
+	if !option.Config.DryMode {
+		if err := rlimit.RemoveMemlock(); err != nil {
+			scopedLog.WithError(err).Fatal("unable to set memory resource limits")
+		}
+	}
+
 	// The standard operation is to mount the BPF filesystem to the
 	// standard location (/sys/fs/bpf). The user may choose to specify
 	// the path to an already mounted filesystem instead. This is
@@ -1611,6 +1620,7 @@ type daemonModuleParams struct {
 	*iptables.IptablesManager
 	CachesSynced
 	egressgateway.EgressGatewayHandlers `optional:"true"`
+	datapathTypes.LBMap
 }
 
 func daemonModule(p daemonModuleParams) (*Daemon, error) {
@@ -1662,6 +1672,7 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 	}
 
 	d, restoredEndpoints, err := NewDaemon(p.Context, p.Cleaner, p.EndpointManager, p.CachesSynced, p.EgressGatewayHandlers,
+		p.LBMap,
 		linuxdatapath.NewDatapath(datapathConfig, p.IptablesManager, wgAgent))
 	if err != nil {
 		return nil, fmt.Errorf("daemon creation failed: %w", err)
