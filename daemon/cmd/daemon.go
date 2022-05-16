@@ -175,8 +175,6 @@ type Daemon struct {
 
 	bgpSpeaker *speaker.MetalLBSpeaker
 
-	egressGatewayManager *egressgateway.Manager
-
 	apiLimiterSet *rate.APILimiterSet
 
 	// event queue for serializing configuration updates to the daemon.
@@ -357,7 +355,9 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 }
 
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanager.EndpointManager, cachesSynced CachesSynced, dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
+func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanager.EndpointManager,
+	cachesSynced CachesSynced, egressGatewayHandlers egressgateway.EgressGatewayHandlers,
+	dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
 
 	var (
 		err           error
@@ -632,10 +632,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 		}
 	}
 
-	if option.Config.EnableIPv4EgressGateway {
-		d.egressGatewayManager = egressgateway.NewEgressGatewayManager(cachesSynced, d.identityAllocator)
-	}
-
 	d.k8sWatcher = watchers.NewK8sWatcher(
 		d.endpointManager,
 		d.nodeDiscovery,
@@ -645,7 +641,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 		d.datapath,
 		d.redirectPolicyManager,
 		d.bgpSpeaker,
-		d.egressGatewayManager,
+		egressGatewayHandlers,
 		d.l7Proxy,
 		option.Config,
 		d.ipcache,
@@ -917,14 +913,14 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 	}
 	if option.Config.EnableIPv4EgressGateway {
 		if !probes.NewProbeManager().GetMisc().HaveLargeInsnLimit {
-			log.WithError(err).Error("egress gateway needs kernel 5.2 or newer")
+			log.Error("egress gateway needs kernel 5.2 or newer")
 			return nil, nil, fmt.Errorf("egress gateway needs kernel 5.2 or newer")
 		}
 
 		// datapath code depends on remote node identities to distinguish between cluser-local and
 		// cluster-egress traffic
 		if !option.Config.EnableRemoteNodeIdentity {
-			log.WithError(err).Errorf("egress gateway requires remote node identities (--%s=\"true\").",
+			log.Errorf("egress gateway requires remote node identities (--%s=\"true\").",
 				option.EnableRemoteNodeIdentity)
 			return nil, nil, fmt.Errorf("egress gateway requires remote node identities (--%s=\"true\").",
 				option.EnableRemoteNodeIdentity)

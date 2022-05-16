@@ -11,6 +11,7 @@ import (
 
 	"github.com/cilium/cilium/api/v1/server"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
+	"github.com/cilium/cilium/pkg/egressgateway"
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
@@ -38,6 +39,7 @@ func runApp() {
 
 		server.Module,
 		service.Module,
+		optional(option.Config.EnableIPv4EgressGateway, egressgateway.Module),
 
 		iptables.Module,
 

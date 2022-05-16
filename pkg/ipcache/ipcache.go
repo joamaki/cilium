@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/identity/cache"
 	ipcacheTypes "github.com/cilium/cilium/pkg/ipcache/types"
+	k8sTypes "github.com/cilium/cilium/pkg/k8s/types"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/option"
@@ -89,7 +90,7 @@ type IPCache struct {
 
 	// k8sSyncedChecker knows how to check for whether the K8s watcher cache
 	// has been fully synced.
-	k8sSyncedChecker k8sSyncedChecker
+	k8sSyncedChecker k8sTypes.K8sSyncedChecker
 
 	// Configuration provides pointers towards other agent components that
 	// the IPCache relies upon at runtime.
@@ -636,7 +637,7 @@ func (ipc *IPCache) LookupByHostRLocked(hostIPv4, hostIPv6 net.IP) (cidrs []net.
 
 // RegisterK8sWaiter registers the object that checks for wehther the K8s cache
 // has been fully synced.
-func (ipc *IPCache) RegisterK8sSyncedChecker(c k8sSyncedChecker) {
+func (ipc *IPCache) RegisterK8sSyncedChecker(c k8sTypes.K8sSyncedChecker) {
 	ipc.k8sSyncedChecker = c
 }
 
@@ -657,10 +658,4 @@ func (m *K8sMetadata) Equal(o *K8sMetadata) bool {
 		}
 	}
 	return m.Namespace == o.Namespace && m.PodName == o.PodName
-}
-
-// k8sCacheIsSynced is an interface for checking if the K8s watcher cache has
-// been fully synced.
-type k8sSyncedChecker interface {
-	K8sCacheIsSynced() bool
 }

@@ -37,6 +37,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/maps"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/defaults"
+	"github.com/cilium/cilium/pkg/egressgateway"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/flowdebug"
@@ -1609,6 +1610,7 @@ type daemonModuleParams struct {
 	endpointmanager.EndpointManager
 	*iptables.IptablesManager
 	CachesSynced
+	egressgateway.EgressGatewayHandlers `optional:"true"`
 }
 
 func daemonModule(p daemonModuleParams) (*Daemon, error) {
@@ -1659,7 +1661,7 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 		bootstrapStats.k8sInit.End(true)
 	}
 
-	d, restoredEndpoints, err := NewDaemon(p.Context, p.Cleaner, p.EndpointManager, p.CachesSynced,
+	d, restoredEndpoints, err := NewDaemon(p.Context, p.Cleaner, p.EndpointManager, p.CachesSynced, p.EgressGatewayHandlers,
 		linuxdatapath.NewDatapath(datapathConfig, p.IptablesManager, wgAgent))
 	if err != nil {
 		return nil, fmt.Errorf("daemon creation failed: %w", err)

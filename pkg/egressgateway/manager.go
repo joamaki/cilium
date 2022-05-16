@@ -57,7 +57,7 @@ type Manager struct {
 }
 
 // NewEgressGatewayManager returns a new Egress Gateway Manager.
-func NewEgressGatewayManager(k8sCacheSyncedChecker k8sTypes.K8sSyncedChecker, identityAlocator identityCache.IdentityAllocator) *Manager {
+func newEgressGatewayManager(k8sCacheSyncedChecker k8sTypes.K8sSyncedChecker, identityAlocator identityCache.IdentityAllocator) *Manager {
 	manager := &Manager{
 		k8sCacheSyncedChecker: k8sCacheSyncedChecker,
 		nodeDataStore:         make(map[string]nodeTypes.Node),
