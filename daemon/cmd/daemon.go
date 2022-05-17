@@ -167,10 +167,6 @@ type Daemon struct {
 	linkCache      *link.LinkCache
 	hubbleObserver *observer.LocalObserverServer
 
-	// k8sCachesSynced is closed when all essential Kubernetes caches have
-	// been fully synchronized
-	k8sCachesSynced <-chan struct{}
-
 	// endpointCreations is a map of all currently ongoing endpoint
 	// creation events
 	endpointCreations *endpointCreationManager
@@ -361,7 +357,7 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 }
 
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanager.EndpointManager, dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
+func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanager.EndpointManager, cachesSynced CachesSynced, dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
 
 	var (
 		err           error
@@ -637,7 +633,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 	}
 
 	if option.Config.EnableIPv4EgressGateway {
-		d.egressGatewayManager = egressgateway.NewEgressGatewayManager(&d, d.identityAllocator)
+		d.egressGatewayManager = egressgateway.NewEgressGatewayManager(cachesSynced, d.identityAllocator)
 	}
 
 	d.k8sWatcher = watchers.NewK8sWatcher(
@@ -655,7 +651,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 		d.ipcache,
 	)
 	nd.RegisterK8sNodeGetter(d.k8sWatcher)
-	d.ipcache.RegisterK8sSyncedChecker(&d)
+	d.ipcache.RegisterK8sSyncedChecker(cachesSynced)
 
 	d.k8sWatcher.RegisterNodeSubscriber(d.endpointManager)
 	if option.Config.BGPAnnounceLBIP || option.Config.BGPAnnouncePodCIDR {
@@ -982,15 +978,12 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 	if k8s.IsEnabled() {
 		bootstrapStats.k8sInit.Start()
 
-		// Initialize d.k8sCachesSynced before any k8s watchers are alive, as they may
-		// access it to check the status of k8s initialization
-		cachesSynced := make(chan struct{})
-		d.k8sCachesSynced = cachesSynced
-
 		// Launch the K8s watchers in parallel as we continue to process other
 		// daemon options.
-		d.k8sWatcher.InitK8sSubsystem(d.ctx, cachesSynced)
+		d.k8sWatcher.InitK8sSubsystem(d.ctx, cachesSynced.Chan())
 		bootstrapStats.k8sInit.End(true)
+	} else {
+		cachesSynced.Close()
 	}
 
 	bootstrapStats.cleanup.Start()
@@ -1393,18 +1386,4 @@ func (d *Daemon) GetNodeSuffix() string {
 	}
 
 	return ip.String()
-}
-
-// K8sCacheIsSynced returns true if the agent has fully synced its k8s cache
-// with the API server
-func (d *Daemon) K8sCacheIsSynced() bool {
-	if !k8s.IsEnabled() {
-		return true
-	}
-	select {
-	case <-d.k8sCachesSynced:
-		return true
-	default:
-		return false
-	}
 }

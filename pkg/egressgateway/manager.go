@@ -30,10 +30,6 @@ var (
 	log = logging.DefaultLogger.WithField(logfields.LogSubsys, "egressgateway")
 )
 
-type k8sCacheSyncedChecker interface {
-	K8sCacheIsSynced() bool
-}
-
 // The egressgateway manager stores the internal data tracking the node, policy,
 // endpoint, and lease mappings. It also hooks up all the callbacks to update
 // egress bpf policy map accordingly.
@@ -42,7 +38,7 @@ type Manager struct {
 
 	// k8sCacheSyncedChecker is used to check if the agent has synced its
 	// cache with the k8s API server
-	k8sCacheSyncedChecker k8sCacheSyncedChecker
+	k8sCacheSyncedChecker k8sTypes.K8sSyncedChecker
 
 	// nodeDataStore stores node name to node mapping
 	nodeDataStore map[string]nodeTypes.Node
@@ -61,7 +57,7 @@ type Manager struct {
 }
 
 // NewEgressGatewayManager returns a new Egress Gateway Manager.
-func NewEgressGatewayManager(k8sCacheSyncedChecker k8sCacheSyncedChecker, identityAlocator identityCache.IdentityAllocator) *Manager {
+func NewEgressGatewayManager(k8sCacheSyncedChecker k8sTypes.K8sSyncedChecker, identityAlocator identityCache.IdentityAllocator) *Manager {
 	manager := &Manager{
 		k8sCacheSyncedChecker: k8sCacheSyncedChecker,
 		nodeDataStore:         make(map[string]nodeTypes.Node),

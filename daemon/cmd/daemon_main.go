@@ -1602,11 +1602,13 @@ func (d *Daemon) initKVStore() {
 type daemonModuleParams struct {
 	fx.In
 
-	Ctx             context.Context
-	Cleaner         *daemonCleanup
-	Shutdowner      fx.Shutdowner
-	EpMgr           endpointmanager.EndpointManager
-	IptablesManager *iptables.IptablesManager
+	Cleaner *daemonCleanup
+
+	context.Context
+	fx.Shutdowner
+	endpointmanager.EndpointManager
+	*iptables.IptablesManager
+	CachesSynced
 }
 
 func daemonModule(p daemonModuleParams) (*Daemon, error) {
@@ -1657,7 +1659,7 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 		bootstrapStats.k8sInit.End(true)
 	}
 
-	d, restoredEndpoints, err := NewDaemon(p.Ctx, p.Cleaner, p.EpMgr,
+	d, restoredEndpoints, err := NewDaemon(p.Context, p.Cleaner, p.EndpointManager, p.CachesSynced,
 		linuxdatapath.NewDatapath(datapathConfig, p.IptablesManager, wgAgent))
 	if err != nil {
 		return nil, fmt.Errorf("daemon creation failed: %w", err)
@@ -1681,7 +1683,7 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 	if k8s.IsEnabled() {
 		// Wait only for certain caches, but not all!
 		// (Check Daemon.InitK8sSubsystem() for more info)
-		<-d.k8sCachesSynced
+		p.CachesSynced.WaitForK8sCacheSync()
 	}
 	bootstrapStats.k8sInit.End(true)
 	restoreComplete := d.initRestore(restoredEndpoints)

@@ -27,6 +27,7 @@ func runApp() {
 		gopsModule,
 		cleanerModule,
 		healthzModule,
+		cachesSyncedModule,
 
 		fx.Provide(daemonModule),
 		fx.Provide(daemonLift),
