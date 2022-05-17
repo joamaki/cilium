@@ -18,6 +18,7 @@ import (
 	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/service"
+	"github.com/cilium/cilium/pkg/status"
 )
 
 func runApp() {
@@ -43,8 +44,10 @@ func runApp() {
 		lbmap.Module,
 		service.Module,
 		optional(option.Config.EnableIPv4EgressGateway, egressgateway.Module),
-
 		iptables.Module,
+
+		fx.Supply(status.DefaultConfig),
+		status.Module,
 
 		fx.Supply(
 			fx.Annotate(

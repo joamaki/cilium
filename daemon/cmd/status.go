@@ -616,20 +616,19 @@ func (d *Daemon) getStatus(brief bool) models.StatusResponse {
 		stale[probe] = strfmt.DateTime(startTime)
 	}
 
-	d.statusCollectMutex.RLock()
-	defer d.statusCollectMutex.RUnlock()
+	fullStatusResponse := d.statusCollector.GetStatusResponse()
 
 	var sr models.StatusResponse
 	if brief {
 		csCopy := new(models.ClusterStatus)
-		if d.statusResponse.Cluster != nil && d.statusResponse.Cluster.CiliumHealth != nil {
-			in, out := &d.statusResponse.Cluster.CiliumHealth, &csCopy.CiliumHealth
+		if fullStatusResponse.Cluster != nil && fullStatusResponse.Cluster.CiliumHealth != nil {
+			in, out := &fullStatusResponse.Cluster.CiliumHealth, &csCopy.CiliumHealth
 			*out = new(models.Status)
 			**out = **in
 		}
 		var minimalControllers models.ControllerStatuses
-		if d.statusResponse.Controllers != nil {
-			for _, c := range d.statusResponse.Controllers {
+		if fullStatusResponse.Controllers != nil {
+			for _, c := range fullStatusResponse.Controllers {
 				if c.Status == nil {
 					continue
 				}
@@ -647,9 +646,7 @@ func (d *Daemon) getStatus(brief bool) models.StatusResponse {
 			Controllers: minimalControllers,
 		}
 	} else {
-		// d.statusResponse contains references, so we do a deep copy to be able to
-		// safely use sr after the method has returned
-		sr = *d.statusResponse.DeepCopy()
+		sr = *fullStatusResponse
 	}
 
 	sr.Stale = stale
@@ -665,25 +662,25 @@ func (d *Daemon) getStatus(brief bool) models.StatusResponse {
 			State: models.StatusStateWarning,
 			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
 		}
-	case d.statusResponse.Kvstore != nil && d.statusResponse.Kvstore.State != models.StatusStateOk:
+	case fullStatusResponse.Kvstore != nil && fullStatusResponse.Kvstore.State != models.StatusStateOk:
 		msg := "Kvstore service is not ready"
 		sr.Cilium = &models.Status{
-			State: d.statusResponse.Kvstore.State,
+			State: fullStatusResponse.Kvstore.State,
 			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
 		}
-	case d.statusResponse.ContainerRuntime != nil && d.statusResponse.ContainerRuntime.State != models.StatusStateOk:
+	case fullStatusResponse.ContainerRuntime != nil && fullStatusResponse.ContainerRuntime.State != models.StatusStateOk:
 		msg := "Container runtime is not ready"
-		if d.statusResponse.ContainerRuntime.State == models.StatusStateDisabled {
+		if fullStatusResponse.ContainerRuntime.State == models.StatusStateDisabled {
 			msg = "Container runtime is disabled"
 		}
 		sr.Cilium = &models.Status{
-			State: d.statusResponse.ContainerRuntime.State,
+			State: fullStatusResponse.ContainerRuntime.State,
 			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
 		}
-	case k8s.IsEnabled() && d.statusResponse.Kubernetes != nil && d.statusResponse.Kubernetes.State != models.StatusStateOk:
+	case k8s.IsEnabled() && fullStatusResponse.Kubernetes != nil && fullStatusResponse.Kubernetes.State != models.StatusStateOk:
 		msg := "Kubernetes service is not ready"
 		sr.Cilium = &models.Status{
-			State: d.statusResponse.Kubernetes.State,
+			State: fullStatusResponse.Kubernetes.State,
 			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
 		}
 	default:
@@ -705,8 +702,8 @@ func (d *Daemon) getIdentityRange() *models.IdentityRange {
 	return s
 }
 
-func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
-	probes := []status.Probe{
+func (d *Daemon) getStatusProbes() []status.Probe {
+	return []status.Probe{
 		{
 			Name: "check-locks",
 			Probe: func(ctx context.Context) (interface{}, error) {
@@ -716,9 +713,7 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 				option.Config.ConfigPatchMutex.Unlock()
 				return nil, nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
+			OnStatusUpdate: func(status.Status, *models.StatusResponse) {
 				// FIXME we have no field for the lock status
 			},
 		},
@@ -731,7 +726,7 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 					return kvstore.Client().Status()
 				}
 			},
-			OnStatusUpdate: func(status status.Status) {
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				var msg string
 				state := models.StatusStateOk
 				info, ok := status.Data.(string)
@@ -747,10 +742,7 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 					msg = fmt.Sprintf("%s", info)
 				}
 
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
-				d.statusResponse.Kvstore = &models.Status{
+				response.Kvstore = &models.Status{
 					State: state,
 					Msg:   msg,
 				}
@@ -788,19 +780,16 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 			Probe: func(ctx context.Context) (interface{}, error) {
 				return d.getK8sStatus(), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				if status.Err != nil {
-					d.statusResponse.Kubernetes = &models.K8sStatus{
+					response.Kubernetes = &models.K8sStatus{
 						State: models.StatusStateFailure,
 						Msg:   status.Err.Error(),
 					}
 					return
 				}
 				if s, ok := status.Data.(*models.K8sStatus); ok {
-					d.statusResponse.Kubernetes = s
+					response.Kubernetes = s
 				}
 			},
 		},
@@ -809,14 +798,11 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 			Probe: func(ctx context.Context) (interface{}, error) {
 				return d.DumpIPAM(), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				// IPAMStatus has no way to show errors
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.IPAMStatus); ok {
-						d.statusResponse.Ipam = s
+						response.Ipam = s
 					}
 				}
 			},
@@ -826,14 +812,11 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 			Probe: func(ctx context.Context) (interface{}, error) {
 				return d.monitorAgent.State(), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				// NodeMonitor has no way to show errors
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.MonitorStatus); ok {
-						d.statusResponse.NodeMonitor = s
+						response.NodeMonitor = s
 					}
 				}
 			},
@@ -846,19 +829,16 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 				}
 				return clusterStatus, nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				// ClusterStatus has no way to report errors
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.ClusterStatus); ok {
-						if d.statusResponse.Cluster != nil {
+						if response.Cluster != nil {
 							// NB: CiliumHealth is set concurrently by the
 							// "cilium-health" probe, so do not override it
-							s.CiliumHealth = d.statusResponse.Cluster.CiliumHealth
+							s.CiliumHealth = response.Cluster.CiliumHealth
 						}
-						d.statusResponse.Cluster = s
+						response.Cluster = s
 					}
 				}
 			},
@@ -871,26 +851,23 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 				}
 				return d.ciliumHealth.GetStatus(), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				if d.ciliumHealth == nil {
 					return
 				}
 
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
-				if d.statusResponse.Cluster == nil {
-					d.statusResponse.Cluster = &models.ClusterStatus{}
+				if response.Cluster == nil {
+					response.Cluster = &models.ClusterStatus{}
 				}
 				if status.Err != nil {
-					d.statusResponse.Cluster.CiliumHealth = &models.Status{
+					response.Cluster.CiliumHealth = &models.Status{
 						State: models.StatusStateFailure,
 						Msg:   status.Err.Error(),
 					}
 					return
 				}
 				if s, ok := status.Data.(*models.Status); ok {
-					d.statusResponse.Cluster.CiliumHealth = s
+					response.Cluster.CiliumHealth = s
 				}
 			},
 		},
@@ -902,14 +879,11 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 				}
 				return d.l7Proxy.GetStatusModel(), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				// ProxyStatus has no way to report errors
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.ProxyStatus); ok {
-						d.statusResponse.Proxy = s
+						response.Proxy = s
 					}
 				}
 			},
@@ -919,14 +893,11 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 			Probe: func(ctx context.Context) (interface{}, error) {
 				return controller.GetGlobalStatus(), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				// ControllerStatuses has no way to report errors
 				if status.Err == nil {
 					if s, ok := status.Data.(models.ControllerStatuses); ok {
-						d.statusResponse.Controllers = s
+						response.Controllers = s
 					}
 				}
 			},
@@ -939,13 +910,10 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 				}
 				return d.clustermesh.Status(), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.ClusterMeshStatus); ok {
-						d.statusResponse.ClusterMesh = s
+						response.ClusterMesh = s
 					}
 				}
 			},
@@ -955,13 +923,10 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 			Probe: func(ctx context.Context) (interface{}, error) {
 				return d.getHubbleStatus(ctx), nil
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.HubbleStatus); ok {
-						d.statusResponse.Hubble = s
+						response.Hubble = s
 					}
 				}
 			},
@@ -991,13 +956,10 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 					}, nil
 				}
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.EncryptionStatus); ok {
-						d.statusResponse.Encryption = s
+						response.Encryption = s
 					}
 				}
 			},
@@ -1011,41 +973,52 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 					return nil, nil
 				}
 			},
-			OnStatusUpdate: func(status status.Status) {
-				d.statusCollectMutex.Lock()
-				defer d.statusCollectMutex.Unlock()
-
+			OnStatusUpdate: func(status status.Status, response *models.StatusResponse) {
 				if status.Err == nil {
 					if s, ok := status.Data.(*models.KubeProxyReplacement); ok {
-						d.statusResponse.KubeProxyReplacement = s
+						response.KubeProxyReplacement = s
 					}
 				}
 			},
 		},
 	}
+}
 
-	d.statusResponse.Masquerading = d.getMasqueradingStatus()
-	d.statusResponse.IPV6BigTCP = d.getIPV6BigTCPStatus()
-	d.statusResponse.BandwidthManager = d.getBandwidthManagerStatus()
-	d.statusResponse.HostFirewall = d.getHostFirewallStatus()
-	d.statusResponse.HostRouting = d.getHostRoutingStatus()
-	d.statusResponse.ClockSource = d.getClockSourceStatus()
-	d.statusResponse.BpfMaps = d.getBPFMapStatus()
-	d.statusResponse.CniChaining = d.getCNIChainingStatus()
-	d.statusResponse.IdentityRange = d.getIdentityRange()
+func (d *Daemon) setupStatusCollector(cleaner *daemonCleanup) {
+	// Register the daemon status probes. This is done post the collector construction
+	// due to the cyclic dependency.
+	d.statusCollector.RegisterProbes(d.getStatusProbes()...)
 
-	d.statusCollector = status.NewCollector(probes, status.Config{})
+	d.statusCollector.UpdateStatusResponse(func(r *models.StatusResponse) {
+		if k8s.IsEnabled() || option.Config.DatapathMode == datapathOption.DatapathModeLBOnly {
+			// kube-proxy replacement configuration does not change after
+			// initKubeProxyReplacementOptions() has been executed, so it's fine to
+			// statically set the field here.
+			r.KubeProxyReplacement = d.getKubeProxyReplacementStatus()
+		}
+
+		r.Masquerading = d.getMasqueradingStatus()
+		r.IPV6BigTCP = d.getIPV6BigTCPStatus()
+		r.BandwidthManager = d.getBandwidthManagerStatus()
+		r.HostFirewall = d.getHostFirewallStatus()
+		r.HostRouting = d.getHostRoutingStatus()
+		r.ClockSource = d.getClockSourceStatus()
+		r.BpfMaps = d.getBPFMapStatus()
+		r.CniChaining = d.getCNIChainingStatus()
+		r.IdentityRange = d.getIdentityRange()
+	})
 
 	// Set up a signal handler function which prints out logs related to daemon status.
 	cleaner.cleanupFuncs.Add(func() {
 		// If the KVstore state is not OK, print help for user.
-		if d.statusResponse.Kvstore != nil &&
-			d.statusResponse.Kvstore.State != models.StatusStateOk {
+		r := d.statusCollector.GetStatusResponse()
+		if r.Kvstore != nil &&
+			r.Kvstore.State != models.StatusStateOk {
 			helpMsg := "cilium-agent depends on the availability of cilium-operator/etcd-cluster. " +
 				"Check if the cilium-operator pod and etcd-cluster are running and do not have any " +
 				"warnings or error messages."
 			log.WithFields(logrus.Fields{
-				"status":              d.statusResponse.Kvstore.Msg,
+				"status":              r.Kvstore.Msg,
 				logfields.HelpMessage: helpMsg,
 			}).Error("KVStore state not OK")
 

@@ -17,7 +17,6 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/cilium/cilium/api/v1/models"
 	health "github.com/cilium/cilium/cilium-health/launch"
 	"github.com/cilium/cilium/pkg/bandwidth"
 	"github.com/cilium/cilium/pkg/bgp/speaker"
@@ -112,9 +111,7 @@ type Daemon struct {
 	policyUpdater    *policy.Updater
 	preFilter        datapath.PreFilter
 
-	statusCollectMutex lock.RWMutex
-	statusResponse     models.StatusResponse
-	statusCollector    *status.Collector
+	statusCollector status.Collector
 
 	monitorAgent *monitoragent.Agent
 	ciliumHealth *health.CiliumHealth
@@ -357,6 +354,7 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanager.EndpointManager,
 	cachesSynced CachesSynced, egressGatewayHandlers egressgateway.EgressGatewayHandlers,
 	lbmap datapathTypes.LBMap,
+	statusCollector status.Collector,
 	dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
 
 	var (
@@ -465,6 +463,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr endpointmanage
 		endpointCreations: newEndpointCreationManager(),
 		apiLimiterSet:     apiLimiterSet,
 		controllers:       controller.NewManager(),
+		statusCollector:   statusCollector,
 	}
 
 	if option.Config.RunMonitorAgent {

@@ -13,11 +13,36 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/fx"
+	"go.uber.org/fx/fxtest"
 	. "gopkg.in/check.v1"
 
+	"github.com/cilium/cilium/api/v1/models"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/testutils"
 )
+
+type probesOut struct {
+	fx.Out
+	Probes []Probe `group:"probes,flatten"`
+}
+
+type nopResponseUpdater struct{}
+
+func (nopResponseUpdater) UpdateStatusResponse(fn func(*models.StatusResponse)) {
+	fn(&models.StatusResponse{})
+}
+
+func startCollector(c *C, config Config, probes []Probe) (Collector, func()) {
+	var collector Collector
+	app := fxtest.New(c,
+		fx.Supply(fx.Annotate(nopResponseUpdater{}, fx.As(new(StatusResponseUpdater)))),
+		fx.Supply(config, probesOut{Probes: probes}),
+		Module,
+		fx.Populate(&collector),
+	).RequireStart()
+	return collector, app.RequireStop
+}
 
 type StatusTestSuite struct {
 	config Config
@@ -70,7 +95,7 @@ func (s *StatusTestSuite) TestVariableProbeInterval(c *C) {
 
 				return nil, nil
 			},
-			OnStatusUpdate: func(status Status) {
+			OnStatusUpdate: func(status Status, response *models.StatusResponse) {
 				if status.Data == nil && status.Err == nil {
 					atomic.AddUint64(&ok, 1)
 				}
@@ -78,8 +103,8 @@ func (s *StatusTestSuite) TestVariableProbeInterval(c *C) {
 		},
 	}
 
-	collector := NewCollector(p, s.Config())
-	defer collector.Close()
+	_, stop := startCollector(c, s.Config(), p)
+	defer stop()
 
 	// wait for 5 probe intervals to occur with 1 millisecond interval
 	// until we reach success
@@ -97,7 +122,7 @@ func (s *StatusTestSuite) TestCollectorFailureTimeout(c *C) {
 				time.Sleep(s.Config().FailureThreshold * 2)
 				return nil, nil
 			},
-			OnStatusUpdate: func(status Status) {
+			OnStatusUpdate: func(status Status, response *models.StatusResponse) {
 				if status.StaleWarning && status.Data == nil && status.Err != nil {
 					if strings.Contains(status.Err.Error(),
 						fmt.Sprintf("within %v seconds", s.Config().FailureThreshold.Seconds())) {
@@ -109,8 +134,8 @@ func (s *StatusTestSuite) TestCollectorFailureTimeout(c *C) {
 		},
 	}
 
-	collector := NewCollector(p, s.Config())
-	defer collector.Close()
+	collector, stop := startCollector(c, s.Config(), p)
+	defer stop()
 
 	// wait for the failure timeout to kick in
 	c.Assert(testutils.WaitUntil(func() bool {
@@ -131,7 +156,7 @@ func (s *StatusTestSuite) TestCollectorSuccess(c *C) {
 				}
 				return "testData", nil
 			},
-			OnStatusUpdate: func(status Status) {
+			OnStatusUpdate: func(status Status, response *models.StatusResponse) {
 				if status.Err == err {
 					atomic.AddUint64(&errors, 1)
 				}
@@ -144,8 +169,8 @@ func (s *StatusTestSuite) TestCollectorSuccess(c *C) {
 		},
 	}
 
-	collector := NewCollector(p, s.Config())
-	defer collector.Close()
+	collector, stop := startCollector(c, s.Config(), p)
+	defer stop()
 
 	// wait for the probe to succeed 3 times and to return the error 3 times
 	c.Assert(testutils.WaitUntil(func() bool {
@@ -165,7 +190,7 @@ func (s *StatusTestSuite) TestCollectorSuccessAfterTimeout(c *C) {
 				}
 				return nil, nil
 			},
-			OnStatusUpdate: func(status Status) {
+			OnStatusUpdate: func(status Status, response *models.StatusResponse) {
 				if status.StaleWarning {
 					atomic.AddUint64(&timeout, 1)
 				} else {
@@ -176,8 +201,8 @@ func (s *StatusTestSuite) TestCollectorSuccessAfterTimeout(c *C) {
 		},
 	}
 
-	collector := NewCollector(p, s.Config())
-	defer collector.Close()
+	collector, stop := startCollector(c, s.Config(), p)
+	defer stop()
 
 	// wait for the probe to timeout (warning and failure) and then to succeed
 	c.Assert(testutils.WaitUntil(func() bool {

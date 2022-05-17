@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"go.uber.org/fx"
 
-	"github.com/cilium/cilium/pkg/defaults"
+	"github.com/cilium/cilium/api/v1/models"
 	"github.com/cilium/cilium/pkg/inctimer"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging"
@@ -25,97 +26,71 @@ var (
 	log = logging.DefaultLogger.WithField(logfields.LogSubsys, subsystem)
 )
 
-// Status is passed to a probe when its state changes
-type Status struct {
-	// Data is non-nil when the probe has completed successfully. Data is
-	// set to the value returned by Probe()
-	Data interface{}
-
-	// Err is non-nil if either the probe file or the Failure or Warning
-	// threshold has been reached
-	Err error
-
-	// StaleWarning is true once the WarningThreshold has been reached
-	StaleWarning bool
-}
-
-// Probe is run by the collector at a particular interval between invocations
-type Probe struct {
-	Name string
-
-	Probe func(ctx context.Context) (interface{}, error)
-
-	// OnStatusUpdate is called whenever the status of the probe changes
-	OnStatusUpdate func(status Status)
-
-	// Interval allows to specify a probe specific interval that can be
-	// mutated based on whether the probe is failing or based on external
-	// factors such as current cluster size
-	Interval func(failures int) time.Duration
-
-	// consecutiveFailures is the number of consecutive failures in the
-	// probe becoming stale or failing. It is managed by
-	// updateProbeStatus()
-	consecutiveFailures int
-}
-
 // Collector concurrently runs probes used to check status of various subsystems
-type Collector struct {
-	lock.RWMutex   // protects staleProbes and probeStartTime
+type collector struct {
+	lock.RWMutex
 	config         Config
-	stop           chan struct{}
+	stopChan       chan struct{}
+	probes         []Probe
 	staleProbes    map[string]struct{}
 	probeStartTime map[string]time.Time
-}
 
-// Config is the collector configuration
-type Config struct {
-	WarningThreshold time.Duration
-	FailureThreshold time.Duration
-	Interval         time.Duration
+	statusResponse models.StatusResponse
 }
 
 // NewCollector creates a collector and starts the given probes.
 //
 // Each probe runs in a separate goroutine.
-func NewCollector(probes []Probe, config Config) *Collector {
-	c := &Collector{
-		config:         config,
-		stop:           make(chan struct{}),
+func newCollector(p CollectorParams) Collector {
+	c := &collector{
+		config:         p.Config,
+		stopChan:       make(chan struct{}),
+		probes:         p.Probes,
 		staleProbes:    make(map[string]struct{}),
 		probeStartTime: make(map[string]time.Time),
 	}
 
-	if c.config.Interval == time.Duration(0) {
-		c.config.Interval = defaults.StatusCollectorInterval
-	}
-
-	if c.config.FailureThreshold == time.Duration(0) {
-		c.config.FailureThreshold = defaults.StatusCollectorFailureThreshold
-	}
-
-	if c.config.WarningThreshold == time.Duration(0) {
-		c.config.WarningThreshold = defaults.StatusCollectorWarningThreshold
-	}
-
-	for i := range probes {
-		c.spawnProbe(&probes[i])
-	}
-
+	p.Lifecycle.Append(fx.Hook{OnStart: c.start, OnStop: c.stop})
 	return c
 }
 
-// Close exits all probes and shuts down the collector
-// TODO(brb): call it when daemon exits (after GH#6248).
-func (c *Collector) Close() {
-	close(c.stop)
+func (c *collector) start(context.Context) error {
+	for i := range c.probes {
+		c.spawnProbe(&c.probes[i])
+	}
+	return nil
+}
+
+func (c *collector) stop(context.Context) error {
+	close(c.stopChan)
+	return nil
+}
+
+func (c *collector) UpdateStatusResponse(update func(*models.StatusResponse)) {
+	c.Lock()
+	defer c.Unlock()
+	update(&c.statusResponse)
+}
+
+func (c *collector) GetStatusResponse() *models.StatusResponse {
+	c.RLock()
+	defer c.RUnlock()
+	return c.statusResponse.DeepCopy()
+}
+
+// RegisterProbes allows registering more probes. Must be called before application
+// start to have an effect.
+func (c *collector) RegisterProbes(probes ...Probe) {
+	c.Lock()
+	defer c.Unlock()
+	c.probes = append(c.probes, probes...)
 }
 
 // GetStaleProbes returns a map of stale probes which key is a probe name and
 // value is a time when the last instance of the probe has been started.
 //
 // A probe is declared stale if it hasn't returned in FailureThreshold.
-func (c *Collector) GetStaleProbes() map[string]time.Time {
+func (c *collector) GetStaleProbes() map[string]time.Time {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -129,7 +104,7 @@ func (c *Collector) GetStaleProbes() map[string]time.Time {
 }
 
 // spawnProbe starts a goroutine which invokes the probe at the particular interval.
-func (c *Collector) spawnProbe(p *Probe) {
+func (c *collector) spawnProbe(p *Probe) {
 	go func() {
 		timer, stopTimer := inctimer.New()
 		defer stopTimer()
@@ -141,7 +116,7 @@ func (c *Collector) spawnProbe(p *Probe) {
 				interval = p.Interval(p.consecutiveFailures)
 			}
 			select {
-			case <-c.stop:
+			case <-c.stopChan:
 				// collector is closed, stop looping
 				return
 			case <-timer.After(interval):
@@ -153,7 +128,7 @@ func (c *Collector) spawnProbe(p *Probe) {
 
 // runProbe runs the given probe, and returns either after the probe has returned
 // or after the collector has been closed.
-func (c *Collector) runProbe(p *Probe) {
+func (c *collector) runProbe(p *Probe) {
 	var (
 		statusData       interface{}
 		err              error
@@ -186,7 +161,7 @@ func (c *Collector) runProbe(p *Probe) {
 	// does not run again while it is blocked.
 	for {
 		select {
-		case <-c.stop:
+		case <-c.stopChan:
 			// Collector was closed. The probe will complete in the background
 			// and won't be restarted again.
 			cancel()
@@ -224,9 +199,11 @@ func (c *Collector) runProbe(p *Probe) {
 	}
 }
 
-func (c *Collector) updateProbeStatus(p *Probe, data interface{}, stale bool, err error) {
+func (c *collector) updateProbeStatus(p *Probe, data interface{}, stale bool, err error) {
 	// Update stale status of the probe
 	c.Lock()
+	defer c.Unlock()
+
 	startTime := c.probeStartTime[p.Name]
 	if stale {
 		c.staleProbes[p.Name] = struct{}{}
@@ -239,7 +216,6 @@ func (c *Collector) updateProbeStatus(p *Probe, data interface{}, stale bool, er
 			p.consecutiveFailures++
 		}
 	}
-	c.Unlock()
 
 	if stale {
 		log.WithFields(logrus.Fields{
@@ -249,5 +225,5 @@ func (c *Collector) updateProbeStatus(p *Probe, data interface{}, stale bool, er
 	}
 
 	// Notify the probe about status update
-	p.OnStatusUpdate(Status{Err: err, Data: data, StaleWarning: stale})
+	p.OnStatusUpdate(Status{Err: err, Data: data, StaleWarning: stale}, &c.statusResponse)
 }

@@ -72,6 +72,7 @@ import (
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/status"
 	"github.com/cilium/cilium/pkg/sysctl"
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -1621,6 +1622,7 @@ type daemonModuleParams struct {
 	CachesSynced
 	egressgateway.EgressGatewayHandlers `optional:"true"`
 	datapathTypes.LBMap
+	StatusCollector status.Collector
 }
 
 func daemonModule(p daemonModuleParams) (*Daemon, error) {
@@ -1673,6 +1675,7 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 
 	d, restoredEndpoints, err := NewDaemon(p.Context, p.Cleaner, p.EndpointManager, p.CachesSynced, p.EgressGatewayHandlers,
 		p.LBMap,
+		p.StatusCollector,
 		linuxdatapath.NewDatapath(datapathConfig, p.IptablesManager, wgAgent))
 	if err != nil {
 		return nil, fmt.Errorf("daemon creation failed: %w", err)
@@ -1792,7 +1795,7 @@ func daemonModule(p daemonModuleParams) (*Daemon, error) {
 	}
 	bootstrapStats.healthCheck.End(true)
 
-	d.startStatusCollector(p.Cleaner)
+	d.setupStatusCollector(p.Cleaner)
 
 	go func(errs <-chan error) {
 		if errs != nil {
