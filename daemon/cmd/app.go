@@ -5,11 +5,15 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"runtime"
 	"time"
 
 	"go.uber.org/fx"
 
 	"github.com/cilium/cilium/api/v1/server"
+	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
 	"github.com/cilium/cilium/pkg/egressgateway"
 	"github.com/cilium/cilium/pkg/endpoint"
@@ -20,12 +24,23 @@ import (
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/status"
+	"github.com/mackerelio/go-osstat/cpu"
 )
 
 func runApp() {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	appLogger := newAppLogger
+
+	if os.Getenv("CILIUM_PRETTY") != "" {
+		appLogger = newPrettyAppLogger
+		fmt.Printf("👋 Cilium is initializing...\n")
+	}
+
+	t0 := time.Now()
+
 	app := fx.New(
-		fx.WithLogger(newAppLogger),
+		fx.WithLogger(appLogger),
 		fx.Supply(fx.Annotate(ctx, fx.As(new(context.Context)))),
 		fx.Supply(option.Config),
 
@@ -65,6 +80,8 @@ func runApp() {
 		),
 		endpointmanager.Module,
 
+		fx.Invoke(registerStatsReporter),
+
 		// The first thing to do when stopping is to cancel the
 		// daemon-wide context.
 		fx.Invoke(appendOnStop(cancel)),
@@ -72,6 +89,11 @@ func runApp() {
 
 	if app.Err() != nil {
 		log.WithError(app.Err()).Fatal("Failed to initialize daemon")
+	}
+
+	if os.Getenv("CILIUM_PRETTY") != "" {
+		fmt.Printf("ℹ Initialization complete in %s\n", time.Now().Sub(t0))
+		fmt.Printf("🏁 Cilium is starting\n")
 	}
 
 	app.Run()
@@ -120,4 +142,59 @@ func optional(flag bool, opts ...fx.Option) fx.Option {
 		return fx.Options(opts...)
 	}
 	return fx.Invoke()
+}
+
+func registerStatsReporter(lc fx.Lifecycle, ctx context.Context) {
+	if os.Getenv("CILIUM_PRETTY") != "" {
+		lc.Append(fx.Hook{
+			OnStart: func(context.Context) error {
+				go statsReporter(ctx)
+				return nil
+			},
+		})
+	}
+}
+
+func statsReporter(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	var prevMemstats runtime.MemStats
+	runtime.ReadMemStats(&prevMemstats)
+
+	cpuBefore, _ := cpu.Get()
+	for {
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return
+		}
+
+		var memstats runtime.MemStats
+		runtime.ReadMemStats(&memstats)
+
+		cpuAfter, _ := cpu.Get()
+		total := float64(cpuAfter.Total - cpuBefore.Total)
+		user := float64(cpuAfter.User-cpuBefore.User) / total * 100
+		system := float64(cpuAfter.System-cpuBefore.System) / total * 100
+
+		controllerStats := controller.GetGlobalStatus()
+		var lastErr string
+		var lastErrTime time.Time
+		for _, s := range controllerStats {
+			if s.Status.LastFailureMsg != "" && time.Time(s.Status.LastFailureTimestamp).After(lastErrTime) {
+				ago := time.Time(s.Status.LastFailureTimestamp).Sub(time.Now())
+				lastErr = fmt.Sprintf("%s: %s (%s ago)", s.Name, s.Status.LastFailureMsg, ago)
+			}
+		}
+
+		allocRate := memstats.Mallocs - prevMemstats.Mallocs
+		fmt.Printf("ℹ %d goroutines, CPU: user %.1f%% system %.1f%%\n", runtime.NumGoroutine(), user, system)
+		fmt.Printf("ℹ %dMB in use, %d mallocs/sec\n",
+			memstats.Alloc/1024/1024, allocRate)
+		fmt.Printf("ℹ %d controllers, last error: %q\n\n", len(controllerStats), lastErr)
+
+		prevMemstats = memstats
+		cpuBefore = cpuAfter
+	}
 }

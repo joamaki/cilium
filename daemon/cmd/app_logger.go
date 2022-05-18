@@ -4,7 +4,10 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"go.uber.org/fx/fxevent"
@@ -144,5 +147,92 @@ func (log appLogger) LogEvent(event fxevent.Event) {
 			log.WithField("function", e.ConstructorName).
 				Info("Initialized custom fxevent.Logger")
 		}
+	}
+}
+
+type prettyLogger struct {
+	invokeStarted time.Time
+}
+
+func newPrettyAppLogger() fxevent.Logger {
+	return &prettyLogger{}
+}
+
+func (log *prettyLogger) LogEvent(event fxevent.Event) {
+
+	switch e := event.(type) {
+	case *fxevent.OnStartExecuting:
+		fmt.Printf("⌛ %s ...", e.FunctionName)
+
+	case *fxevent.OnStartExecuted:
+		os.Stdout.Write([]byte{0x0d})
+		if e.Err == nil {
+			fmt.Printf("✅ %s (%s)\n", e.FunctionName, e.Runtime.String())
+		} else {
+			fmt.Printf("❌ %s failed: %s\n", e.FunctionName, e.Err)
+		}
+
+	case *fxevent.OnStopExecuting:
+		fmt.Printf("🔥 %s...", e.FunctionName)
+
+	case *fxevent.OnStopExecuted:
+		os.Stdout.Write([]byte{0x0d})
+		if e.Err == nil {
+			fmt.Printf("✅ %s (%s)\n", e.FunctionName, e.Runtime.String())
+		} else {
+			fmt.Printf("❌ %s failed: %s\n", e.FunctionName, e.Err)
+		}
+
+	case *fxevent.Supplied:
+		if e.ModuleName != "" {
+			fmt.Printf("🎁️ %s from %s\n", e.TypeName, e.ModuleName)
+		} else {
+			fmt.Printf("🎁️ %s\n", e.TypeName)
+		}
+		fmt.Println()
+
+	case *fxevent.Provided:
+		if e.ModuleName != "" {
+			fmt.Printf("🛠️  %s (%s):\n", e.ModuleName, e.ConstructorName)
+		} else {
+			fmt.Printf("🛠️  %s:\n", e.ConstructorName)
+		}
+		for _, rtype := range e.OutputTypeNames {
+			fmt.Printf("  • %s\n", rtype)
+		}
+		if e.Err != nil {
+			fmt.Printf("❌%s error: %s\n", e.ConstructorName, strings.Replace(e.Err.Error(), ":", ":\n\t", -1))
+		}
+		fmt.Println()
+
+	case *fxevent.Decorated:
+
+	case *fxevent.Invoking:
+		log.invokeStarted = time.Now()
+		fmt.Printf("⌛%s ...", e.FunctionName)
+
+	case *fxevent.Invoked:
+		os.Stdout.Write([]byte{0x0d})
+		if e.Err == nil {
+			fmt.Printf("✅ %s (%s)\n", e.FunctionName, time.Now().Sub(log.invokeStarted))
+		} else {
+			fmt.Printf("❌%s error:\n  %s\n", e.FunctionName, strings.Replace(e.Err.Error(), ": ", ":\n  ", -1))
+		}
+
+	case *fxevent.Stopping:
+		fmt.Printf("🔥 Interrupt received, stopping Cilium...\n")
+
+	case *fxevent.Stopped:
+		fmt.Printf("👋 Cilium has stopped.\n")
+
+	case *fxevent.RollingBack:
+	case *fxevent.RolledBack:
+	case *fxevent.Started:
+		if e.Err == nil {
+			fmt.Printf("🚀 Startup sequence complete, Cilium operational.\n\n")
+		} else {
+			fmt.Printf("❌ Start failed: %s\n", e.Err)
+		}
+	case *fxevent.LoggerInitialized:
 	}
 }

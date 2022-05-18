@@ -41,6 +41,8 @@ const (
 // default to avoid external dependencies from writing out unexpectedly
 var DefaultLogger = InitializeDefaultLogger()
 
+var logFile *os.File = nil
+
 func init() {
 	log := DefaultLogger.WithField(logfields.LogSubsys, "klog")
 
@@ -66,6 +68,15 @@ func init() {
 
 	// Do not repeat log messages on all severities in klog
 	klogFlags.Set("one_output", "true")
+
+	if os.Getenv("CILIUM_PRETTY") != "" {
+		fmt.Printf("CILIUM_PRETTY is set, writing logs to /tmp/cilium.log\n")
+		var err error
+		logFile, err = os.OpenFile("/tmp/cilium.log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			panic(err)
+		}
+	}
 }
 
 // LogOptions maps configuration key-value pairs related to logging.
@@ -76,6 +87,9 @@ func InitializeDefaultLogger() (logger *logrus.Logger) {
 	logger = logrus.New()
 	logger.SetFormatter(GetFormatter(DefaultLogFormat))
 	logger.SetLevel(DefaultLogLevel)
+	if logFile != nil {
+		logger.SetOutput(logFile)
+	}
 	return
 }
 
@@ -157,7 +171,13 @@ func SetupLogging(loggers []string, logOpts LogOptions, tag string, debug bool) 
 	// Set default logger to output to stdout if no loggers are provided.
 	if len(loggers) == 0 {
 		// TODO: switch to a per-logger version when we upgrade to logrus >1.0.3
-		logrus.SetOutput(os.Stdout)
+		if logFile != nil {
+			logrus.SetOutput(logFile)
+			DefaultLogger.SetOutput(logFile)
+		} else {
+			logrus.SetOutput(os.Stdout)
+			DefaultLogger.SetOutput(os.Stdout)
+		}
 	}
 
 	// Updating the default log level, overriding the log options if the debug arg is being set

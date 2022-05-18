@@ -111,6 +111,10 @@ var (
 				os.Exit(0)
 			}
 
+			if os.Getenv("CILIUM_PRETTY") != "" {
+				logging.SetLogLevel(logrus.ErrorLevel)
+			}
+
 			bootstrapStats.earlyInit.Start()
 			initEnv(cmd)
 			bootstrapStats.earlyInit.End(true)

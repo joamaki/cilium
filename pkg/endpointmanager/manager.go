@@ -134,8 +134,6 @@ func (mgr *endpointManager) onStart(context.Context) error {
 }
 
 func (mgr *endpointManager) onStop(stopCtx context.Context) error {
-	mgr.mutex.Lock()
-	defer mgr.mutex.Unlock()
 	mgr.cancel()
 
 	swg := lock.NewStoppableWaitGroup()
@@ -144,6 +142,9 @@ func (mgr *endpointManager) onStop(stopCtx context.Context) error {
 		mgr.ctrlManager.RemoveAllAndWait()
 		swg.Done()
 	}()
+
+	mgr.mutex.Lock()
+	defer mgr.mutex.Unlock()
 
 	log.Info("Waiting for all endpoints' go routines to be stopped.")
 
@@ -159,7 +160,8 @@ func (mgr *endpointManager) onStop(stopCtx context.Context) error {
 
 	select {
 	case <-stopCtx.Done():
-		log.Warning("Timed out waiting for endpoints to stop")
+		return fmt.Errorf("Timed out while waiting for endpoints to stop")
+
 	case <-swg.WaitChannel():
 		log.Info("All endpoints' goroutines stopped.")
 	}
