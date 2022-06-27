@@ -70,7 +70,10 @@ func initKubeProxyReplacementOptions() (bool, error) {
 		return false, nil
 	}
 
-	probesManager := probes.NewProbeManager()
+	var probesManager *probes.ProbeManager
+	if !option.Config.DryMode {
+		probesManager = probes.NewProbeManager()
+	}
 
 	// strict denotes to panic if any to-be enabled feature cannot be enabled
 	strict := option.Config.KubeProxyReplacement != option.KubeProxyReplacementProbe
@@ -210,19 +213,22 @@ func initKubeProxyReplacementOptions() (bool, error) {
 	}
 
 	if option.Config.EnableNodePort {
-		found := false
-		if h := probesManager.GetHelpers("sched_act"); h != nil {
-			if _, ok := h["bpf_fib_lookup"]; ok {
-				found = true
+		if probesManager != nil {
+			found := false
+			if h := probesManager.GetHelpers("sched_act"); h != nil {
+				if _, ok := h["bpf_fib_lookup"]; ok {
+					found = true
+				}
 			}
-		}
-		if !found {
-			msg := "BPF NodePort services needs kernel 4.17.0 or newer."
-			if strict {
-				return false, fmt.Errorf(msg)
-			} else {
-				disableNodePort()
-				log.Warn(msg + " Disabling BPF NodePort.")
+
+			if !found {
+				msg := "BPF NodePort services needs kernel 4.17.0 or newer."
+				if strict {
+					return false, fmt.Errorf(msg)
+				} else {
+					disableNodePort()
+					log.Warn(msg + " Disabling BPF NodePort.")
+				}
 			}
 		}
 
@@ -241,7 +247,7 @@ func initKubeProxyReplacementOptions() (bool, error) {
 		// be v4-in-v6 connections even if the agent has v6 support disabled.
 		probe.HaveIPv6Support()
 
-		if option.Config.EnableMKE {
+		if option.Config.EnableMKE && !option.Config.DryMode {
 			foundClassid := false
 			foundCookie := false
 			if h := probesManager.GetHelpers("cgroup_sock_addr"); h != nil {
@@ -264,12 +270,12 @@ func initKubeProxyReplacementOptions() (bool, error) {
 		}
 
 		option.Config.EnableHostServicesPeer = true
-		if option.Config.EnableIPv4 {
+		if option.Config.EnableIPv4 && !option.Config.DryMode {
 			if err := bpf.TestDummyProg(bpf.ProgTypeCgroupSockAddr, bpf.BPF_CGROUP_INET4_GETPEERNAME); err != nil {
 				option.Config.EnableHostServicesPeer = false
 			}
 		}
-		if option.Config.EnableIPv6 {
+		if option.Config.EnableIPv6 && !option.Config.DryMode {
 			if err := bpf.TestDummyProg(bpf.ProgTypeCgroupSockAddr, bpf.BPF_CGROUP_INET6_GETPEERNAME); err != nil {
 				option.Config.EnableHostServicesPeer = false
 			}
@@ -306,7 +312,7 @@ func initKubeProxyReplacementOptions() (bool, error) {
 		option.Config.EnableHostServicesUDP = false
 	}
 
-	if option.Config.EnableSessionAffinity {
+	if option.Config.EnableSessionAffinity && !option.Config.DryMode {
 		if !probesManager.GetMapTypes().HaveLruHashMapType {
 			msg := "SessionAffinity feature requires BPF LRU maps"
 			if strict {
@@ -318,7 +324,7 @@ func initKubeProxyReplacementOptions() (bool, error) {
 
 		}
 	}
-	if option.Config.EnableSessionAffinity && option.Config.EnableHostReachableServices {
+	if option.Config.EnableSessionAffinity && option.Config.EnableHostReachableServices && !option.Config.DryMode {
 		found1, found2 := false, false
 		if h := probesManager.GetHelpers("cgroup_sock"); h != nil {
 			_, found1 = h["bpf_get_netns_cookie"]
@@ -359,7 +365,7 @@ func initKubeProxyReplacementOptions() (bool, error) {
 			}
 		}
 
-		if option.Config.EnableRecorder {
+		if option.Config.EnableRecorder && !option.Config.DryMode {
 			found := false
 			if h := probesManager.GetHelpers("xdp"); h != nil {
 				if _, ok := h["bpf_ktime_get_boot_ns"]; ok {
@@ -375,7 +381,7 @@ func initKubeProxyReplacementOptions() (bool, error) {
 			option.Config.DatapathMode == datapathOption.DatapathModeLBOnly &&
 				option.Config.NodePortMode == option.NodePortModeDSR &&
 				option.Config.LoadBalancerDSRDispatch == option.DSRDispatchIPIP
-		if option.Config.EnableHealthDatapath {
+		if option.Config.EnableHealthDatapath && !option.Config.DryMode {
 			found := false
 			if h := probesManager.GetHelpers("cgroup_sock_addr"); h != nil {
 				if _, ok := h["bpf_getsockopt"]; ok {
@@ -408,7 +414,7 @@ func initKubeProxyReplacementOptions() (bool, error) {
 		if !option.Config.EnableHostReachableServices {
 			option.Config.BPFSocketLBHostnsOnly = false
 			log.Warnf("%s only takes effect when %s is true", option.BPFSocketLBHostnsOnly, option.EnableHostReachableServices)
-		} else {
+		} else if !option.Config.DryMode {
 			found := false
 			if helpers := probesManager.GetHelpers("cgroup_sock_addr"); helpers != nil {
 				if _, ok := helpers["bpf_get_netns_cookie"]; ok {
@@ -452,6 +458,10 @@ func probeManagedNeighborSupport() {
 }
 
 func probeCgroupSupportTCP(strict, ipv4 bool) error {
+	if option.Config.DryMode {
+		return nil
+	}
+
 	var err error
 
 	if ipv4 {
@@ -476,6 +486,10 @@ func probeCgroupSupportTCP(strict, ipv4 bool) error {
 }
 
 func probeCgroupSupportUDP(strict, ipv4 bool) error {
+	if option.Config.DryMode {
+		return nil
+	}
+
 	var err error
 
 	if ipv4 {
@@ -503,6 +517,10 @@ func probeCgroupSupportUDP(strict, ipv4 bool) error {
 // finishKubeProxyReplacementInit finishes initialization of kube-proxy
 // replacement after all devices are known.
 func finishKubeProxyReplacementInit(isKubeProxyReplacementStrict bool) error {
+	var probeMan *probes.ProbeManager
+	if !option.Config.DryMode {
+		probeMan = probes.NewProbeManager()
+	}
 	if option.Config.EnableNodePort {
 		if err := node.InitNodePortAddrs(option.Config.GetDevices(), option.Config.LBDevInheritIPAddr); err != nil {
 			msg := "failed to initialize NodePort addrs."
@@ -521,7 +539,7 @@ func finishKubeProxyReplacementInit(isKubeProxyReplacementStrict bool) error {
 		return nil
 	}
 
-	if option.Config.EnableSVCSourceRangeCheck && !probe.HaveFullLPM() {
+	if option.Config.EnableSVCSourceRangeCheck && !option.Config.DryMode && !probe.HaveFullLPM() {
 		msg := fmt.Sprintf("--%s requires kernel 4.16 or newer.",
 			option.EnableSVCSourceRangeCheck)
 		if isKubeProxyReplacementStrict {
@@ -584,7 +602,7 @@ func finishKubeProxyReplacementInit(isKubeProxyReplacementStrict bool) error {
 
 	option.Config.NodePortNat46X64 = option.Config.EnableIPv4 && option.Config.EnableIPv6 &&
 		option.Config.NodePortMode == option.NodePortModeSNAT &&
-		probes.NewProbeManager().GetMisc().HaveLargeInsnLimit
+		(probeMan == nil || probeMan.GetMisc().HaveLargeInsnLimit)
 
 	for _, iface := range option.Config.GetDevices() {
 		link, err := netlink.LinkByName(iface)
