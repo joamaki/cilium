@@ -6,22 +6,22 @@ items:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
         {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"echo","namespace":"test"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":80}],"selector":{"name":"echo"},"type":"NodePort"}}
-    creationTimestamp: "2022-07-06T09:25:50Z"
+    creationTimestamp: "2022-07-07T11:10:52Z"
     name: echo
     namespace: test
-    resourceVersion: "804"
-    uid: 73255222-9e75-4582-a5d0-7575611447b8
+    resourceVersion: "813"
+    uid: 1f8a7205-f34e-4a3e-9587-374f1e8128e9
   spec:
-    clusterIP: 10.96.215.26
+    clusterIP: 10.96.243.219
     clusterIPs:
-    - 10.96.215.26
+    - 10.96.243.219
     externalTrafficPolicy: Cluster
     ipFamilies:
     - IPv4
     ipFamilyPolicy: SingleStack
     ports:
     - name: http
-      nodePort: 31651
+      nodePort: 30667
       port: 80
       protocol: TCP
       targetPort: 80
@@ -35,22 +35,22 @@ items:
   kind: Endpoints
   metadata:
     annotations:
-      endpoints.kubernetes.io/last-change-trigger-time: "2022-07-06T09:26:06Z"
-    creationTimestamp: "2022-07-06T09:25:50Z"
+      endpoints.kubernetes.io/last-change-trigger-time: "2022-07-07T11:11:06Z"
+    creationTimestamp: "2022-07-07T11:10:52Z"
     name: echo
     namespace: test
-    resourceVersion: "854"
-    uid: 9c6d99d4-8d3c-441b-a315-0b44a7e0f9fb
+    resourceVersion: "859"
+    uid: a12ff856-5728-44f0-a027-d991a3a19b87
   subsets:
   - addresses:
-    - ip: 10.244.2.56
-      nodeName: nodeport-worker
+    - ip: 10.244.2.242
+      nodeName: nodeport-worker2
       targetRef:
         kind: Pod
-        name: echo-76456c8696-cwxmh
+        name: echo-76456c8696-cmlgp
         namespace: test
-        resourceVersion: "853"
-        uid: 8b4b16fa-55a8-4f56-a11f-8ca54762b377
+        resourceVersion: "858"
+        uid: def3566b-3394-4d82-ab35-2d497bd3eeb7
     ports:
     - name: http
       port: 80
@@ -59,28 +59,28 @@ items:
   apiVersion: discovery.k8s.io/v1beta1
   endpoints:
   - addresses:
-    - 10.244.2.56
+    - 10.244.2.242
     conditions:
       ready: true
     targetRef:
       kind: Pod
-      name: echo-76456c8696-cwxmh
+      name: echo-76456c8696-cmlgp
       namespace: test
-      resourceVersion: "853"
-      uid: 8b4b16fa-55a8-4f56-a11f-8ca54762b377
+      resourceVersion: "858"
+      uid: def3566b-3394-4d82-ab35-2d497bd3eeb7
     topology:
-      kubernetes.io/hostname: nodeport-worker
+      kubernetes.io/hostname: nodeport-worker2
   kind: EndpointSlice
   metadata:
     annotations:
-      endpoints.kubernetes.io/last-change-trigger-time: "2022-07-06T09:26:06Z"
-    creationTimestamp: "2022-07-06T09:25:50Z"
+      endpoints.kubernetes.io/last-change-trigger-time: "2022-07-07T11:11:06Z"
+    creationTimestamp: "2022-07-07T11:10:52Z"
     generateName: echo-
     generation: 3
     labels:
       endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
       kubernetes.io/service-name: echo
-    name: echo-r9khv
+    name: echo-t8qgc
     namespace: test
     ownerReferences:
     - apiVersion: v1
@@ -88,9 +88,9 @@ items:
       controller: true
       kind: Service
       name: echo
-      uid: 73255222-9e75-4582-a5d0-7575611447b8
-    resourceVersion: "855"
-    uid: eaeb4be0-111d-431c-bc9e-54a88fbd958f
+      uid: 1f8a7205-f34e-4a3e-9587-374f1e8128e9
+    resourceVersion: "860"
+    uid: 6d3ebd3e-49f9-43c2-9858-f04697e58d39
   ports:
   - name: http
     port: 80
@@ -98,12 +98,12 @@ items:
 - apiVersion: v1
   kind: Pod
   metadata:
-    creationTimestamp: "2022-07-06T09:25:50Z"
+    creationTimestamp: "2022-07-07T11:10:52Z"
     generateName: echo-76456c8696-
     labels:
       name: echo
       pod-template-hash: 76456c8696
-    name: echo-76456c8696-cwxmh
+    name: echo-76456c8696-cmlgp
     namespace: test
     ownerReferences:
     - apiVersion: apps/v1
@@ -111,9 +111,9 @@ items:
       controller: true
       kind: ReplicaSet
       name: echo-76456c8696
-      uid: b8a05aeb-3493-497f-bdb5-8f5929f441e9
-    resourceVersion: "853"
-    uid: 8b4b16fa-55a8-4f56-a11f-8ca54762b377
+      uid: 6f501a06-7a1a-4854-ba69-cb7338ce389f
+    resourceVersion: "858"
+    uid: def3566b-3394-4d82-ab35-2d497bd3eeb7
   spec:
     containers:
     - image: docker.io/cilium/json-mock:1.2
@@ -137,11 +137,11 @@ items:
       terminationMessagePolicy: File
       volumeMounts:
       - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
-        name: default-token-8fj58
+        name: default-token-5bjmz
         readOnly: true
     dnsPolicy: ClusterFirst
     enableServiceLinks: true
-    nodeName: nodeport-worker
+    nodeName: nodeport-worker2
     preemptionPolicy: PreemptLowerPriority
     priority: 0
     restartPolicy: Always
@@ -160,30 +160,30 @@ items:
       operator: Exists
       tolerationSeconds: 300
     volumes:
-    - name: default-token-8fj58
+    - name: default-token-5bjmz
       secret:
         defaultMode: 420
-        secretName: default-token-8fj58
+        secretName: default-token-5bjmz
   status:
     conditions:
     - lastProbeTime: null
-      lastTransitionTime: "2022-07-06T09:25:50Z"
+      lastTransitionTime: "2022-07-07T11:10:52Z"
       status: "True"
       type: Initialized
     - lastProbeTime: null
-      lastTransitionTime: "2022-07-06T09:26:06Z"
+      lastTransitionTime: "2022-07-07T11:11:06Z"
       status: "True"
       type: Ready
     - lastProbeTime: null
-      lastTransitionTime: "2022-07-06T09:26:06Z"
+      lastTransitionTime: "2022-07-07T11:11:06Z"
       status: "True"
       type: ContainersReady
     - lastProbeTime: null
-      lastTransitionTime: "2022-07-06T09:25:50Z"
+      lastTransitionTime: "2022-07-07T11:10:52Z"
       status: "True"
       type: PodScheduled
     containerStatuses:
-    - containerID: containerd://c82517d6ecca797a5d4bf3c22e9abdef77b09e1d2f59e7ea5c82bf82c4edb246
+    - containerID: containerd://42a1e8425cedffe0af5e6815c6842a55cf8ee44256d25adfc4bdcf4eab7e7100
       image: docker.io/cilium/json-mock:1.2
       imageID: docker.io/cilium/json-mock@sha256:941e03da57551dd4a71f351b35650c152a1192ac1df717e43ee58b5aa2b8e241
       lastState: {}
@@ -193,14 +193,89 @@ items:
       started: true
       state:
         running:
-          startedAt: "2022-07-06T09:25:58Z"
-    hostIP: 172.18.0.3
+          startedAt: "2022-07-07T11:11:00Z"
+    hostIP: 172.18.0.4
     phase: Running
-    podIP: 10.244.2.56
+    podIP: 10.244.2.242
     podIPs:
-    - ip: 10.244.2.56
+    - ip: 10.244.2.242
     qosClass: BestEffort
-    startTime: "2022-07-06T09:25:50Z"
+    startTime: "2022-07-07T11:10:52Z"
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    creationTimestamp: "2022-07-07T11:09:36Z"
+    name: default
+    resourceVersion: "200"
+    uid: c2182db0-bc26-4337-9bff-1c4ce7f9bd97
+  spec:
+    finalizers:
+    - kubernetes
+  status:
+    phase: Active
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    creationTimestamp: "2022-07-07T11:09:35Z"
+    name: kube-node-lease
+    resourceVersion: "24"
+    uid: 222ea4ca-25ef-46eb-bb7e-696d08e1b6d3
+  spec:
+    finalizers:
+    - kubernetes
+  status:
+    phase: Active
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    creationTimestamp: "2022-07-07T11:09:35Z"
+    name: kube-public
+    resourceVersion: "21"
+    uid: 5d3deef4-1429-4cc7-b61d-86d3775e849b
+  spec:
+    finalizers:
+    - kubernetes
+  status:
+    phase: Active
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    creationTimestamp: "2022-07-07T11:09:35Z"
+    name: kube-system
+    resourceVersion: "17"
+    uid: 56454809-b75a-4c3a-860c-d70c2ee008b3
+  spec:
+    finalizers:
+    - kubernetes
+  status:
+    phase: Active
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Namespace","metadata":{"annotations":{},"name":"local-path-storage"}}
+    creationTimestamp: "2022-07-07T11:09:38Z"
+    name: local-path-storage
+    resourceVersion: "233"
+    uid: 5e2ed8b5-54e3-48ef-93b4-d25323e27d63
+  spec:
+    finalizers:
+    - kubernetes
+  status:
+    phase: Active
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    creationTimestamp: "2022-07-07T11:10:51Z"
+    name: test
+    resourceVersion: "797"
+    uid: 02aee5b8-c104-4aa4-a8ca-e98a95740a84
+  spec:
+    finalizers:
+    - kubernetes
+  status:
+    phase: Active
 kind: List
 metadata:
   resourceVersion: ""

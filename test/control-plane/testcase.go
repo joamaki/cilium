@@ -4,7 +4,10 @@
 package controlplane
 
 import (
+	"context"
 	"flag"
+	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"sort"
@@ -26,7 +29,13 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8sTesting "k8s.io/client-go/testing"
 
+	"github.com/cilium/cilium/api/v1/models"
+	endpointapi "github.com/cilium/cilium/api/v1/server/restapi/endpoint"
+	ipamapi "github.com/cilium/cilium/api/v1/server/restapi/ipam"
+	"github.com/cilium/cilium/daemon/cmd"
+	"github.com/cilium/cilium/pkg/api"
 	fakeDatapath "github.com/cilium/cilium/pkg/datapath/fake"
+	endpointid "github.com/cilium/cilium/pkg/endpoint/id"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	fakeCilium "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/fake"
 	fakeSlim "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned/fake"
@@ -57,6 +66,8 @@ const (
 	defaultValidationTimeout = 10 * time.Second
 )
 
+var HACKEndpoints = []string{}
+
 // ControlPlaneTestStep defines a test step, with input objects that are
 // fed into the control-plane, and a validation function that is called
 // after control-plane has applied the changes.
@@ -84,7 +95,7 @@ func (t *ControlPlaneTestStep) AddObjects(objs ...k8sRuntime.Object) *ControlPla
 
 func (t *ControlPlaneTestStep) AddValidation(newValidator Validator) *ControlPlaneTestStep {
 	if t.Validator != nil {
-		t.Validator = multiValidator{t.Validator, newValidator}
+		t.Validator = multiValidator{newValidator, t.Validator}
 	} else {
 		t.Validator = newValidator
 	}
@@ -221,10 +232,12 @@ func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modCo
 						if err := tracker.Update(gvr, obj, ns); err != nil {
 							t.Fatalf("Failed to update object %T: %s", obj, err)
 						}
+						handleObjectUpdate(obj)
 					} else {
 						if err := tracker.Add(obj); err != nil {
 							t.Fatalf("Failed to add object %T: %s", obj, err)
 						}
+						handleObjectAdd(agentHandle.d, obj)
 					}
 				})
 			}
@@ -235,6 +248,7 @@ func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modCo
 					if err := tracker.Delete(gvr, ns, name); err != nil {
 						t.Fatalf("Failed to delete object %T: %s", obj, err)
 					}
+					handleObjectDelete(decoder.convert(obj))
 				})
 			}
 
@@ -256,6 +270,71 @@ func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modCo
 			}
 		})
 	}
+}
+
+func allocateEndpointForPod(d *cmd.Daemon, pod *corev1.Pod) {
+	ipamHandler := cmd.NewPostIPAMHandler(d)
+	epHandler := cmd.NewPutEndpointIDHandler(d)
+	dummyReq, _ := http.NewRequestWithContext(context.TODO(), "", "", nil)
+
+	// Allocate an IP for the pod
+	family := "ipv4"
+	owner := pod.GetNamespace() + "/" + pod.GetName()
+	ipamResp := ipamHandler.Handle(ipamapi.PostIpamParams{
+		HTTPRequest: dummyReq,
+		Expiration:  new(bool),
+		Family:      &family,
+		Owner:       &owner,
+	}).(*ipamapi.PostIpamCreated)
+	fmt.Printf("ipam allocate: %#v\n", ipamResp.Payload)
+
+	HACKEndpoints = append(HACKEndpoints, ipamResp.Payload.Address.IPV4)
+
+	// And then create the endpoint
+	/*labels := []string{}
+	for k, v := range pod.ObjectMeta.Labels {
+		labels = append(labels, k+":k8s=="+v)
+	}*/
+	epRequest := &models.EndpointChangeRequest{
+		Addressing:        ipamResp.Payload.Address,
+		ContainerID:       pod.Status.ContainerStatuses[0].ContainerID,
+		ContainerName:     pod.Status.ContainerStatuses[0].Name,
+		HostMac:           "11:22:33:44:55:66",
+		InterfaceIndex:    123,
+		InterfaceName:     "veth123",
+		K8sNamespace:      pod.GetNamespace(),
+		K8sPodName:        pod.GetName(),
+		Labels:            []string{},
+		Mac:               "22:33:44:55:66:77",
+		Pid:               0,
+		PolicyEnabled:     true,
+		State:             models.EndpointStateWaitingForIdentity,
+		SyncBuildEndpoint: true,
+	}
+
+	epResp := epHandler.Handle(endpointapi.PutEndpointIDParams{
+		HTTPRequest: dummyReq,
+		Endpoint:    epRequest,
+		ID:          endpointid.NewCiliumID(0),
+	})
+	switch epResp.(type) {
+	case *api.APIError:
+		panic("api error")
+	}
+	fmt.Printf(">>> endpoint created: %#v\n", epResp)
+}
+
+func handleObjectAdd(d *cmd.Daemon, obj k8sRuntime.Object) {
+	switch obj := obj.(type) {
+	case *corev1.Pod:
+		allocateEndpointForPod(d, obj)
+	}
+}
+
+func handleObjectUpdate(obj k8sRuntime.Object) {
+}
+
+func handleObjectDelete(obj k8sRuntime.Object) {
 }
 
 // NewGoldenTest creates a test suite from YAML files defining
@@ -373,6 +452,15 @@ type nameAndNamespace interface {
 func (c *k8sObjectCache) updateObjects(newObjs []k8sRuntime.Object) (updated, deleted []k8sRuntime.Object) {
 	deletedKeys := c.keys()
 	for _, newObj := range newObjs {
+		if _, ok := newObj.(*unstructured.Unstructured); !ok {
+			// Object is not unstructured. Convert it to one so it can be unmarshalled
+			// in different ways, e.g. as v1.Node and slim_v1.Node.
+			fields, err := k8sRuntime.DefaultUnstructuredConverter.ToUnstructured(newObj)
+			if err != nil {
+				panic("failed to convert to unstructured")
+			}
+			newObj = &unstructured.Unstructured{Object: fields}
+		}
 
 		var key objectKey
 		key.gvk = newObj.GetObjectKind().GroupVersionKind()

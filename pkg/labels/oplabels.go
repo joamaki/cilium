@@ -119,6 +119,9 @@ func (o *OpLabels) AllLabels() Labels {
 func (o *OpLabels) ReplaceInformationLabels(l Labels, logger *logrus.Entry) bool {
 	changed := false
 	keepers := make(keepMarks)
+	if o.OrchestrationInfo == nil {
+		o.OrchestrationInfo = make(Labels)
+	}
 	for _, v := range l {
 		keepers.set(v.Key)
 		if o.OrchestrationInfo.upsertLabel(v) {
@@ -136,6 +139,10 @@ func (o *OpLabels) ReplaceIdentityLabels(l Labels, logger *logrus.Entry) bool {
 
 	keepers := make(keepMarks)
 	disabledKeepers := make(keepMarks)
+
+	if o.OrchestrationIdentity == nil {
+		o.OrchestrationIdentity = make(Labels)
+	}
 
 	for k, v := range l {
 		// A disabled identity label stays disabled without value updates

@@ -5,21 +5,25 @@ package fake
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
 
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/loader/metrics"
 	"github.com/cilium/cilium/pkg/datapath/types"
+	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/testutils/mockmaps"
 )
 
 var _ datapath.Datapath = (*FakeDatapath)(nil)
 
 type FakeDatapath struct {
-	node           *FakeNodeHandler
-	nodeAddressing types.NodeAddressing
-	loader         datapath.Loader
-	lbmap          *mockmaps.LBMockMap
+	node            *FakeNodeHandler
+	nodeAddressing  types.NodeAddressing
+	loader          datapath.Loader
+	lbmap           *mockmaps.LBMockMap
+	ipcacheListener IPCacheListener
 }
 
 // NewDatapath returns a new fake datapath
@@ -145,4 +149,43 @@ func (f *fakeLoader) CustomCallsMapPath(id uint16) string {
 // Reinitialize does nothing.
 func (f *fakeLoader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, deviceMTU int, iptMgr datapath.IptablesManager, p datapath.Proxy) error {
 	return nil
+}
+
+func (f *FakeDatapath) FakeIPCacheListener() *IPCacheListener {
+	return &f.ipcacheListener
+}
+
+type IPCacheIdentityChange struct {
+	ModType ipcache.CacheModification
+	Meta    *ipcache.K8sMetadata
+	CIDR    net.IPNet
+	OldID   *ipcache.Identity
+	NewID   ipcache.Identity
+}
+
+type IPCacheListener struct {
+	// FIXME need mu
+	identityChanges []IPCacheIdentityChange
+}
+
+func (l *IPCacheListener) GetIdentityChanges() []IPCacheIdentityChange {
+	// FIXME lock & deep copy
+	return l.identityChanges
+}
+
+func (l *IPCacheListener) OnIPIdentityCacheChange(modType ipcache.CacheModification, cidr net.IPNet,
+	oldHostIP, newHostIP net.IP, oldID *ipcache.Identity, newID ipcache.Identity,
+	encryptKey uint8, k8sMeta *ipcache.K8sMetadata) {
+	fmt.Printf("OnIPIdentityCacheChange invoked\n")
+	l.identityChanges = append(l.identityChanges, IPCacheIdentityChange{
+		ModType: modType,
+		Meta:    k8sMeta,
+		CIDR:    cidr,
+		OldID:   oldID,
+		NewID:   newID,
+	})
+}
+
+func (l *IPCacheListener) OnIPIdentityCacheGC() {
+	fmt.Printf("OnIPIdentityCacheGC invoked\n")
 }

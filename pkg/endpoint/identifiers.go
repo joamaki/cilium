@@ -46,8 +46,8 @@ func (e *Endpoint) HumanStringLocked() string {
 // GetK8sNamespaceAndPodName returns the corresponding namespace and pod
 // name for this endpoint.
 func (e *Endpoint) GetK8sNamespaceAndPodName() string {
-	e.unconditionalRLock()
-	defer e.runlock()
+	//e.unconditionalRLock()
+	//defer e.runlock()
 
 	return e.getK8sNamespaceAndPodName()
 }

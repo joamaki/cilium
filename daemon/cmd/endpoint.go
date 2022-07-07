@@ -383,7 +383,11 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 	defer d.endpointCreations.EndCreateRequest(ep)
 
 	if ep.K8sNamespaceAndPodNameIsSet() && k8s.IsEnabled() {
+		fmt.Printf(">>> Fetching labels\n")
 		pod, cp, identityLabels, info, annotations, err := d.fetchK8sLabelsAndAnnotations(ep.K8sNamespace, ep.K8sPodName)
+
+		fmt.Printf(">>> pod=%s, identityLabels=%s, err=%s\n", pod, identityLabels, err)
+
 		if err != nil {
 			ep.Logger("api").WithError(err).Warning("Unable to fetch kubernetes labels")
 		} else {
@@ -474,6 +478,7 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 		})
 	}
 
+	fmt.Printf(">>> resolving identity (addLabels %#v, infoLabels %#v)\n", addLabels, infoLabels)
 	regenTriggered := ep.UpdateLabels(ctx, addLabels, infoLabels, true)
 
 	select {
@@ -481,6 +486,7 @@ func (d *Daemon) createEndpoint(ctx context.Context, owner regeneration.Owner, e
 		return d.errorDuringCreation(ep, fmt.Errorf("request cancelled while resolving identity"))
 	default:
 	}
+	fmt.Printf(">>> done resolving identity, regenTriggered=%v\n", regenTriggered)
 
 	if !regenTriggered {
 		regenMetadata := &regeneration.ExternalRegenerationMetadata{

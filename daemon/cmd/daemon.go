@@ -202,6 +202,11 @@ func (d *Daemon) GetPolicyRepository() *policy.Repository {
 	return d.policy
 }
 
+// GetIPCache returns the ipcache of the daemon
+func (d *Daemon) GetIPCache() *ipcache.IPCache {
+	return d.ipcache
+}
+
 // DebugEnabled returns if debug mode is enabled.
 func (d *Daemon) DebugEnabled() bool {
 	return option.Config.Opts.IsEnabled(option.Debug)

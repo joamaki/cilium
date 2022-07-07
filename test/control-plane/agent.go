@@ -20,6 +20,8 @@ import (
 	fakeCilium "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/fake"
 	fakeSlim "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned/fake"
 	"github.com/cilium/cilium/pkg/k8s/version"
+	"github.com/cilium/cilium/pkg/k8s/watchers"
+	"github.com/cilium/cilium/pkg/labelsfilter"
 	"github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/proxy"
@@ -46,9 +48,13 @@ func startCiliumAgent(nodeName string, clients fakeClients, modConfig func(*opti
 	proxy.DefaultDNSProxy = fqdnproxy.MockFQDNProxy{}
 	option.Config.Populate()
 	option.Config.IdentityAllocationMode = option.IdentityAllocationModeCRD
-	option.Config.DryMode = true
+	option.Config.DryMode = false
 	option.Config.IPAM = ipamOption.IPAMKubernetes
 	option.Config.Opts = option.NewIntOptions(&option.DaemonMutableOptionLibrary)
+	err := labelsfilter.ParseLabelPrefixCfg(nil, "")
+	if err != nil {
+		panic("ParseLabelPrefixCfg() failed")
+	}
 	option.Config.Opts.SetBool(option.DropNotify, true)
 	option.Config.Opts.SetBool(option.TraceNotify, true)
 	option.Config.Opts.SetBool(option.PolicyVerdictNotify, true)
@@ -72,13 +78,15 @@ func startCiliumAgent(nodeName string, clients fakeClients, modConfig func(*opti
 	fdp := fakeDatapath.NewDatapath()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	var err error
 	handle.d, _, err = cmd.NewDaemon(ctx, cancel,
-		cmd.WithCustomEndpointManager(&dummyEpSyncher{}),
+		cmd.WithCustomEndpointManager(&watchers.EndpointSynchronizer{}),
 		fdp)
 	if err != nil {
 		return nil, agentHandle{}, err
 	}
+
+	handle.d.GetIPCache().AddListener(fdp.FakeIPCacheListener())
+
 	return fdp, handle, nil
 }
 

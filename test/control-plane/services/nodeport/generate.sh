@@ -8,7 +8,8 @@ set -eux
 
 export KUBECONFIG=kubeconfig
 
-versions=(1.20 1.22 1.24)
+#versions=(1.20 1.22 1.24)
+versions=(1.20)
 
 for version in ${versions[*]}; do
     mkdir -p v${version}
@@ -25,7 +26,7 @@ for version in ${versions[*]}; do
     cilium install --wait
 
     : Dump the initial state
-    kubectl get nodes,ciliumnodes,services,endpoints,endpointslices -o yaml > v${version}/init.yaml
+    kubectl get nodes,ciliumnodes,services,endpoints,endpointslices,namespaces -o yaml > v${version}/init.yaml
 
     : Apply the manifest
     kubectl create namespace test
@@ -35,7 +36,7 @@ for version in ${versions[*]}; do
     kubectl wait -n test --for=condition=ready --timeout=60s --all pods
 
     : Dump the services and endpoints
-    kubectl get -n test services,endpoints,endpointslices,pods -o yaml > v${version}/state1.yaml
+    kubectl get -n test services,endpoints,endpointslices,pods,namespaces -o yaml > v${version}/state1.yaml
 
     : Tear down the cluster
     kind delete clusters nodeport
