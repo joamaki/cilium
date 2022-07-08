@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sync/semaphore"
@@ -448,12 +447,14 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 	}
 	lbmap.Init(lbmapInitParams)
 
+	/* FIXME move to datapath
 	if option.Config.DryMode == false {
 		if err := rlimit.RemoveMemlock(); err != nil {
 			log.WithError(err).Error("unable to set memory resource limits")
 			return nil, nil, fmt.Errorf("unable to set memory resource limits: %w", err)
 		}
 	}
+	*/
 
 	authKeySize, encryptKeyID, err := setupIPSec()
 	if err != nil {
@@ -844,11 +845,12 @@ func NewDaemon(ctx context.Context, cancel context.CancelFunc, epMgr *endpointma
 		// Errors are handled inside WaitForCRDsToRegister. It will fatal on a
 		// context deadline or if the context has been cancelled, the context's
 		// error will be returned. Otherwise, it succeeded.
+		/* FIXME(JM): Finish injecting of apiext resources
 		if !option.Config.DryMode {
 			if err := d.k8sWatcher.WaitForCRDsToRegister(d.ctx); err != nil {
 				return nil, restoredEndpoints, err
 			}
-		}
+		}*/
 
 		// Launch the K8s node watcher so we can start receiving node events.
 		// Launching the k8s node watcher at this stage will prevent all agents

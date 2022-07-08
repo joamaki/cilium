@@ -62,6 +62,7 @@ func startCiliumAgent(nodeName string, clients fakeClients, modConfig func(*opti
 	option.Config.EnableIPSec = false
 	option.Config.EnableIPv6 = false
 	option.Config.KubeProxyReplacement = option.KubeProxyReplacementStrict
+	option.Config.NodePortAlg = option.NodePortAlgRandom
 	option.Config.EnableHostIPRestore = false
 	option.Config.K8sRequireIPv6PodCIDR = false
 	option.Config.K8sEnableK8sEndpointSlice = true
@@ -85,7 +86,8 @@ func startCiliumAgent(nodeName string, clients fakeClients, modConfig func(*opti
 		return nil, agentHandle{}, err
 	}
 
-	handle.d.GetIPCache().AddListener(fdp.FakeIPCacheListener())
+	// XXX: with DryMode off we don't need this
+	//handle.d.GetIPCache().AddListener(fdp.FakeIPCacheListener())
 
 	return fdp, handle, nil
 }

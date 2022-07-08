@@ -120,19 +120,23 @@ type fakeLoader struct {
 }
 
 func (f *fakeLoader) CompileAndLoad(ctx context.Context, ep datapath.Endpoint, stats *metrics.SpanStat) error {
-	panic("implement me")
+	fmt.Printf(">>> CompileAndLoad(ep=%#v)\n", ep)
+	return nil
 }
 
 func (f *fakeLoader) CompileOrLoad(ctx context.Context, ep datapath.Endpoint, stats *metrics.SpanStat) error {
-	panic("implement me")
+	fmt.Printf(">>> CompileOrLoad(ep=%#v)\n", ep)
+	return nil
 }
 
 func (f *fakeLoader) ReloadDatapath(ctx context.Context, ep datapath.Endpoint, stats *metrics.SpanStat) error {
-	panic("implement me")
+	fmt.Printf(">>> ReloadDatapath(ep=%#v)\n", ep)
+	return nil
 }
 
 func (f *fakeLoader) EndpointHash(cfg datapath.EndpointConfiguration) (string, error) {
-	panic("implement me")
+	// FIXME proper hash
+	return cfg.StringID(), nil
 }
 
 func (f *fakeLoader) Unload(ep datapath.Endpoint) {
@@ -148,6 +152,7 @@ func (f *fakeLoader) CustomCallsMapPath(id uint16) string {
 
 // Reinitialize does nothing.
 func (f *fakeLoader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, deviceMTU int, iptMgr datapath.IptablesManager, p datapath.Proxy) error {
+	fmt.Printf(">>> Reinitialize datapath\n")
 	return nil
 }
 

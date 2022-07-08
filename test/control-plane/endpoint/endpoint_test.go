@@ -4,7 +4,6 @@
 package node
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/cidr"
 	fakeDatapath "github.com/cilium/cilium/pkg/datapath/fake"
 	"github.com/cilium/cilium/pkg/option"
@@ -112,15 +112,18 @@ var (
 )
 
 func validateInitial(dp *fakeDatapath.FakeDatapath) error {
-	fmt.Printf("identity changes: %#v\n", dp.FakeIPCacheListener())
+	/*
+		fmt.Printf("identity changes: %#v\n", dp.FakeIPCacheListener())
 
-	for i, change := range dp.FakeIPCacheListener().GetIdentityChanges() {
-		fmt.Printf("\t%d: [%s] meta=%v cidr=%s newID=%s\n", i, change.ModType, change.Meta, change.CIDR, change.NewID.ID)
-	}
+		for i, change := range dp.FakeIPCacheListener().GetIdentityChanges() {
+			fmt.Printf("\t%d: [%s] meta=%v cidr=%s newID=%s\n", i, change.ModType, change.Meta, change.CIDR, change.NewID.ID)
+		}*/
 
 	if len(controlplane.HACKEndpoints) > 0 {
 		updatedPod.Status.PodIP = controlplane.HACKEndpoints[0]
 	}
+
+	bpf.MockDumpMaps()
 
 	time.Sleep(time.Second)
 	return nil

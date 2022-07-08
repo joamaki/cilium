@@ -107,6 +107,42 @@ func NewProbeManager() *ProbeManager {
 		Misc: Misc{
 			HaveLargeInsnLimit: true,
 		},
+		MapTypes: MapTypes{
+			HaveHashMapType:                true,
+			HaveArrayMapType:               true,
+			HaveProgArrayMapType:           true,
+			HavePerfEventArrayMapType:      true,
+			HavePercpuHashMapType:          true,
+			HavePercpuArrayMapType:         true,
+			HaveStackTraceMapType:          true,
+			HaveCgroupArrayMapType:         true,
+			HaveLruHashMapType:             true,
+			HaveLruPercpuHashMapType:       true,
+			HaveLpmTrieMapType:             true,
+			HaveArrayOfMapsMapType:         true,
+			HaveHashOfMapsMapType:          true,
+			HaveDevmapMapType:              true,
+			HaveSockmapMapType:             true,
+			HaveCpumapMapType:              true,
+			HaveXskmapMapType:              true,
+			HaveSockhashMapType:            true,
+			HaveCgroupStorageMapType:       true,
+			HaveReuseportSockarrayMapType:  true,
+			HavePercpuCgroupStorageMapType: true,
+			HaveQueueMapType:               true,
+			HaveStackMapType:               true,
+		},
+		Helpers: map[string][]string{
+			"sched_act": {
+				"bpf_fib_lookup",
+			},
+			"cgroup_sock": {
+				"bpf_get_netns_cookie",
+			},
+			"cgroup_sock_addr": {
+				"bpf_get_netns_cookie",
+			},
+		},
 	}
 
 	return &ProbeManager{f}
@@ -119,6 +155,13 @@ func (pm *ProbeManager) Features() Features {
 	return pm.features
 }
 func (p *ProbeManager) GetHelpers(prog string) map[string]struct{} {
+	if m, ok := p.features.Helpers[prog]; ok {
+		hs := make(map[string]struct{})
+		for _, h := range m {
+			hs[h] = struct{}{}
+		}
+		return hs
+	}
 	return nil
 }
 func (p *ProbeManager) GetMisc() Misc {

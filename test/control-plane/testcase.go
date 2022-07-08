@@ -173,6 +173,7 @@ func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modCo
 	coreTracker := clients.core.Tracker()
 	slimTracker := clients.slim.Tracker()
 	ciliumTracker := clients.cilium.Tracker()
+	//apiExtTracker := clients.apiext.Tracker()
 
 	// Helper to perform the action on each of the object trackers
 	// that match the object's kind. The core and slim trackers overlap.

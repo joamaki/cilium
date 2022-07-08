@@ -11,8 +11,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/cilium/ebpf/rlimit"
-
 	"github.com/cilium/cilium/pkg/bpf"
 )
 
@@ -42,35 +40,36 @@ func (p *probeValue) DeepCopyMapValue() bpf.MapValue { return &probeValue{p.Valu
 // HaveFullLPM tests whether kernel supports fully functioning BPF LPM map
 // with proper bpf.GetNextKey() traversal. Needs 4.16 or higher.
 func HaveFullLPM() bool {
-	haveFullLPMOnce.Do(func() {
+	/*
+		haveFullLPMOnce.Do(func() {
 
-		if err := rlimit.RemoveMemlock(); err != nil {
-			return
-		}
+			if err := rlimit.RemoveMemlock(); err != nil {
+				return
+			}
 
-		m := bpf.NewMap("cilium_test", bpf.MapTypeLPMTrie,
-			&probeKey{}, int(unsafe.Sizeof(probeKey{})),
-			&probeValue{}, int(unsafe.Sizeof(probeValue{})),
-			1, bpf.BPF_F_NO_PREALLOC, 0, bpf.ConvertKeyValue).WithCache()
-		err := m.CreateUnpinned()
-		defer m.Close()
-		if err != nil {
-			return
-		}
-		err = bpf.UpdateElement(m.GetFd(), m.Name(), unsafe.Pointer(&probeKey{}),
-			unsafe.Pointer(&probeValue{}), bpf.BPF_ANY)
-		if err != nil {
-			return
-		}
-		err = bpf.GetNextKey(m.GetFd(), nil, unsafe.Pointer(&probeKey{}))
-		if err != nil {
-			return
-		}
+			m := bpf.NewMap("cilium_test", bpf.MapTypeLPMTrie,
+				&probeKey{}, int(unsafe.Sizeof(probeKey{})),
+				&probeValue{}, int(unsafe.Sizeof(probeValue{})),
+				1, bpf.BPF_F_NO_PREALLOC, 0, bpf.ConvertKeyValue).WithCache()
+			err := m.CreateUnpinned()
+			defer m.Close()
+			if err != nil {
+				return
+			}
+			err = bpf.UpdateElement(m.GetFd(), m.Name(), unsafe.Pointer(&probeKey{}),
+				unsafe.Pointer(&probeValue{}), bpf.BPF_ANY)
+			if err != nil {
+				return
+			}
+			err = bpf.GetNextKey(m.GetFd(), nil, unsafe.Pointer(&probeKey{}))
+			if err != nil {
+				return
+			}
 
-		haveFullLPM = true
-	})
-
-	return haveFullLPM
+			haveFullLPM = true
+		})
+		return haveFullLPM*/
+	return true // FIXME
 }
 
 // HaveIPv6Support tests whether kernel can open an IPv6 socket. This will

@@ -94,6 +94,8 @@ func MapFromID(id int) (*Map, error) {
 // OpenOrCreate tries to open or create the eBPF map identified by the spec in
 // the Map object.
 func (m *Map) OpenOrCreate() error {
+	return nil // XXX
+
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -171,6 +173,8 @@ func (m *Map) OpenOrCreate() error {
 // IterateWithCallback iterates through all the keys/values of a map, passing
 // each key/value pair to the cb callback.
 func (m *Map) IterateWithCallback(key, value interface{}, cb IterateCallback) error {
+	return nil // XXX
+
 	if m.Map == nil {
 		if err := m.OpenOrCreate(); err != nil {
 			return err

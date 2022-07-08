@@ -4,6 +4,7 @@
 package controlplane
 
 import (
+	fakeApiExt "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
@@ -22,6 +23,8 @@ import (
 var (
 	// coreDecoder decodes objects using only the corev1 scheme
 	coreDecoder = newCoreSchemeDecoder()
+
+	apiextDecoder = newApiextSchemeDecoder()
 
 	// slimDecoder decodes objects with the slim scheme
 	slimDecoder = newSlimSchemeDecoder()
@@ -77,6 +80,13 @@ func newCiliumSchemeDecoder() schemeDecoder {
 func newCoreSchemeDecoder() schemeDecoder {
 	s := k8sRuntime.NewScheme()
 	fake.AddToScheme(s)
+	fakeApiExt.AddToScheme(s)
+	return schemeDecoder{s}
+}
+
+func newApiextSchemeDecoder() schemeDecoder {
+	s := k8sRuntime.NewScheme()
+	fakeApiExt.AddToScheme(s)
 	return schemeDecoder{s}
 }
 

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"time"
 
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -23,6 +24,7 @@ import (
 	v2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
+	k8sUtils "github.com/cilium/cilium/pkg/k8s/utils"
 	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/option"
@@ -89,10 +91,15 @@ func AllCRDResourceNames() []string {
 func SyncCRDs(ctx context.Context, crdNames []string, rs *Resources, ag *APIGroups) error {
 	crds := newCRDState(crdNames)
 
-	listerWatcher := newListWatchFromClient(
-		newCRDGetter(k8s.WatcherAPIExtClient()),
-		fields.Everything(),
+	/*
+		listerWatcher := newListWatchFromClient(
+			newCRDGetter(k8s.WatcherAPIExtClient()),
+			fields.Everything(),
+		)*/
+	listerWatcher := k8sUtils.ListerWatcherFromTyped[*v1.CustomResourceDefinitionList](
+		k8s.WatcherAPIExtClient().ApiextensionsV1().CustomResourceDefinitions(),
 	)
+
 	_, crdController := informer.NewInformer(
 		listerWatcher,
 		&slim_metav1.PartialObjectMetadata{},
