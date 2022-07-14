@@ -24,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/labelsfilter"
 	"github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/proxy"
 )
 
@@ -55,21 +56,29 @@ func startCiliumAgent(nodeName string, clients fakeClients, modConfig func(*opti
 	if err != nil {
 		panic("ParseLabelPrefixCfg() failed")
 	}
+	option.Config.PolicyAuditMode = false
 	option.Config.Opts.SetBool(option.DropNotify, true)
 	option.Config.Opts.SetBool(option.TraceNotify, true)
 	option.Config.Opts.SetBool(option.PolicyVerdictNotify, true)
 	option.Config.Opts.SetBool(option.Debug, true)
 	option.Config.Opts.SetBool(option.DebugPolicy, true)
+	option.Config.Opts.SetBool(option.PolicyTracing, true)
+	option.Config.Opts.SetBool(option.PolicyAuditMode, option.Config.PolicyAuditMode)
 	option.Config.EnableIPSec = false
+	option.Config.EnableIPv4 = true
 	option.Config.EnableIPv6 = false
 	option.Config.KubeProxyReplacement = option.KubeProxyReplacementStrict
 	option.Config.NodePortAlg = option.NodePortAlgRandom
+	option.Config.EnableNodePort = true
 	option.Config.EnableHostIPRestore = false
 	option.Config.K8sRequireIPv6PodCIDR = false
 	option.Config.K8sEnableK8sEndpointSlice = true
 	option.Config.EnableL7Proxy = false
 	option.Config.EnableHealthCheckNodePort = false
 	option.Config.Debug = true
+	option.Config.SelectiveRegeneration = true
+	option.Config.EnablePolicy = option.AlwaysEnforce
+	policy.SetPolicyEnabled(option.Config.EnablePolicy)
 
 	// Apply the test specific configuration
 	modConfig(option.Config)

@@ -22,6 +22,8 @@ import (
 )
 
 var (
+	t = true
+
 	podCIDR = cidr.MustParseCIDR("1.1.1.0/24")
 
 	minimalNode = &corev1.Node{
@@ -40,65 +42,20 @@ var (
 		},
 	}
 
-	initialPod = &corev1.Pod{
-		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "testpod",
-			Namespace: "default",
-			Labels: map[string]string{
-				"name": "testpod",
-				"app":  "test",
-			},
-			Generation: 1,
-		},
-		Spec: corev1.PodSpec{},
-		Status: corev1.PodStatus{
-			ContainerStatuses: []corev1.ContainerStatus{
-				{
-					Name:        "testcontainer",
-					ContainerID: "foo",
-				},
-			},
-			HostIP: "1.1.1.1",
-		},
-	}
-
-	updatedPod = &corev1.Pod{
-		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "testpod",
-			Namespace: "default",
-			Labels: map[string]string{
-				"name": "testpod",
-				"app":  "test",
-			},
-			Generation: 2,
-		},
-		Spec: corev1.PodSpec{},
-		Status: corev1.PodStatus{
-			ContainerStatuses: []corev1.ContainerStatus{
-				{
-					Name:        "testcontainer",
-					ContainerID: "foo",
-				},
-			},
-			PodIP:  "UPDATE ME",
-			HostIP: "1.1.1.1",
-		},
-	}
-
 	testPolicy = controlplane.MustUnmarshal(`
 apiVersion: "cilium.io/v2"
 kind: CiliumNetworkPolicy
 metadata:
-  name: "deny-all-egress"
+  name: "isolate-ns-default"
   namespace: "default"
 spec:
-  endpointSelector: {}
+  endpointSelector:
+    matchLabels: {}
   ingress:
-  - fromCIDR:
-    - 1.2.3.4/24
-
+  - fromEndpoints:
+    - matchLabels: {}
+  - toEndpoints:
+    - matchLabels: {}
 `)
 
 	initialObjects = []k8sRuntime.Object{
@@ -110,18 +67,61 @@ spec:
 	}
 )
 
+func newPod(name string) *corev1.Pod {
+	return &corev1.Pod{
+		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Labels: map[string]string{
+				"name": name,
+				"app":  "test",
+			},
+			Generation: 1,
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: name + "-container",
+					Ports: []corev1.ContainerPort{
+						{Name: "http", ContainerPort: 80, Protocol: "TCP"},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name:        name + "-container",
+					ContainerID: name + "-container-id",
+					Ready:       true,
+					Started:     &t,
+				},
+			},
+			HostIP: "1.1.1.1",
+			Phase:  corev1.PodPending,
+		},
+	}
+
+}
+
 func TestEndpointAdd(t *testing.T) {
-	cpt := controlplane.NewControlPlaneTest(t, "node", "1.21")
+	cpt := controlplane.NewControlPlaneTest(t, "node", "1.24")
 	cpt.UpdateObjects(initialObjects...)
 	cpt.StartAgent(func(*option.DaemonConfig) {})
 	defer cpt.StopAgent()
 
-	cpt.UpdateObjects(initialPod)
-	addr := cpt.CreateEndpointForPod(initialPod)
-	updatedPod.Status.PodIP = addr
+	testPod1, testPod2 := newPod("pod1"), newPod("pod2")
 
-	time.Sleep(time.Second)
-	cpt.UpdateObjects(updatedPod)
+	for _, pod := range []*corev1.Pod{testPod1, testPod2} {
+		cpt.UpdateObjects(pod)
+		addr := cpt.CreateEndpointForPod(pod)
+		pod.Status.PodIP = addr
+		pod.Status.Phase = corev1.PodRunning
+		pod.ObjectMeta.Generation += 1
+		cpt.UpdateObjects(pod)
+	}
+
 	time.Sleep(time.Second)
 	cpt.UpdateObjects(testPolicy)
 
