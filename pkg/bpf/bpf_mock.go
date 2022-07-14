@@ -50,6 +50,14 @@ var (
 	mapFdToPath     = make(map[int]string)
 )
 
+func ResetMockMaps() {
+	mu.Lock()
+	defer mu.Unlock()
+	openMaps = make(map[string]*mapMock)
+	mapFdToPath = make(map[int]string)
+	nextFd = 10000
+}
+
 func MockDumpMaps() {
 	mu.RLock()
 	defer mu.RUnlock()

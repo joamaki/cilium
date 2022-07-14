@@ -34,6 +34,7 @@ import (
 	ipamapi "github.com/cilium/cilium/api/v1/server/restapi/ipam"
 	"github.com/cilium/cilium/daemon/cmd"
 	"github.com/cilium/cilium/pkg/api"
+	"github.com/cilium/cilium/pkg/bpf"
 	fakeDatapath "github.com/cilium/cilium/pkg/datapath/fake"
 	endpointid "github.com/cilium/cilium/pkg/endpoint/id"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
@@ -207,6 +208,7 @@ func (cpt *ControlPlaneTest) StartAgent(modConfig func(*option.DaemonConfig)) *f
 
 func (cpt *ControlPlaneTest) StopAgent() {
 	cpt.agentHandle.tearDown()
+	bpf.ResetMockMaps()
 }
 
 func (cpt *ControlPlaneTest) UpdateObjects(objs ...k8sRuntime.Object) {

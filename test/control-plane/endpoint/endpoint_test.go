@@ -118,3 +118,7 @@ func TestEndpointAdd(t *testing.T) {
 	fmt.Printf("Endpoints in lxcmap:\n%v\n", lxcMap)
 
 }
+
+func TestEndpointAgain(t *testing.T) {
+	TestEndpointAdd(t)
+}

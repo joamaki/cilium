@@ -3131,7 +3131,10 @@ func (c *DaemonConfig) Populate() {
 	var collectors []prometheus.Collector
 	metricsSlice := common.MapStringStructToSlice(defaultMetrics)
 	c.MetricsConfig, collectors = metrics.CreateConfiguration(metricsSlice)
-	metrics.MustRegister(collectors...)
+	if err := metrics.RegisterList(collectors); err != nil {
+		// XXX DO NOT COMMIT AS IS
+		log.WithError(err).Error("Failed to register metrics")
+	}
 
 	if err := c.parseExcludedLocalAddresses(viper.GetStringSlice(ExcludeLocalAddress)); err != nil {
 		log.WithError(err).Fatalf("Unable to parse excluded local addresses")

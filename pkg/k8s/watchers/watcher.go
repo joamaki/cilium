@@ -218,6 +218,8 @@ type K8sWatcher struct {
 	ipcache               *ipcache.IPCache
 	envoyConfigManager    envoyConfigManager
 
+	onceNodesInit sync.Once
+
 	// controllersStarted is a channel that is closed when all watchers that do not depend on
 	// local node configuration have been started
 	controllersStarted chan struct{}
