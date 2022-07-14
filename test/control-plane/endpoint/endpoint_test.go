@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
+//go:build mock
+
 package node
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,7 +16,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/cidr"
-	fakeDatapath "github.com/cilium/cilium/pkg/datapath/fake"
+	"github.com/cilium/cilium/pkg/maps/lxcmap"
 	"github.com/cilium/cilium/pkg/option"
 	controlplane "github.com/cilium/cilium/test/control-plane"
 )
@@ -91,44 +94,27 @@ var (
 			ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		},
 	}
-
-	steps = []*controlplane.ControlPlaneTestStep{
-		controlplane.
-			NewStep("initial pod").
-			AddValidationFunc(validateInitial).
-			AddObjects(initialPod),
-		controlplane.
-			NewStep("updated pod").
-			AddValidationFunc(validateInitial).
-			AddObjects(updatedPod),
-	}
-
-	testCase = controlplane.ControlPlaneTestCase{
-		NodeName:          "node",
-		InitialObjects:    initialObjects,
-		Steps:             steps,
-		ValidationTimeout: time.Second,
-	}
 )
 
-func validateInitial(dp *fakeDatapath.FakeDatapath) error {
-	/*
-		fmt.Printf("identity changes: %#v\n", dp.FakeIPCacheListener())
+func TestEndpointAdd(t *testing.T) {
+	cpt := controlplane.NewControlPlaneTest(t, "node", "1.21")
+	cpt.UpdateObjects(initialObjects...)
+	cpt.StartAgent(func(*option.DaemonConfig) {})
+	defer cpt.StopAgent()
 
-		for i, change := range dp.FakeIPCacheListener().GetIdentityChanges() {
-			fmt.Printf("\t%d: [%s] meta=%v cidr=%s newID=%s\n", i, change.ModType, change.Meta, change.CIDR, change.NewID.ID)
-		}*/
+	cpt.UpdateObjects(initialPod)
+	addr := cpt.CreateEndpointForPod(initialPod)
+	updatedPod.Status.PodIP = addr
 
-	if len(controlplane.HACKEndpoints) > 0 {
-		updatedPod.Status.PodIP = controlplane.HACKEndpoints[0]
-	}
+	time.Sleep(time.Second)
 
 	bpf.MockDumpMaps()
 
-	time.Sleep(time.Second)
-	return nil
-}
+	lxcMap, err := lxcmap.DumpToMap()
+	if err != nil {
+		t.Fatalf("DumpToMap error: %s", err)
+	}
 
-func TestEndpointAdd(t *testing.T) {
-	testCase.Run(t, "1.21", func(*option.DaemonConfig) {})
+	fmt.Printf("Endpoints in lxcmap:\n%v\n", lxcMap)
+
 }

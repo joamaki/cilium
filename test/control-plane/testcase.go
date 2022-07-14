@@ -146,6 +146,155 @@ func toVersionInfo(rawVersion string) *version.Info {
 	return &version.Info{Major: parts[0], Minor: parts[1]}
 }
 
+type trackerAndDecoder struct {
+	tracker k8sTesting.ObjectTracker
+	decoder *schemeDecoder
+}
+
+type ControlPlaneTest struct {
+	t        *testing.T
+	nodeName string
+	clients  fakeClients
+	trackers []trackerAndDecoder
+
+	agentHandle *agentHandle
+	datapath    *fakeDatapath.FakeDatapath
+}
+
+func NewControlPlaneTest(t *testing.T, nodeName string, k8sVersion string) *ControlPlaneTest {
+	clients := fakeClients{
+		core:   fake.NewSimpleClientset(),
+		slim:   fakeSlim.NewSimpleClientset(),
+		cilium: fakeCilium.NewSimpleClientset(),
+		apiext: fakeApiExt.NewSimpleClientset(),
+	}
+	fd := clients.core.Discovery().(*fakediscovery.FakeDiscovery)
+	fd.FakedServerVersion = toVersionInfo(k8sVersion)
+
+	resources := apiResources[k8sVersion]
+	clients.core.Resources = resources
+	clients.slim.Resources = resources
+	clients.cilium.Resources = resources
+	clients.apiext.Resources = resources
+
+	trackers := []trackerAndDecoder{
+		{clients.core.Tracker(), &coreDecoder},
+		{clients.slim.Tracker(), &slimDecoder},
+		{clients.cilium.Tracker(), &ciliumDecoder},
+	}
+
+	return &ControlPlaneTest{
+		t:        t,
+		nodeName: nodeName,
+		clients:  clients,
+		trackers: trackers,
+	}
+}
+
+// TODO return some handle thing?
+func (cpt *ControlPlaneTest) StartAgent(modConfig func(*option.DaemonConfig)) *fakeDatapath.FakeDatapath {
+	if cpt.agentHandle != nil {
+		cpt.t.Fatal("StartAgent() already called")
+	}
+	datapath, agentHandle, err := startCiliumAgent(cpt.nodeName, cpt.clients, modConfig)
+	if err != nil {
+		cpt.t.Fatalf("Failed to start cilium agent: %s", err)
+	}
+	cpt.agentHandle = &agentHandle
+	cpt.datapath = datapath
+	return datapath
+}
+
+func (cpt *ControlPlaneTest) StopAgent() {
+	cpt.agentHandle.tearDown()
+}
+
+func (cpt *ControlPlaneTest) UpdateObjects(objs ...k8sRuntime.Object) {
+	t := cpt.t
+	for _, obj := range objs {
+		obj = toUnstructured(cpt.t, obj)
+
+		gvr, ns, name := gvrAndName(obj)
+		for _, td := range cpt.trackers {
+			if td.decoder.known(obj) {
+				obj := td.decoder.convert(obj)
+				if _, err := td.tracker.Get(gvr, ns, name); err == nil {
+					if err := td.tracker.Update(gvr, obj, ns); err != nil {
+						t.Fatalf("Failed to update object %T: %s", obj, err)
+					}
+				} else {
+					if err := td.tracker.Add(obj); err != nil {
+						t.Fatalf("Failed to add object %T: %s", obj, err)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (cpt *ControlPlaneTest) DeleteObjects(objs ...k8sRuntime.Object) {
+	for _, obj := range objs {
+		for _, td := range cpt.trackers {
+			gvr, ns, name := gvrAndName(obj)
+			td.tracker.Delete(gvr, ns, name)
+		}
+	}
+}
+
+func (cpt *ControlPlaneTest) CreateEndpointForPod(pod *corev1.Pod) string {
+	d := cpt.agentHandle.d
+
+	ipamHandler := cmd.NewPostIPAMHandler(d)
+	epHandler := cmd.NewPutEndpointIDHandler(d)
+	dummyReq, _ := http.NewRequestWithContext(context.TODO(), "", "", nil)
+
+	// Allocate an IP for the pod
+	family := "ipv4"
+	owner := pod.GetNamespace() + "/" + pod.GetName()
+	ipamResp := ipamHandler.Handle(ipamapi.PostIpamParams{
+		HTTPRequest: dummyReq,
+		Expiration:  new(bool),
+		Family:      &family,
+		Owner:       &owner,
+	}).(*ipamapi.PostIpamCreated)
+	fmt.Printf("ipam allocate: %#v\n", ipamResp.Payload)
+
+	// And then create the endpoint
+	/*labels := []string{}
+	for k, v := range pod.ObjectMeta.Labels {
+		labels = append(labels, k+":k8s=="+v)
+	}*/
+	epRequest := &models.EndpointChangeRequest{
+		Addressing:        ipamResp.Payload.Address,
+		ContainerID:       pod.Status.ContainerStatuses[0].ContainerID,
+		ContainerName:     pod.Status.ContainerStatuses[0].Name,
+		HostMac:           "11:22:33:44:55:66",
+		InterfaceIndex:    123,
+		InterfaceName:     "veth123",
+		K8sNamespace:      pod.GetNamespace(),
+		K8sPodName:        pod.GetName(),
+		Labels:            []string{},
+		Mac:               "22:33:44:55:66:77",
+		Pid:               0,
+		PolicyEnabled:     true,
+		State:             models.EndpointStateWaitingForIdentity,
+		SyncBuildEndpoint: true,
+	}
+
+	epResp := epHandler.Handle(endpointapi.PutEndpointIDParams{
+		HTTPRequest: dummyReq,
+		Endpoint:    epRequest,
+		ID:          endpointid.NewCiliumID(0),
+	})
+	switch epResp.(type) {
+	case *api.APIError:
+		panic("api error")
+	}
+	fmt.Printf(">>> endpoint created: %#v\n", epResp)
+
+	return ipamResp.Payload.Address.IPV4
+}
+
 // Run sets up the control-plane with a mock lbmap and executes the test case
 // against it.
 func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modConfig func(*option.DaemonConfig)) {
@@ -233,12 +382,10 @@ func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modCo
 						if err := tracker.Update(gvr, obj, ns); err != nil {
 							t.Fatalf("Failed to update object %T: %s", obj, err)
 						}
-						handleObjectUpdate(obj)
 					} else {
 						if err := tracker.Add(obj); err != nil {
 							t.Fatalf("Failed to add object %T: %s", obj, err)
 						}
-						handleObjectAdd(agentHandle.d, obj)
 					}
 				})
 			}
@@ -249,7 +396,6 @@ func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modCo
 					if err := tracker.Delete(gvr, ns, name); err != nil {
 						t.Fatalf("Failed to delete object %T: %s", obj, err)
 					}
-					handleObjectDelete(decoder.convert(obj))
 				})
 			}
 
@@ -271,71 +417,6 @@ func (testCase *ControlPlaneTestCase) Run(t *testing.T, k8sVersion string, modCo
 			}
 		})
 	}
-}
-
-func allocateEndpointForPod(d *cmd.Daemon, pod *corev1.Pod) {
-	ipamHandler := cmd.NewPostIPAMHandler(d)
-	epHandler := cmd.NewPutEndpointIDHandler(d)
-	dummyReq, _ := http.NewRequestWithContext(context.TODO(), "", "", nil)
-
-	// Allocate an IP for the pod
-	family := "ipv4"
-	owner := pod.GetNamespace() + "/" + pod.GetName()
-	ipamResp := ipamHandler.Handle(ipamapi.PostIpamParams{
-		HTTPRequest: dummyReq,
-		Expiration:  new(bool),
-		Family:      &family,
-		Owner:       &owner,
-	}).(*ipamapi.PostIpamCreated)
-	fmt.Printf("ipam allocate: %#v\n", ipamResp.Payload)
-
-	HACKEndpoints = append(HACKEndpoints, ipamResp.Payload.Address.IPV4)
-
-	// And then create the endpoint
-	/*labels := []string{}
-	for k, v := range pod.ObjectMeta.Labels {
-		labels = append(labels, k+":k8s=="+v)
-	}*/
-	epRequest := &models.EndpointChangeRequest{
-		Addressing:        ipamResp.Payload.Address,
-		ContainerID:       pod.Status.ContainerStatuses[0].ContainerID,
-		ContainerName:     pod.Status.ContainerStatuses[0].Name,
-		HostMac:           "11:22:33:44:55:66",
-		InterfaceIndex:    123,
-		InterfaceName:     "veth123",
-		K8sNamespace:      pod.GetNamespace(),
-		K8sPodName:        pod.GetName(),
-		Labels:            []string{},
-		Mac:               "22:33:44:55:66:77",
-		Pid:               0,
-		PolicyEnabled:     true,
-		State:             models.EndpointStateWaitingForIdentity,
-		SyncBuildEndpoint: true,
-	}
-
-	epResp := epHandler.Handle(endpointapi.PutEndpointIDParams{
-		HTTPRequest: dummyReq,
-		Endpoint:    epRequest,
-		ID:          endpointid.NewCiliumID(0),
-	})
-	switch epResp.(type) {
-	case *api.APIError:
-		panic("api error")
-	}
-	fmt.Printf(">>> endpoint created: %#v\n", epResp)
-}
-
-func handleObjectAdd(d *cmd.Daemon, obj k8sRuntime.Object) {
-	switch obj := obj.(type) {
-	case *corev1.Pod:
-		allocateEndpointForPod(d, obj)
-	}
-}
-
-func handleObjectUpdate(obj k8sRuntime.Object) {
-}
-
-func handleObjectDelete(obj k8sRuntime.Object) {
 }
 
 // NewGoldenTest creates a test suite from YAML files defining
@@ -494,6 +575,19 @@ func gvrAndName(obj k8sRuntime.Object) (gvr schema.GroupVersionResource, ns stri
 	ns = objMeta.GetNamespace()
 	name = objMeta.GetName()
 	return
+}
+
+func toUnstructured(t *testing.T, obj k8sRuntime.Object) k8sRuntime.Object {
+	if _, ok := obj.(*unstructured.Unstructured); !ok {
+		// Object is not unstructured. Convert it to one so it can be unmarshalled
+		// in different ways, e.g. as v1.Node and slim_v1.Node.
+		fields, err := k8sRuntime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		if err != nil {
+			t.Fatalf("Failed to convert %T to unstructured: %s", obj, err)
+		}
+		obj = &unstructured.Unstructured{Object: fields}
+	}
+	return obj
 }
 
 var (

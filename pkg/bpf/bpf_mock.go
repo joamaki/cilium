@@ -44,19 +44,32 @@ type bpfAttrMapOpElem struct {
 }
 
 var (
-	mu          lock.Mutex
+	mu          lock.RWMutex
 	nextFd      int = 10000 // NOTE: try not to overlap with real fds. Someone is calling close()
 	openMaps        = make(map[string]*mapMock)
 	mapFdToPath     = make(map[int]string)
 )
 
 func MockDumpMaps() {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 
 	fmt.Printf("Mock maps:\n")
 	for name, m := range openMaps {
-		fmt.Printf("\t%s: fd=%d, mapType=%s, numEntries=%d\n", name, m.fd, m.mapType, len(m.entries))
+		rmap := GetMap(m.path)
+		if rmap != nil {
+			fmt.Printf("\t%s: fd=%d, mapType=%s, numEntries=%d, valueType=%T\n", name, m.fd, m.mapType, len(m.entries), rmap.MapInfo.MapValue)
+
+			hash := make(map[string][]string)
+			if err := rmap.Dump(hash); err != nil {
+				panic(err)
+			}
+			for k, v := range hash {
+				fmt.Printf("\t    %q: %q\n", k, v)
+			}
+		} else {
+			fmt.Printf("\t%s: fd=%d, mapType=%s, numEntries=%d, valueType=unknown\n", name, m.fd, m.mapType, len(m.entries))
+		}
 	}
 
 }
@@ -112,8 +125,8 @@ func ObjGet(pathname string) (int, error) {
 }
 
 func GetFirstKey(fd int, nextKey unsafe.Pointer) error {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 	m, ok := openMaps[mapFdToPath[fd]]
 	if !ok {
 		return fmt.Errorf("map with fd does not exist", fd)
@@ -127,8 +140,8 @@ func GetFirstKey(fd int, nextKey unsafe.Pointer) error {
 }
 
 func LookupElementFromPointers(fd int, structPtr unsafe.Pointer, sizeOfStruct uintptr) error {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 
 	uba := (*bpfAttrMapOpElem)(structPtr)
 
@@ -155,8 +168,8 @@ func GetNextKeyFromPointers(fd int, structPtr unsafe.Pointer, sizeOfStruct uintp
 	return GetNextKey(fd, unsafe.Pointer(uintptr(uba.key)), unsafe.Pointer(uintptr(uba.value)))
 }
 func LookupElement(fd int, key, value unsafe.Pointer) error {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 
 	m, ok := openMaps[mapFdToPath[fd]]
 	if !ok {
@@ -184,8 +197,8 @@ func DeleteElement(fd int, key unsafe.Pointer) error {
 	panic("DeleteElement")
 }
 func GetNextKey(fd int, key, nextKey unsafe.Pointer) error {
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 	m, ok := openMaps[mapFdToPath[fd]]
 	if !ok {
 		return fmt.Errorf("map with fd does not exist", fd)
