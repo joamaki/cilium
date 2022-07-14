@@ -6,41 +6,40 @@
 package node
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/cilium/cilium/pkg/bpf"
-	"github.com/cilium/cilium/pkg/cidr"
-	"github.com/cilium/cilium/pkg/maps/lxcmap"
 	"github.com/cilium/cilium/pkg/option"
 	controlplane "github.com/cilium/cilium/test/control-plane"
 )
 
 var (
-	t = true
+	node = controlplane.MustUnmarshal(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: "node"
+spec:
+  podCIDR: "10.0.1.0/24"
+status:
+  addresses:
+  - address: "10.0.0.1"
+    type: InternalIP
+  - address: node
+    type: Hostname
+`)
 
-	podCIDR = cidr.MustParseCIDR("1.1.1.0/24")
-
-	minimalNode = &corev1.Node{
-		TypeMeta:   metav1.TypeMeta{Kind: "Node", APIVersion: "v1"},
-		ObjectMeta: metav1.ObjectMeta{Name: "node"},
-		Spec: corev1.NodeSpec{
-			PodCIDR:  podCIDR.String(),
-			PodCIDRs: []string{podCIDR.String()},
-		},
-		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{},
-			Addresses: []corev1.NodeAddress{
-				{Type: corev1.NodeInternalIP, Address: "1.1.1.1"},
-				{Type: corev1.NodeHostName, Address: "node"},
-			},
-		},
-	}
+	defaultNamespace = controlplane.MustUnmarshal(`
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+`)
 
 	testPolicy = controlplane.MustUnmarshal(`
 apiVersion: "cilium.io/v2"
@@ -57,22 +56,17 @@ spec:
   - toEndpoints:
     - matchLabels: {}
 `)
-
-	initialObjects = []k8sRuntime.Object{
-		minimalNode,
-		&corev1.Namespace{
-			TypeMeta:   metav1.TypeMeta{Kind: "Namespace", APIVersion: "v1"},
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		},
-	}
 )
 
 func newPod(name string) *corev1.Pod {
+	trueVal := true
+
 	return &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
+			UID:       types.UID("pod-" + name + "-uid"),
 			Labels: map[string]string{
 				"name": name,
 				"app":  "test",
@@ -95,46 +89,58 @@ func newPod(name string) *corev1.Pod {
 					Name:        name + "-container",
 					ContainerID: name + "-container-id",
 					Ready:       true,
-					Started:     &t,
+					Started:     &trueVal,
 				},
 			},
-			HostIP: "1.1.1.1",
+			HostIP: "10.0.0.1",
 			Phase:  corev1.PodPending,
 		},
 	}
 
 }
 
-func TestEndpointAdd(t *testing.T) {
+func TestEndpoint(t *testing.T) {
 	cpt := controlplane.NewControlPlaneTest(t, "node", "1.24")
-	cpt.UpdateObjects(initialObjects...)
+	cpt.UpdateObjects(node, defaultNamespace)
+
 	cpt.StartAgent(func(*option.DaemonConfig) {})
 	defer cpt.StopAgent()
 
+	t.Run("AddTwoPodsAndPolicy", func(t *testing.T) {
+		subtestAddTwoPodsAndPolicy(t, cpt)
+	})
+}
+
+func subtestAddTwoPodsAndPolicy(t *testing.T, cpt *controlplane.ControlPlaneTest) {
+
 	testPod1, testPod2 := newPod("pod1"), newPod("pod2")
 
-	for _, pod := range []*corev1.Pod{testPod1, testPod2} {
+	for i, pod := range []*corev1.Pod{testPod1, testPod2} {
 		cpt.UpdateObjects(pod)
-		addr := cpt.CreateEndpointForPod(pod)
+		addr := cpt.CreateEndpointForPod(int64(i), pod)
 		pod.Status.PodIP = addr
+		pod.Status.PodIPs = []corev1.PodIP{{addr}}
 		pod.Status.Phase = corev1.PodRunning
 		pod.ObjectMeta.Generation += 1
 		cpt.UpdateObjects(pod)
 	}
 
-	time.Sleep(time.Second)
+	time.Sleep(time.Second * 11)
 	cpt.UpdateObjects(testPolicy)
+	time.Sleep(time.Second)
+	bpf.MockDumpMaps()
 
-	for i := 0; i < 10; i++ {
-		time.Sleep(time.Second * 5)
-		bpf.MockDumpMaps()
+	if err := cpt.DeleteEndpoint("pod1-container-id"); err != nil {
+		t.Fatalf("DeleteEndpoint(1): %s\n", err)
 	}
-
-	lxcMap, err := lxcmap.DumpToMap()
-	if err != nil {
-		t.Fatalf("DumpToMap error: %s", err)
+	if err := cpt.DeleteEndpoint("pod2-container-id"); err != nil {
+		t.Fatalf("DeleteEndpoint(2): %s\n", err)
 	}
+	cpt.DeleteObjects(testPod1, testPod2, testPolicy)
 
-	fmt.Printf("Endpoints in lxcmap:\n%v\n", lxcMap)
+	time.Sleep(time.Second)
+	bpf.MockDumpMaps()
 
+	time.Sleep(15 * time.Second)
+	bpf.MockDumpMaps()
 }

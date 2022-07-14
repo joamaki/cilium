@@ -4,6 +4,7 @@
 package ipcache
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/sirupsen/logrus"
@@ -542,8 +543,10 @@ func (ipc *IPCache) DeleteOnMetadataMatch(IP string, source source.Source, names
 	defer ipc.mutex.Unlock()
 	k8sMeta := ipc.getK8sMetadata(IP)
 	if k8sMeta != nil && k8sMeta.Namespace == namespace && k8sMeta.PodName == name {
+		fmt.Printf(">>> DeleteOnMetadataMatch: delete of %v ok\n", k8sMeta)
 		return ipc.deleteLocked(IP, source)
 	}
+	fmt.Printf(">>> DeleteOnMetadataMatch: mismatch %v, name=%q, namespace=%q\n", k8sMeta, name, namespace)
 	return false
 }
 

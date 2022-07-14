@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8sTypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
@@ -178,6 +179,20 @@ func NewControlPlaneTest(t *testing.T, nodeName string, k8sVersion string) *Cont
 	clients.cilium.Resources = resources
 	clients.apiext.Resources = resources
 
+	// Prepend a reactor that populates UID for new objects.
+	// This is mainly needed for CiliumEndpoint as it won't be properly deleted
+	// if UID is not set.
+	clients.cilium.PrependReactor("*", "*", func(action k8sTesting.Action) (bool, k8sRuntime.Object, error) {
+		switch action := action.(type) {
+		case k8sTesting.CreateActionImpl:
+			objMeta, err := meta.Accessor(action.GetObject())
+			if err == nil {
+				objMeta.SetUID(k8sTypes.UID(fmt.Sprintf("uid-%s-%d", action.GetObject().GetObjectKind(), time.Now().Unix())))
+			}
+		}
+		return false, nil, nil
+	})
+
 	trackers := []trackerAndDecoder{
 		{clients.core.Tracker(), &coreDecoder},
 		{clients.slim.Tracker(), &slimDecoder},
@@ -234,14 +249,22 @@ func (cpt *ControlPlaneTest) UpdateObjects(objs ...k8sRuntime.Object) {
 
 func (cpt *ControlPlaneTest) DeleteObjects(objs ...k8sRuntime.Object) {
 	for _, obj := range objs {
+		gvr, ns, name := gvrAndName(obj)
+		fmt.Printf(">>> Deleting %s/%s (%s)\n", ns, name, gvr)
+
+		// TODO catch if none of the trackers have the object
 		for _, td := range cpt.trackers {
-			gvr, ns, name := gvrAndName(obj)
 			td.tracker.Delete(gvr, ns, name)
 		}
 	}
 }
 
-func (cpt *ControlPlaneTest) CreateEndpointForPod(pod *corev1.Pod) string {
+func (cpt *ControlPlaneTest) DeleteEndpoint(containerId string) error {
+	_, err := cpt.agentHandle.d.DeleteEndpoint(endpointid.NewID(endpointid.ContainerIdPrefix, containerId))
+	return err
+}
+
+func (cpt *ControlPlaneTest) CreateEndpointForPod(id int64, pod *corev1.Pod) string {
 	d := cpt.agentHandle.d
 
 	ipamHandler := cmd.NewPostIPAMHandler(d)
@@ -284,7 +307,7 @@ func (cpt *ControlPlaneTest) CreateEndpointForPod(pod *corev1.Pod) string {
 	epResp := epHandler.Handle(endpointapi.PutEndpointIDParams{
 		HTTPRequest: dummyReq,
 		Endpoint:    epRequest,
-		ID:          endpointid.NewCiliumID(0),
+		ID:          endpointid.NewCiliumID(id),
 	})
 	switch epResp.(type) {
 	case *api.APIError:

@@ -60,7 +60,7 @@ func ResetMockMaps() {
 
 func MockDumpMaps() {
 	mu.RLock()
-	defer mu.RUnlock()
+	mu.RUnlock()
 
 	fmt.Printf("Mock maps:\n")
 	for name, m := range openMaps {
@@ -123,8 +123,8 @@ func OpenOrCreateMap(path string, mapType MapType, keySize, valueSize, maxEntrie
 
 func ObjGet(pathname string) (int, error) {
 	fmt.Printf(">>> ObjGet(%s)\n", pathname)
-	mu.Lock()
-	defer mu.Unlock()
+	mu.RLock()
+	defer mu.RUnlock()
 
 	if m, ok := openMaps[pathname]; ok {
 		return m.fd, nil
@@ -175,6 +175,7 @@ func GetNextKeyFromPointers(fd int, structPtr unsafe.Pointer, sizeOfStruct uintp
 	uba := (*bpfAttrMapOpElem)(structPtr)
 	return GetNextKey(fd, unsafe.Pointer(uintptr(uba.key)), unsafe.Pointer(uintptr(uba.value)))
 }
+
 func LookupElement(fd int, key, value unsafe.Pointer) error {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -195,15 +196,37 @@ func LookupElement(fd int, key, value unsafe.Pointer) error {
 	outValue := unsafe.Slice((*byte)(value), m.valueSize)
 	copy(outValue, m.entries[idx].value)
 	return nil
-
 }
 
 func deleteElement(fd int, key unsafe.Pointer) (uintptr, unix.Errno) {
-	panic("deleteElement")
+	mu.Lock()
+	defer mu.Unlock()
+
+	m, ok := openMaps[mapFdToPath[fd]]
+	if !ok {
+		return 0, unix.ENOENT
+	}
+	keyBytes := unsafe.Slice((*byte)(key), m.keySize)
+
+	idx := slices.IndexFunc(m.entries,
+		func(e mapEntry) bool {
+			return slices.Equal(keyBytes, e.key)
+		})
+	if idx < 0 {
+		return 0, unix.ENOENT
+	}
+	m.entries = append(m.entries[:idx], m.entries[idx+1:]...)
+	return 0, 0
 }
+
 func DeleteElement(fd int, key unsafe.Pointer) error {
-	panic("DeleteElement")
+	_, errno := deleteElement(fd, key)
+	if errno != 0 {
+		return fmt.Errorf("DeleteElement failed: %s", errno)
+	}
+	return nil
 }
+
 func GetNextKey(fd int, key, nextKey unsafe.Pointer) error {
 	mu.RLock()
 	defer mu.RUnlock()

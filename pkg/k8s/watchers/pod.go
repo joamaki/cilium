@@ -811,12 +811,15 @@ func (k *K8sWatcher) updatePodHostData(oldPod, newPod *slim_corev1.Pod, oldPodIP
 }
 
 func (k *K8sWatcher) deletePodHostData(pod *slim_corev1.Pod) (bool, error) {
+
+	fmt.Printf(">>> deletePodHostData: %v\n", pod)
 	if pod.Spec.HostNetwork {
 		return true, fmt.Errorf("pod is using host networking")
 	}
 
 	podIPs := k8sUtils.ValidIPs(pod.Status)
 	if len(podIPs) == 0 {
+		fmt.Printf(">>> No pod IPs!\n")
 		return true, nil
 	}
 
@@ -840,7 +843,7 @@ func (k *K8sWatcher) deletePodHostData(pod *slim_corev1.Pod) (bool, error) {
 
 		if id.Source != source.Kubernetes {
 			skipped = true
-			errs = append(errs, fmt.Sprintf("ipcache entry for IP %s not owned by kubernetes source", podIP))
+			errs = append(errs, fmt.Sprintf("ipcache entry for IP %s not owned by kubernetes source (source: %s)", podIP, id.Source))
 			continue
 		}
 
@@ -848,6 +851,7 @@ func (k *K8sWatcher) deletePodHostData(pod *slim_corev1.Pod) (bool, error) {
 	}
 
 	if len(errs) != 0 {
+		fmt.Printf(">>> errors=%v!\n", errs)
 		return skipped, errors.New(strings.Join(errs, ", "))
 	}
 
