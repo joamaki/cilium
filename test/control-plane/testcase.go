@@ -214,8 +214,6 @@ func (cpt *ControlPlaneTest) StopAgent() {
 func (cpt *ControlPlaneTest) UpdateObjects(objs ...k8sRuntime.Object) {
 	t := cpt.t
 	for _, obj := range objs {
-		obj = toUnstructured(cpt.t, obj)
-
 		gvr, ns, name := gvrAndName(obj)
 		for _, td := range cpt.trackers {
 			if td.decoder.known(obj) {

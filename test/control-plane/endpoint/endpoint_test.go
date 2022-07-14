@@ -87,6 +87,20 @@ var (
 		},
 	}
 
+	testPolicy = controlplane.MustUnmarshal(`
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "deny-all-egress"
+  namespace: "default"
+spec:
+  endpointSelector: {}
+  ingress:
+  - fromCIDR:
+    - 1.2.3.4/24
+
+`)
+
 	initialObjects = []k8sRuntime.Object{
 		minimalNode,
 		&corev1.Namespace{
@@ -107,8 +121,14 @@ func TestEndpointAdd(t *testing.T) {
 	updatedPod.Status.PodIP = addr
 
 	time.Sleep(time.Second)
+	cpt.UpdateObjects(updatedPod)
+	time.Sleep(time.Second)
+	cpt.UpdateObjects(testPolicy)
 
-	bpf.MockDumpMaps()
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Second * 5)
+		bpf.MockDumpMaps()
+	}
 
 	lxcMap, err := lxcmap.DumpToMap()
 	if err != nil {
@@ -117,8 +137,4 @@ func TestEndpointAdd(t *testing.T) {
 
 	fmt.Printf("Endpoints in lxcmap:\n%v\n", lxcMap)
 
-}
-
-func TestEndpointAgain(t *testing.T) {
-	TestEndpointAdd(t)
 }

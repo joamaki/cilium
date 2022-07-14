@@ -59,6 +59,7 @@ func startCiliumAgent(nodeName string, clients fakeClients, modConfig func(*opti
 	option.Config.Opts.SetBool(option.TraceNotify, true)
 	option.Config.Opts.SetBool(option.PolicyVerdictNotify, true)
 	option.Config.Opts.SetBool(option.Debug, true)
+	option.Config.Opts.SetBool(option.DebugPolicy, true)
 	option.Config.EnableIPSec = false
 	option.Config.EnableIPv6 = false
 	option.Config.KubeProxyReplacement = option.KubeProxyReplacementStrict
