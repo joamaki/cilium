@@ -213,6 +213,7 @@ func subtestAddTwoPodsAndPolicy(t *testing.T, cpt *controlplane.ControlPlaneTest
 	if err := cpt.DeleteEndpoint("pod2-container-id"); err != nil {
 		t.Fatalf("DeleteEndpoint(pod2): %s\n", err)
 	}
+
 	cpt.DeleteObjects(testPod1, testPod2, testPolicy)
 
 	eventually(t, func() error {

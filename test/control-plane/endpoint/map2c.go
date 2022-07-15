@@ -15,7 +15,7 @@ import (
 )
 
 func map2c(mapNameInBTF string, m *bpf.Map, outFile string) {
-	w, err := os.OpenFile(outFile, os.O_CREATE|os.O_WRONLY, 0644)
+	w, err := os.OpenFile(outFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(err)
 	}
@@ -211,12 +211,16 @@ func btfBytesToCValue(sb *strings.Builder, fieldName string, t btf.Type, val []b
 				innerFieldName = m.Name
 			}
 
-			off := m.Offset.Bytes()
+			if first {
+				off := m.Offset.Bytes()
 
-			btfBytesToCValue(sb, innerFieldName, m.Type, val[off:], depth+2)
+				btfBytesToCValue(sb, innerFieldName, m.Type, val[off:], depth+2)
 
-			if i != len(t.Members)-1 {
-				fmt.Fprint(sb, ",\n")
+				if i != len(t.Members)-1 {
+					fmt.Fprint(sb, ",\n")
+				}
+			} else {
+				fmt.Fprint(sb, " <union alternative omitted>")
 			}
 
 			first = false
