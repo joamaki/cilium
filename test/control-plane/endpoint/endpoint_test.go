@@ -120,7 +120,7 @@ func TestEndpoint(t *testing.T) {
 
 func eventually(t *testing.T, check func() error) {
 	var err error
-	for retry := 0; retry < 10; retry++ {
+	for retry := 0; retry < 5; retry++ {
 		err = check()
 		if err == nil {
 			break
@@ -192,13 +192,19 @@ func subtestAddTwoPodsAndPolicy(t *testing.T, cpt *controlplane.ControlPlaneTest
 	// Wait for the policy to be applied to the per-endpoint policy maps
 	eventually(t, func() error {
 		if !policyMaps[0].Exists(uint32(podIdentities[1]), 0, u8proto.U8proto(0), trafficdirection.Ingress) {
-			return fmt.Errorf("ingress policy missing for pod2 in pod1 policies")
+			return fmt.Errorf("ingress policy missing for pod2 (id=%d) in pod1 policies", podIdentities[1])
 		}
 		if !policyMaps[1].Exists(uint32(podIdentities[0]), 0, u8proto.U8proto(0), trafficdirection.Ingress) {
-			return fmt.Errorf("ingress policy missing for pod1 in pod2 policies")
+			return fmt.Errorf("ingress policy missing for pod1 (id=%d) in pod2 policies", podIdentities[0])
 		}
 		return nil
 	})
+
+	// XXX: if you want to test these, uncomment and edit map2c.go to correct
+	// the path to bpf_lxc.o.
+	// Map names from btf with "bpftool btf dump file bpf_lxc.o"
+	/*map2c("test_cilium_ipcache", &ipcache.IPCache.Map, "/tmp/map_ipcache.h")
+	map2c("test_cilium_lxc", lxcmap.LXCMap, "/tmp/map_lxc.h")*/
 
 	// Delete everything and verify cleanup.
 	if err := cpt.DeleteEndpoint("pod1-container-id"); err != nil {
