@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build mock
-
-package node
+package endpoint
 
 import (
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -14,7 +14,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/cilium/cilium/pkg/bpf"
+	"github.com/cilium/cilium/pkg/datapath/fake"
+	"github.com/cilium/cilium/pkg/identity"
+	"github.com/cilium/cilium/pkg/maps/ipcache"
+	"github.com/cilium/cilium/pkg/maps/lxcmap"
+	"github.com/cilium/cilium/pkg/maps/policymap"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/policy/trafficdirection"
+	"github.com/cilium/cilium/pkg/u8proto"
 	controlplane "github.com/cilium/cilium/test/control-plane"
 )
 
@@ -25,10 +32,10 @@ kind: Node
 metadata:
   name: "node"
 spec:
-  podCIDR: "10.0.1.0/24"
+  podCIDR: "1.1.1.0/24"
 status:
   addresses:
-  - address: "10.0.0.1"
+  - address: "10.0.0.2"
     type: InternalIP
   - address: node
     type: Hostname
@@ -65,7 +72,7 @@ func newPod(name string) *corev1.Pod {
 		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "default",
+			Namespace: metav1.NamespaceDefault,
 			UID:       types.UID("pod-" + name + "-uid"),
 			Labels: map[string]string{
 				"name": name,
@@ -92,7 +99,7 @@ func newPod(name string) *corev1.Pod {
 					Started:     &trueVal,
 				},
 			},
-			HostIP: "10.0.0.1",
+			HostIP: fake.IPv4InternalAddress.String(),
 			Phase:  corev1.PodPending,
 		},
 	}
@@ -111,9 +118,25 @@ func TestEndpoint(t *testing.T) {
 	})
 }
 
-func subtestAddTwoPodsAndPolicy(t *testing.T, cpt *controlplane.ControlPlaneTest) {
+func eventually(t *testing.T, check func() error) {
+	var err error
+	for retry := 0; retry < 10; retry++ {
+		err = check()
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Duration(retry) * time.Second)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
+func subtestAddTwoPodsAndPolicy(t *testing.T, cpt *controlplane.ControlPlaneTest) {
 	testPod1, testPod2 := newPod("pod1"), newPod("pod2")
+	var podIPs [2]net.IP
+	var policyMaps [2]*policymap.PolicyMap
+	var podIdentities [2]uint32
 
 	for i, pod := range []*corev1.Pod{testPod1, testPod2} {
 		cpt.UpdateObjects(pod)
@@ -123,24 +146,83 @@ func subtestAddTwoPodsAndPolicy(t *testing.T, cpt *controlplane.ControlPlaneTest
 		pod.Status.Phase = corev1.PodRunning
 		pod.ObjectMeta.Generation += 1
 		cpt.UpdateObjects(pod)
+
+		// Wait for ipcache and lxc to be updated
+		eventually(t, func() error {
+			podIPs[i] = net.ParseIP(addr)
+
+			ipcacheKey := ipcache.NewKey(podIPs[i], net.IPv4Mask(0xff, 0xff, 0xff, 0xff))
+			ipcacheRawValue, err := ipcache.IPCache.Lookup(&ipcacheKey)
+			if err != nil {
+				return err
+			}
+
+			podIdentities[i] = ipcacheRawValue.(*ipcache.RemoteEndpointInfo).SecurityIdentity
+
+			endpointKey := lxcmap.NewEndpointKey(podIPs[i])
+			lxcValueRaw, err := lxcmap.LXCMap.Lookup(endpointKey)
+			if err != nil {
+				return err
+			}
+
+			lxcValue := lxcValueRaw.(*lxcmap.EndpointInfo)
+
+			policyMapPath := bpf.LocalMapPath(policymap.MapName, lxcValue.LxcID)
+			policyMaps[i], err = policymap.Open(policyMapPath)
+			if err != nil {
+				return err
+			}
+
+			// Validate that default ingress policies exist
+			if !policyMaps[i].Exists(uint32(identity.ReservedIdentityHost), 0, u8proto.U8proto(0), trafficdirection.Ingress) {
+				return fmt.Errorf("ingress policy for host missing")
+			}
+			if !policyMaps[i].Exists(uint32(identity.ReservedIdentityRemoteNode), 0, u8proto.U8proto(0), trafficdirection.Ingress) {
+				return fmt.Errorf("ingress policy for remote node missing")
+			}
+
+			return nil
+		})
+
 	}
 
-	time.Sleep(time.Second * 11)
+	// Apply a policy to allow the pods to communicate
 	cpt.UpdateObjects(testPolicy)
-	time.Sleep(time.Second)
-	bpf.MockDumpMaps()
 
+	// Wait for the policy to be applied to the per-endpoint policy maps
+	eventually(t, func() error {
+		if !policyMaps[0].Exists(uint32(podIdentities[1]), 0, u8proto.U8proto(0), trafficdirection.Ingress) {
+			return fmt.Errorf("ingress policy missing for pod2 in pod1 policies")
+		}
+		if !policyMaps[1].Exists(uint32(podIdentities[0]), 0, u8proto.U8proto(0), trafficdirection.Ingress) {
+			return fmt.Errorf("ingress policy missing for pod1 in pod2 policies")
+		}
+		return nil
+	})
+
+	// Delete everything and verify cleanup.
 	if err := cpt.DeleteEndpoint("pod1-container-id"); err != nil {
-		t.Fatalf("DeleteEndpoint(1): %s\n", err)
+		t.Fatalf("DeleteEndpoint(pod1): %s\n", err)
 	}
 	if err := cpt.DeleteEndpoint("pod2-container-id"); err != nil {
-		t.Fatalf("DeleteEndpoint(2): %s\n", err)
+		t.Fatalf("DeleteEndpoint(pod2): %s\n", err)
 	}
 	cpt.DeleteObjects(testPod1, testPod2, testPolicy)
 
-	time.Sleep(time.Second)
-	bpf.MockDumpMaps()
+	eventually(t, func() error {
+		for i := 0; i < len(podIPs); i++ {
+			endpointKey := lxcmap.NewEndpointKey(podIPs[i])
+			_, err := lxcmap.LXCMap.Lookup(endpointKey)
+			if err == nil {
+				return fmt.Errorf("pod%d still has lxc entry", i+1)
+			}
 
-	time.Sleep(15 * time.Second)
-	bpf.MockDumpMaps()
+			ipcacheKey := ipcache.NewKey(podIPs[i], net.IPv4Mask(0xff, 0xff, 0xff, 0xff))
+			_, err = ipcache.IPCache.Lookup(&ipcacheKey)
+			if err == nil {
+				return fmt.Errorf("pod%d still has ipcache entry", i+1)
+			}
+		}
+		return nil
+	})
 }
