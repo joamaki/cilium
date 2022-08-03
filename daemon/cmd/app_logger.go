@@ -154,7 +154,7 @@ type prettyLogger struct {
 	invokeStarted time.Time
 }
 
-func newPrettyAppLogger() fxevent.Logger {
+func NewPrettyAppLogger() fxevent.Logger {
 	return &prettyLogger{}
 }
 
@@ -167,7 +167,7 @@ func (log *prettyLogger) LogEvent(event fxevent.Event) {
 	case *fxevent.OnStartExecuted:
 		os.Stdout.Write([]byte{0x0d})
 		if e.Err == nil {
-			fmt.Printf("✅ %s (%s)\n", e.FunctionName, e.Runtime.String())
+			fmt.Printf("✅ %s (started in %s)\n", e.FunctionName, e.Runtime.String())
 		} else {
 			fmt.Printf("❌ %s failed: %s\n", e.FunctionName, e.Err)
 		}
@@ -178,7 +178,7 @@ func (log *prettyLogger) LogEvent(event fxevent.Event) {
 	case *fxevent.OnStopExecuted:
 		os.Stdout.Write([]byte{0x0d})
 		if e.Err == nil {
-			fmt.Printf("✅ %s (%s)\n", e.FunctionName, e.Runtime.String())
+			fmt.Printf("✅ %s (stopped in %s)\n", e.FunctionName, e.Runtime.String())
 		} else {
 			fmt.Printf("❌ %s failed: %s\n", e.FunctionName, e.Err)
 		}
@@ -209,12 +209,12 @@ func (log *prettyLogger) LogEvent(event fxevent.Event) {
 
 	case *fxevent.Invoking:
 		log.invokeStarted = time.Now()
-		fmt.Printf("⌛%s ...", e.FunctionName)
+		fmt.Printf("⌛ %s ...", e.FunctionName)
 
 	case *fxevent.Invoked:
 		os.Stdout.Write([]byte{0x0d})
 		if e.Err == nil {
-			fmt.Printf("✅ %s (%s)\n", e.FunctionName, time.Now().Sub(log.invokeStarted))
+			fmt.Printf("✅ %s (invoked in %s)\n", e.FunctionName, time.Now().Sub(log.invokeStarted))
 		} else {
 			fmt.Printf("❌%s error:\n  %s\n", e.FunctionName, strings.Replace(e.Err.Error(), ": ", ":\n  ", -1))
 		}

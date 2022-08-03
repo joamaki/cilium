@@ -53,6 +53,8 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.3.1
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/jeremywohl/flatten v1.0.1
+	github.com/joamaki/goreactive/sources/k8s v0.0.0-20220801093151-61c3f4b658e4
+	github.com/joamaki/goreactive/stream v0.0.0-20220801093151-61c3f4b658e4
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/kr/pretty v0.3.0
 	github.com/mackerelio/go-osstat v0.2.2
@@ -90,7 +92,7 @@ require (
 	golang.org/x/net v0.0.0-20220520000938-2e3eb7b945c2
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
 	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
-	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
+	golang.org/x/time v0.0.0-20220411224347-583f2d630306
 	golang.org/x/tools v0.1.11
 	golang.zx2c4.com/wireguard v0.0.0-20211017052713-f87e87af0d9a
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211027115401-c9b1ec1aa6d8

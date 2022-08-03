@@ -99,8 +99,9 @@ func CreateConfigFromAgentResponse(resp *models.DaemonConfiguration) (*rest.Conf
 	return createConfig(resp.Status.K8sEndpoint, resp.Status.K8sConfiguration, GetQPS(), GetBurst())
 }
 
-// createClient creates a new client to access the Kubernetes API
-func createClient(config *rest.Config, cs kubernetes.Interface) error {
+// waitUntilConnReady tries to establish connection with the created client to the
+// API server.
+func waitUntilConnReady(config *rest.Config, cs slimclientset.Interface) error {
 	stop := make(chan struct{})
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
@@ -134,19 +135,20 @@ func createDefaultClient(c *rest.Config, httpClient *http.Client) (rest.Interfac
 	if err != nil {
 		return nil, err
 	}
-	err = createClient(&restConfig, createdK8sClient)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create k8s client: %s", err)
-	}
 
 	k8sCLI.Interface = createdK8sClient
 
-	createK8sWatcherCli, err := slimclientset.NewForConfigAndClient(&restConfig, httpClient)
+	createdK8sWatcherCli, err := slimclientset.NewForConfigAndClient(&restConfig, httpClient)
 	if err != nil {
 		return nil, err
 	}
 
-	k8sWatcherCLI.Interface = createK8sWatcherCli
+	k8sWatcherCLI.Interface = createdK8sWatcherCli
+
+	err = waitUntilConnReady(&restConfig, createdK8sWatcherCli)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create k8s client: %s", err)
+	}
 
 	return createdK8sClient.RESTClient(), nil
 }
@@ -292,7 +294,7 @@ func runHeartbeat(heartBeat func(context.Context) error, timeout time.Duration, 
 }
 
 // isConnReady returns the err for the kube-system namespace get
-func isConnReady(c kubernetes.Interface) error {
+func isConnReady(c slimclientset.Interface) error {
 	_, err := c.CoreV1().Namespaces().Get(context.TODO(), "kube-system", metav1.GetOptions{})
 	return err
 }

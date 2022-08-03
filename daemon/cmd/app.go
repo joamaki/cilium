@@ -12,6 +12,8 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/mackerelio/go-osstat/cpu"
+
 	"github.com/cilium/cilium/api/v1/server"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
@@ -19,12 +21,13 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/ipcache"
+	"github.com/cilium/cilium/pkg/k8s"
+	k8sconfig "github.com/cilium/cilium/pkg/k8s/config"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/status"
-	"github.com/mackerelio/go-osstat/cpu"
 )
 
 func runApp() {
@@ -33,7 +36,7 @@ func runApp() {
 	appLogger := newAppLogger
 
 	if os.Getenv("CILIUM_PRETTY") != "" {
-		appLogger = newPrettyAppLogger
+		appLogger = NewPrettyAppLogger
 		fmt.Printf("👋 Cilium is initializing...\n")
 	}
 
@@ -65,6 +68,10 @@ func runApp() {
 
 		fx.Supply(status.DefaultConfig),
 		status.Module,
+
+		fx.Supply(fx.Annotate(option.Config, fx.As(new(k8sconfig.Configuration)))),
+		k8s.ClientModule,
+		k8s.ResourcesModule,
 
 		fx.Supply(
 			fx.Annotate(
