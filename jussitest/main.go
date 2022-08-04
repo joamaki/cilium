@@ -30,6 +30,8 @@ func main() {
 		fx.WithLogger(cmd.NewPrettyAppLogger),
 		k8s.ClientModule,
 		k8s.ResourcesModule,
+		//datapath.DevicesModule,
+
 		fx.Invoke(testStart),
 	)
 	fmt.Printf("🚀 Graph completed in %s. Starting...\n", time.Now().Sub(t0))
@@ -43,14 +45,15 @@ type TestIn struct {
 	Nodes           k8s.NodesObservable
 	CiliumEndpoints k8s.CiliumEndpointsObservable
 	Info            k8s.NodeInformationObservable
+
+	//Devices datapath.DevicesObservable
 }
 
 func testStart(lc fx.Lifecycle, in TestIn) {
 	ctx, cancel := context.WithCancel(context.Background())
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			runTest(ctx, in)
-			return nil
+			return startTest(ctx, in)
 		},
 		OnStop: func(context.Context) error {
 			cancel()
@@ -59,7 +62,7 @@ func testStart(lc fx.Lifecycle, in TestIn) {
 	})
 }
 
-func runTest(ctx context.Context, in TestIn) {
+func startTest(ctx context.Context, in TestIn) error {
 	go in.Nodes.Observe(ctx,
 		func(event k8s.NodesEvent) error {
 			event.Dispatch(
@@ -94,6 +97,14 @@ func runTest(ctx context.Context, in TestIn) {
 			return nil
 		})
 
+	/*
+		go in.Devices.Observe(ctx,
+			func(devs datapath.Devices) error {
+				fmt.Printf("Devices: %#v\n", devs)
+				return nil
+			})*/
+
 	nodes, err := in.Client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	fmt.Printf("Nodes: %#v (error: %s)\n", nodes, err)
+	return err
 }

@@ -85,7 +85,7 @@ func (dm *DeviceManager) Detect() ([]string, error) {
 	}
 
 	l3DevOK := true
-	if !option.Config.EnableHostLegacyRouting && !option.Config.DryMode {
+	if !option.Config.EnableHostLegacyRouting {
 		// Probe whether BPF host routing is supported for L3 devices. This will
 		// invoke bpftool and requires root privileges, so we're only probing
 		// when necessary.
@@ -315,7 +315,7 @@ func (dm *DeviceManager) Listen(ctx context.Context) (chan []string, error) {
 			Namespace:    &dm.netns,
 		})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("RouteSubscribe: %w", err)
 	}
 
 	linkChan := make(chan netlink.LinkUpdate)
@@ -325,7 +325,7 @@ func (dm *DeviceManager) Listen(ctx context.Context) (chan []string, error) {
 		Namespace:    &dm.netns,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("LinkSubscribe: %w", err)
 	}
 
 	devicesChan := make(chan []string, 1)
@@ -501,6 +501,10 @@ func findK8SNodeIPLink() (netlink.Link, error) {
 // supportL3Dev returns true if the kernel is new enough to support BPF host routing of
 // packets coming from L3 devices using bpf_skb_redirect_peer.
 func supportL3Dev() bool {
+	if option.Config.DryMode {
+		return true
+	}
+
 	probesManager := probes.NewProbeManager()
 	if h := probesManager.GetHelpers("sched_cls"); h != nil {
 		_, found := h["bpf_skb_change_head"]
