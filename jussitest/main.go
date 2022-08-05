@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path"
 	"time"
 
 	"go.uber.org/fx"
@@ -15,19 +13,15 @@ import (
 	"github.com/cilium/cilium/pkg/k8s"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	"github.com/cilium/cilium/pkg/option"
 )
 
 func main() {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		panic(err)
-	}
-	kubeCfgPath := path.Join(homeDir, ".kube", "config")
-
-	k8s.Configure("", kubeCfgPath, 10.0, 5)
 	t0 := time.Now()
 	var app = fx.New(
 		fx.WithLogger(cmd.NewPrettyAppLogger),
+
+		option.Module,
 		k8s.ClientModule,
 		k8s.ResourcesModule,
 		//datapath.DevicesModule,

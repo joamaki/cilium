@@ -18,15 +18,26 @@ import (
 	slim_discoveryv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1"
 	apiextclientset "github.com/cilium/cilium/pkg/k8s/slim/k8s/apiextensions-clientset"
 	slimclientset "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned"
-	"github.com/cilium/cilium/pkg/source"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
+	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/source"
 )
+
+type ClientConfig struct {
+	APIServerURL string   `flag:"k8s-api-server"      usage:"K8s API Server URL"`
+	KubeConfigPath string `flag:"k8s-kubeconfig-path" usage:"K8s kubeconfig path"`
+	QPS float32           `flag:"k8s-client-qps"      usage:"K8s client queries per second limit"`
+	Burst int             `flag:"k8s-client-burst"    usage:"K8s client burst limit"`
+}
+
+var defaultClientConfig = ClientConfig{"", "", 100, 5}
 
 var ClientModule = fx.Module(
 	"k8s-client",
+
+	option.ConfigOption(defaultClientConfig),
 	fx.Provide(k8sClient),
 )
-// TODO: fake client module for tests.
 
 // Type aliases for the clientsets to avoid name collision on 'Clientset' when composing them.
 // NOTE: Still collision with Discovery() between SlimClientset and CiliumClientset, so that needs
@@ -44,11 +55,10 @@ type Clientset struct {
 	*CiliumClientset
 }
 
-// TODO: k8s.configuration should be passed in.
-func k8sClient(lc fx.Lifecycle) (*Clientset, error) {
+func k8sClient(lc fx.Lifecycle, config ClientConfig) (*Clientset, error) {
 	var client Clientset
 
-	restConfig, err := CreateConfig()
+	restConfig, err := createConfig(config.APIServerURL, config.KubeConfigPath, config.QPS, config.Burst)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create k8s client rest configuration: %w", err)
 	}
