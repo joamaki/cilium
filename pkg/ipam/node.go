@@ -1029,7 +1029,7 @@ func (n *Node) syncToAPIServer() (err error) {
 
 		// The PreAllocate value is added here rather than where the CiliumNode
 		// resource is created ((*NodeDiscovery).mutateNodeResource() inside
-		// pkg/nodediscovery), because mutateNodeResource() does not have
+		// pkg/node/nodediscovery), because mutateNodeResource() does not have
 		// access to the ipam.Node object. Since we are in the CiliumNode
 		// update sync loop, we can compute the value.
 		if node.Spec.IPAM.PreAllocate == 0 {

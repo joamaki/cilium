@@ -30,7 +30,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maps/encrypt"
 	"github.com/cilium/cilium/pkg/node"
-	"github.com/cilium/cilium/pkg/nodediscovery"
+	"github.com/cilium/cilium/pkg/node/nodediscovery"
 	"github.com/cilium/cilium/pkg/option"
 )
 
