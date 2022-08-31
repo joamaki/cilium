@@ -98,7 +98,7 @@ func compileAndLoadXDPProg(ctx context.Context, xdpDev, xdpMode string, extraCAr
 	}
 
 	dirs := &directoryInfo{
-		Library: option.Config.BpfDir,
+		Library: option.Config.BpfDir(),
 		Runtime: option.Config.StateDir,
 		Output:  option.Config.StateDir,
 		State:   option.Config.StateDir,

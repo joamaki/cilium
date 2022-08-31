@@ -386,7 +386,7 @@ func (l *Loader) CompileAndLoad(ctx context.Context, ep datapath.Endpoint, stats
 	}
 
 	dirs := directoryInfo{
-		Library: option.Config.BpfDir,
+		Library: option.Config.BpfDir(),
 		Runtime: option.Config.StateDir,
 		State:   ep.StateDir(),
 		Output:  ep.StateDir(),
@@ -462,7 +462,7 @@ func (l *Loader) CompileOrLoad(ctx context.Context, ep datapath.Endpoint, stats 
 // ReloadDatapath reloads the BPF datapath programs for the specified endpoint.
 func (l *Loader) ReloadDatapath(ctx context.Context, ep datapath.Endpoint, stats *metrics.SpanStat) (err error) {
 	dirs := directoryInfo{
-		Library: option.Config.BpfDir,
+		Library: option.Config.BpfDir(),
 		Runtime: option.Config.StateDir,
 		State:   ep.StateDir(),
 		Output:  ep.StateDir(),

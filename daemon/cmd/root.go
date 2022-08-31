@@ -58,6 +58,7 @@ func init() {
 	agentHive = hive.New(
 		Vp, RootCmd.Flags(),
 
+		option.BaseConfigCell,
 		gops.Cell,
 		hive.NewCell("daemon", fx.Invoke(registerDaemonHooks)),
 	)

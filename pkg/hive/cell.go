@@ -81,3 +81,4 @@ func NewCellWithConfig[T CellConfig](name string, opts ...fx.Option) *Cell {
 		newConfig:     func() any { return emptyConfig },
 	}
 }
+

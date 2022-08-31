@@ -396,7 +396,7 @@ func CompileWithOptions(ctx context.Context, src string, out string, opts []stri
 		OutputType: outputObject,
 	}
 	dirs := directoryInfo{
-		Library: option.Config.BpfDir,
+		Library: option.Config.BpfDir(),
 		Runtime: option.Config.StateDir,
 		Output:  option.Config.StateDir,
 		State:   option.Config.StateDir,
@@ -412,7 +412,7 @@ func Compile(ctx context.Context, src string, out string) error {
 // compileTemplate compiles a BPF program generating a template object file.
 func compileTemplate(ctx context.Context, out string, isHost bool) error {
 	dirs := directoryInfo{
-		Library: option.Config.BpfDir,
+		Library: option.Config.BpfDir(),
 		Runtime: option.Config.StateDir,
 		Output:  out,
 		State:   out,
@@ -423,7 +423,7 @@ func compileTemplate(ctx context.Context, out string, isHost bool) error {
 // compileNetwork compiles a BPF program attached to network
 func compileNetwork(ctx context.Context) error {
 	dirs := directoryInfo{
-		Library: option.Config.BpfDir,
+		Library: option.Config.BpfDir(),
 		Runtime: option.Config.StateDir,
 		Output:  option.Config.StateDir,
 		State:   option.Config.StateDir,

@@ -1280,10 +1280,9 @@ func LogRegisteredOptions(vp *viper.Viper, entry *logrus.Entry) {
 
 // DaemonConfig is the configuration used by Daemon.
 type DaemonConfig struct {
+	BaseConfig
+
 	CreationTime        time.Time
-	BpfDir              string       // BPF template files directory
-	LibDir              string       // Cilium library files directory
-	RunDir              string       // Cilium runtime directory
 	devicesMu           lock.RWMutex // Protects devices
 	devices             []string     // bpf_host device
 	DirectRoutingDevice string       // Direct routing device (used by BPF NodePort and BPF Host Routing)
@@ -1318,9 +1317,6 @@ type DaemonConfig struct {
 	// AllowLocalhost defines when to allows the local stack to local endpoints
 	// values: { auto | always | policy }
 	AllowLocalhost string
-
-	// StateDir is the directory where runtime state of endpoints is stored
-	StateDir string
 
 	// Options changeable at runtime
 	Opts *IntOptions
@@ -1572,9 +1568,6 @@ type DaemonConfig struct {
 	CGroupRoot                    string
 	BPFCompileDebug               string
 	CompilerFlags                 []string
-	ConfigFile                    string
-	ConfigDir                     string
-	Debug                         bool
 	DebugVerbose                  []string
 	EnableSocketLB                bool
 	EnableHostServicesTCP         bool
@@ -2769,7 +2762,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.ClusterName = vp.GetString(ClusterName)
 	c.ClusterMeshConfig = vp.GetString(ClusterMeshConfigName)
 	c.DatapathMode = vp.GetString(DatapathMode)
-	c.Debug = vp.GetBool(DebugArg)
 	c.DebugVerbose = vp.GetStringSlice(DebugVerbose)
 	c.DirectRoutingDevice = vp.GetString(DirectRoutingDevice)
 	c.LBDevInheritIPAddr = vp.GetString(LBDevInheritIPAddr)
@@ -2866,7 +2858,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.IPAllocationTimeout = vp.GetDuration(IPAllocationTimeout)
 	c.LabelPrefixFile = vp.GetString(LabelPrefixFile)
 	c.Labels = vp.GetStringSlice(Labels)
-	c.LibDir = vp.GetString(LibDir)
 	c.LogDriver = vp.GetStringSlice(LogDriver)
 	c.LogSystemLoadConfig = vp.GetBool(LogSystemLoadConfigName)
 	c.Logstash = vp.GetBool(Logstash)
@@ -2904,7 +2895,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.ReadCNIConfiguration = vp.GetString(ReadCNIConfiguration)
 	c.RestoreState = vp.GetBool(Restore)
 	c.RouteMetric = vp.GetInt(RouteMetric)
-	c.RunDir = vp.GetString(StateDir)
 	c.SidecarIstioProxyImage = vp.GetString(SidecarIstioProxyImage)
 	c.UseSingleClusterRoute = vp.GetBool(SingleClusterRouteName)
 	c.SocketPath = vp.GetString(SocketPath)
@@ -3213,7 +3203,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 
 	// Hidden options
 	c.CompilerFlags = vp.GetStringSlice(CompilerFlags)
-	c.ConfigFile = vp.GetString(ConfigFile)
 	c.HTTP403Message = vp.GetString(HTTP403Message)
 	c.K8sNamespace = vp.GetString(K8sNamespaceName)
 	c.AgentNotReadyNodeTaintKey = vp.GetString(AgentNotReadyNodeTaintKeyName)

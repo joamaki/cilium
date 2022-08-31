@@ -179,17 +179,8 @@ func initializeFlags() {
 	flags.MarkHidden(option.CompilerFlags)
 	option.BindEnv(Vp, option.CompilerFlags)
 
-	flags.String(option.ConfigFile, "", `Configuration file (default "$HOME/ciliumd.yaml")`)
-	option.BindEnv(Vp, option.ConfigFile)
-
-	flags.String(option.ConfigDir, "", `Configuration directory that contains a file for each option`)
-	option.BindEnv(Vp, option.ConfigDir)
-
 	flags.Duration(option.ConntrackGCInterval, time.Duration(0), "Overwrite the connection-tracking garbage collection interval")
 	option.BindEnv(Vp, option.ConntrackGCInterval)
-
-	flags.BoolP(option.DebugArg, "D", false, "Enable debugging mode")
-	option.BindEnv(Vp, option.DebugArg)
 
 	flags.StringSlice(option.DebugVerbose, []string{}, "List of enabled verbose debug groups")
 	option.BindEnv(Vp, option.DebugVerbose)
@@ -614,9 +605,6 @@ func initializeFlags() {
 		"To offer a concrete example, if Cilium is configured to use direct routing and the Kubernetes CIDR is included in the native routing CIDR, the user must configure the routes to reach pods, either manually or by setting the auto-direct-node-routes flag.")
 	option.BindEnv(Vp, option.IPv6NativeRoutingCIDR)
 
-	flags.String(option.LibDir, defaults.LibraryPath, "Directory path to store runtime build environment")
-	option.BindEnv(Vp, option.LibDir)
-
 	flags.StringSlice(option.LogDriver, []string{}, "Logging endpoints to use for example syslog")
 	option.BindEnv(Vp, option.LogDriver)
 
@@ -725,9 +713,6 @@ func initializeFlags() {
 
 	flags.String(option.SocketPath, defaults.SockPath, "Sets daemon's socket path to listen for connections")
 	option.BindEnv(Vp, option.SocketPath)
-
-	flags.String(option.StateDir, defaults.RuntimePath, "Directory path to store runtime state")
-	option.BindEnv(Vp, option.StateDir)
 
 	flags.StringP(option.TunnelName, "t", "", fmt.Sprintf("Tunnel mode {%s} (default \"vxlan\" for the \"veth\" datapath mode)", option.GetTunnelModes()))
 	option.BindEnv(Vp, option.TunnelName)
@@ -1189,7 +1174,6 @@ func initEnv() {
 		logfields.Path + ".LibDir": option.Config.LibDir,
 	})
 
-	option.Config.BpfDir = filepath.Join(option.Config.LibDir, defaults.BpfDir)
 	scopedLog = scopedLog.WithField(logfields.Path+".BPFDir", defaults.BpfDir)
 	if err := os.MkdirAll(option.Config.RunDir, defaults.RuntimePathRights); err != nil {
 		scopedLog.WithError(err).Fatal("Could not create runtime directory")

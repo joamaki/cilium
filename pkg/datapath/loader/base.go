@@ -296,7 +296,7 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		o.SetPrefilter(preFilter)
 	}
 
-	args[initArgLib] = option.Config.BpfDir
+	args[initArgLib] = option.Config.BpfDir()
 	args[initArgRundir] = option.Config.StateDir
 	args[initArgCgroupRoot] = cgroups.GetCgroupRoot()
 	args[initArgBpffsRoot] = bpf.GetMapRoot()
@@ -440,7 +440,7 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		log.WithError(err).Fatal("Failed to compile XDP program")
 	}
 
-	prog := filepath.Join(option.Config.BpfDir, "init.sh")
+	prog := filepath.Join(option.Config.BpfDir(), "init.sh")
 	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Env = bpf.Environment()
 	if _, err := cmd.CombinedOutput(log, true); err != nil {

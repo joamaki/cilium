@@ -13,45 +13,47 @@ import (
 	"sync/atomic"
 	"time"
 
-	gops "github.com/google/gops/agent"
-	"golang.org/x/sys/unix"
-
-	"github.com/cilium/cilium/operator/api"
-	operatorMetrics "github.com/cilium/cilium/operator/metrics"
-	ces "github.com/cilium/cilium/operator/pkg/ciliumendpointslice"
-
-	"github.com/cilium/cilium/pkg/components"
-	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
-	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/client"
-	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
-	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
-	"github.com/cilium/cilium/pkg/logging"
-	"github.com/cilium/cilium/pkg/metrics"
-	"github.com/cilium/cilium/pkg/pprof"
-	"github.com/cilium/cilium/pkg/rand"
-	"github.com/cilium/cilium/pkg/version"
-
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"go.uber.org/fx"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
+	"github.com/cilium/cilium/operator/api"
+	operatorMetrics "github.com/cilium/cilium/operator/metrics"
 	operatorOption "github.com/cilium/cilium/operator/option"
+	ces "github.com/cilium/cilium/operator/pkg/ciliumendpointslice"
 	"github.com/cilium/cilium/operator/pkg/ingress"
 	operatorWatchers "github.com/cilium/cilium/operator/watchers"
+
+	"github.com/cilium/cilium/pkg/components"
+	"github.com/cilium/cilium/pkg/gops"
+	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/ipam/allocator"
+	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/k8s"
+	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/client"
+	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
+	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
 	"github.com/cilium/cilium/pkg/kvstore"
+	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/rand"
 	"github.com/cilium/cilium/pkg/rate"
+	"github.com/cilium/cilium/pkg/version"
 )
 
 var (
 	binaryName = filepath.Base(os.Args[0])
+
+	operatorHive *hive.Hive
 
 	log = logging.DefaultLogger.WithField(logfields.LogSubsys, binaryName)
 
@@ -64,20 +66,7 @@ var (
 				genMarkdown(cobraCmd, cmdRefDir)
 				os.Exit(0)
 			}
-
-			// Open socket for using gops to get stacktraces of the agent.
-			addr := fmt.Sprintf("127.0.0.1:%d", Vp.GetInt(option.GopsPort))
-			addrField := logrus.Fields{"address": addr}
-			if err := gops.Listen(gops.Options{
-				Addr:                   addr,
-				ReuseSocketAddrAndPort: true,
-			}); err != nil {
-				log.WithError(err).WithFields(addrField).Fatal("Cannot start gops server")
-			}
-			log.WithFields(addrField).Info("Started gops server")
-
-			initEnv()
-			runOperator()
+			operatorHive.Run()
 		},
 	}
 
@@ -130,6 +119,25 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(MetricsCmd)
 	Populate()
+
+	operatorHive = hive.New(
+		Vp,
+		rootCmd.Flags(),
+
+		gops.Cell,
+		option.BaseConfigCell,
+		hive.Invoke(registerOperatorHooks),
+	)
+}
+
+func registerOperatorHooks(lc fx.Lifecycle) {
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			initEnv()
+			go runOperator()
+			return nil
+		},
+	})
 }
 
 func initEnv() {
@@ -171,7 +179,6 @@ func doCleanup(exitCode int) {
 	// once the cleanup logic is executed.
 	doOnce.Do(func() {
 		IsLeader.Store(false)
-		gops.Close()
 		close(shutdownSignal)
 
 		// Cancelling this conext here makes sure that if the operator hold the
