@@ -14,6 +14,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/version"
 )
@@ -60,6 +61,14 @@ func init() {
 
 		gops.Cell,
 		hive.NewCell("daemon", fx.Invoke(registerDaemonHooks)),
+
+		node.LocalNodeStoreCell,
+		hive.Invoke(func(store node.LocalNodeStore) {
+			// Set the global LocalNodeStore. This is to retain the API of getters and setters
+			// defined in pkg/node/address.go until uses of them have been converted to use
+			// LocalNodeStore directly.
+			node.SetLocalNodeStore(store)
+		}),
 	)
 }
 
