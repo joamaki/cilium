@@ -68,6 +68,7 @@ import (
 	"github.com/cilium/cilium/pkg/metrics"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	"github.com/cilium/cilium/pkg/node"
+	nodemanager "github.com/cilium/cilium/pkg/node/manager"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/pidfile"
@@ -1564,14 +1565,14 @@ func (d *Daemon) initKVStore() {
 //
 // If an object still owned by Daemon is required in a module, it should be provided indirectly, e.g. via
 // a callback.
-func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner) error {
+func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	cleaner := NewDaemonCleanup()
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
-			go runDaemon(ctx, cleaner, shutdowner)
+			go runDaemon(ctx, cleaner, shutdowner, nodeMngr)
 			return nil
 		},
 		OnStop: func(context.Context) error {
@@ -1584,7 +1585,7 @@ func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner) error {
 }
 
 // runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner) {
+func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager) {
 	bootstrapStats.earlyInit.Start()
 	initEnv()
 	bootstrapStats.earlyInit.End(true)
@@ -1641,7 +1642,8 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 
 	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
 		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
-		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent))
+		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent),
+		nodeMngr)
 	if err != nil {
 		log.Fatalf("daemon creation failed: %s", err)
 	}

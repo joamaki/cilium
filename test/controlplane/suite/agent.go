@@ -9,15 +9,22 @@ import (
 	"io/ioutil"
 	"os"
 
+	"go.uber.org/fx"
 	fakeApiExt "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 
 	"github.com/cilium/cilium/daemon/cmd"
 	fakeDatapath "github.com/cilium/cilium/pkg/datapath/fake"
 	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/hive"
 	fakeCilium "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/fake"
 	fakeSlim "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned/fake"
 	agentOption "github.com/cilium/cilium/pkg/option"
+
+	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 )
 
 type agentHandle struct {
@@ -45,15 +52,32 @@ func startCiliumAgent(nodeName string, clients fakeClients) (*fakeDatapath.FakeD
 	handle.cancel = cancel
 
 	cleaner := cmd.NewDaemonCleanup()
-	handle.clean = cleaner.Clean
 
-	var err error
-	handle.d, _, err = cmd.NewDaemon(ctx,
-		cleaner,
-		cmd.WithCustomEndpointManager(&dummyEpSyncher{}),
-		fdp)
+	hive := hive.New(
+		viper.New(),
+		pflag.NewFlagSet("", pflag.ContinueOnError),
+
+		nodeManager.Cell,
+		hive.NewCell("",
+			fx.Provide(func(nodeMngr *nodeManager.Manager) (*cmd.Daemon, error) {
+				d, _, err := cmd.NewDaemon(ctx,
+					cleaner,
+					cmd.WithCustomEndpointManager(&dummyEpSyncher{}),
+					fdp, nodeMngr)
+				return d, err
+			}),
+			fx.Populate(&handle.d),
+		),
+	)
+
+	err := hive.Start(context.TODO())
 	if err != nil {
 		return nil, agentHandle{}, err
+	}
+
+	handle.clean = func() {
+		hive.Stop(context.TODO())
+		cleaner.Clean()
 	}
 	return fdp, handle, nil
 }

@@ -366,7 +366,7 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 }
 
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager, dp datapath.Datapath) (*Daemon, *endpointRestoreState, error) {
+func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager, dp datapath.Datapath, nodeMngr *nodemanager.Manager) (*Daemon, *endpointRestoreState, error) {
 
 	var (
 		err           error
@@ -472,10 +472,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		externalIP,
 	)
 
-	nodeMngr, err := nodemanager.NewManager("all", dp.Node(), option.Config, nil, nil)
-	if err != nil {
-		return nil, nil, err
-	}
+	nodeMngr.Subscribe(dp.Node())
 
 	identity.IterateReservedIdentities(func(_ identity.NumericIdentity, _ *identity.Identity) {
 		metrics.Identity.WithLabelValues(identity.ReservedIdentityType).Inc()
@@ -595,8 +592,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		}
 	}
 	nodeMngr = nodeMngr.WithIPCache(d.ipcache)
-	nodeMngr = nodeMngr.WithSelectorCacheUpdater(d.policy.GetSelectorCache()) // must be after initPolicy
-	nodeMngr = nodeMngr.WithPolicyTriggerer(epMgr)                            // must be after initPolicy
 
 	proxy.Allocator = d.identityAllocator
 

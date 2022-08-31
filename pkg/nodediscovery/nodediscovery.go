@@ -334,7 +334,6 @@ func (n *NodeDiscovery) LocalNode() *types.Node {
 
 // Close shuts down the node discovery engine
 func (n *NodeDiscovery) Close() {
-	n.Manager.Close()
 }
 
 // UpdateCiliumNodeResource updates the CiliumNode resource representing the
