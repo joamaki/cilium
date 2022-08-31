@@ -73,6 +73,7 @@ import (
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	"github.com/cilium/cilium/pkg/mtu"
 	"github.com/cilium/cilium/pkg/node"
+	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 	nodemanager "github.com/cilium/cilium/pkg/node/manager"
 	nodeStore "github.com/cilium/cilium/pkg/node/store"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -374,7 +375,9 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 
 // newDaemon creates and returns a new Daemon with the parameters set in c.
 func newDaemon(ctx context.Context, cleaner *daemonCleanup,
-	epMgr *endpointmanager.EndpointManager, dp datapath.Datapath,
+	epMgr *endpointmanager.EndpointManager,
+	nodeMngr *nodeManager.Manager,
+	dp datapath.Datapath,
 	clientset k8sClient.Clientset,
 ) (*Daemon, *endpointRestoreState, error) {
 
@@ -488,10 +491,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		externalIP,
 	)
 
-	nodeMngr, err := nodemanager.NewManager("all", dp.Node(), option.Config, nil, nil)
-	if err != nil {
-		return nil, nil, err
-	}
+	nodeMngr.Subscribe(dp.Node())
 
 	identity.IterateReservedIdentities(func(_ identity.NumericIdentity, _ *identity.Identity) {
 		metrics.Identity.WithLabelValues(identity.ReservedIdentityType).Inc()
@@ -616,8 +616,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		}
 	}
 	nodeMngr = nodeMngr.WithIPCache(d.ipcache)
-	nodeMngr = nodeMngr.WithSelectorCacheUpdater(d.policy.GetSelectorCache()) // must be after initPolicy
-	nodeMngr = nodeMngr.WithPolicyTriggerer(epMgr)                            // must be after initPolicy
 
 	proxy.Allocator = d.identityAllocator
 

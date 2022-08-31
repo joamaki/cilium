@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,7 +17,6 @@ import (
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
 	"github.com/cilium/cilium/pkg/identity"
-	"github.com/cilium/cilium/pkg/identity/cache"
 	"github.com/cilium/cilium/pkg/inctimer"
 	"github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipcache"
@@ -141,20 +139,6 @@ type Manager struct {
 	// controllerManager manages the controllers that are launched within the
 	// Manager.
 	controllerManager *controller.Manager
-
-	// selectorCacheUpdater updates the identities inside the selector cache.
-	selectorCacheUpdater selectorCacheUpdater
-
-	// policyTriggerer triggers policy updates (recalculations).
-	policyTriggerer policyTriggerer
-}
-
-type selectorCacheUpdater interface {
-	UpdateIdentities(added, deleted cache.IdentityCache, wg *sync.WaitGroup)
-}
-
-type policyTriggerer interface {
-	UpdatePolicyMaps(context.Context, *sync.WaitGroup) *sync.WaitGroup
 }
 
 // Subscribe subscribes the given node handler to node events.
@@ -189,19 +173,16 @@ func (m *Manager) Iter(f func(nh datapath.NodeHandler)) {
 	}
 }
 
-// NewManager returns a new node manager
-func NewManager(name string, dp datapath.NodeHandler, c Configuration, sc selectorCacheUpdater, pt policyTriggerer) (*Manager, error) {
+// newManager returns a new node manager
+func NewManager(name string, c Configuration) (*Manager, error) {
 	m := &Manager{
-		name:                 name,
-		nodes:                map[nodeTypes.Identity]*nodeEntry{},
-		conf:                 c,
-		controllerManager:    controller.NewManager(),
-		selectorCacheUpdater: sc,
-		policyTriggerer:      pt,
-		nodeHandlers:         map[datapath.NodeHandler]struct{}{},
-		closeChan:            make(chan struct{}),
+		name:              name,
+		nodes:             map[nodeTypes.Identity]*nodeEntry{},
+		conf:              c,
+		controllerManager: controller.NewManager(),
+		nodeHandlers:      map[datapath.NodeHandler]struct{}{},
+		closeChan:         make(chan struct{}),
 	}
-	m.Subscribe(dp)
 
 	m.metricEventsReceived = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: metrics.Namespace,
@@ -229,21 +210,11 @@ func NewManager(name string, dp datapath.NodeHandler, c Configuration, sc select
 		return nil, err
 	}
 
-	go m.backgroundSync()
-
 	return m, nil
 }
 
-// WithSelectorCacheUpdater sets the selector cache updater in the Manager.
-func (m *Manager) WithSelectorCacheUpdater(sc selectorCacheUpdater) *Manager {
-	m.selectorCacheUpdater = sc
-	return m
-}
-
-// WithPolicyTriggerer sets the policy update trigger in the Manager.
-func (m *Manager) WithPolicyTriggerer(pt policyTriggerer) *Manager {
-	m.policyTriggerer = pt
-	return m
+func (m *Manager) Start() {
+	go m.backgroundSync()
 }
 
 // WithIPCache sets the ipcache field in the Manager.

@@ -74,6 +74,7 @@ import (
 	"github.com/cilium/cilium/pkg/metrics"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	"github.com/cilium/cilium/pkg/node"
+	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/pidfile"
@@ -1607,6 +1608,7 @@ type daemonParams struct {
 	Datapath        datapath.Datapath
 	LocalNodeStore  node.LocalNodeStore
 	Shutdowner      hive.Shutdowner
+	NodeManager     *nodeManager.Manager
 	EndpointManager *endpointmanager.EndpointManager
 }
 
@@ -1642,6 +1644,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 			d, restoredEndpoints, err := newDaemon(
 				ctx, cleaner,
 				params.EndpointManager,
+				params.NodeManager,
 				params.Datapath,
 				params.Clientset)
 			if err != nil {

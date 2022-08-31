@@ -10,6 +10,7 @@ import (
 	"github.com/cilium/cilium/pkg/hive/cell"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/node"
+	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 )
 
 var (
@@ -47,6 +48,9 @@ var (
 
 		// EndpointManager maintains a collection of the locally running endpoints.
 		endpointmanager.Cell,
+
+		// NodeManager maintains a collection of other nodes in the cluster.
+		nodeManager.Cell,
 
 		// daemonCell wraps the legacy daemon initialization and provides Promise[*Daemon].
 		daemonCell,
