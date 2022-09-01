@@ -1637,7 +1637,8 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 
 	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
 		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
-		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent))
+		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent),
+		clientset)
 	if err != nil {
 		log.Fatalf("daemon creation failed: %s", err)
 	}

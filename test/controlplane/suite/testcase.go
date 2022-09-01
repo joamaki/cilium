@@ -102,8 +102,7 @@ func (cpt *ControlPlaneTest) SetupEnvironment(modConfig func(*agentOption.Daemon
 	types.SetName(cpt.nodeName)
 
 	// Configure k8s and perform capability detection with the fake client.
-	k8s.Configure("dummy", "dummy", 10.0, 10)
-	version.Update(cpt.clients, &k8sConfig{})
+	version.Update(cpt.clients, true)
 	k8s.SetClients(cpt.clients, cpt.clients.Slim(), cpt.clients, cpt.clients)
 
 	proxy.DefaultDNSProxy = fqdnproxy.MockFQDNProxy{}
@@ -139,7 +138,7 @@ func (cpt *ControlPlaneTest) StartAgent() *ControlPlaneTest {
 	if cpt.agentHandle != nil {
 		cpt.t.Fatal("StartAgent() already called")
 	}
-	datapath, agentHandle, err := startCiliumAgent(cpt.nodeName)
+	datapath, agentHandle, err := startCiliumAgent(cpt.nodeName, cpt.clients)
 	if err != nil {
 		cpt.t.Fatalf("Failed to start cilium agent: %s", err)
 	}
