@@ -4,6 +4,7 @@
 package hive
 
 import (
+	"context"
 	"reflect"
 
 	"github.com/spf13/pflag"
@@ -51,6 +52,33 @@ func NewCell(name string, opts ...fx.Option) *Cell {
 // Invoke constructs an unnamed cell for an invoke function.
 func Invoke(fn any) *Cell {
 	return NewCell("", fx.Invoke(fn))
+}
+
+// OnStart registers a function to run on start up.
+func OnStart(fn any) *Cell {
+	typ := reflect.TypeOf(fn)
+
+	in := []reflect.Type{reflect.TypeOf(new(fx.Lifecycle)).Elem()}
+	for i := 0; i < typ.NumIn(); i++ {
+		in = append(in, typ.In(i))
+	}
+
+	// Construct a wrapper function that takes the same arguments plus lifecycle.
+	// The wrapper will append a start hook and will then invoke the original function
+	// from the start hook.
+	// We ignore any outputs from the function.
+	funTyp := reflect.FuncOf(in, []reflect.Type{}, false)
+	funVal := reflect.MakeFunc(funTyp, func(args []reflect.Value) []reflect.Value {
+		lc := args[0].Interface().(fx.Lifecycle)
+		lc.Append(fx.Hook{
+			OnStart: func(context.Context) error {
+				reflect.ValueOf(fn).Call(args[1:])
+				return nil
+			},
+		})
+		return []reflect.Value{}
+	})
+	return NewCell("", fx.Invoke(funVal.Interface()))
 }
 
 // Require constructs a cell that ensures the object T is
