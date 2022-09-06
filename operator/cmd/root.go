@@ -37,6 +37,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/client"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
+	k8sResources "github.com/cilium/cilium/pkg/k8s/resources"
 	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/logging"
@@ -112,16 +113,17 @@ func Execute() {
 
 var operatorCell = hive.NewCell(
 	"operator",
+	fx.Provide(newOperatorLifecycle),
 	fx.Invoke(registerOperatorHooks),
 )
 
-func registerOperatorHooks(lc fx.Lifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
+func registerOperatorHooks(lc fx.Lifecycle, olc *operatorLifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 	k8s.SetClients(clientset, clientset.Slim(), clientset, clientset)
 	initEnv()
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			go runOperator(clientset, shutdowner)
+			go runOperator(olc, clientset, shutdowner)
 			return nil
 		},
 		OnStop: func(context.Context) error {
@@ -140,7 +142,10 @@ func init() {
 
 		gops.Cell,
 		k8sClient.Cell,
+		k8sResources.Cell,
+
 		operatorCell,
+		ciliumNodeSyncCell,
 	)
 }
 
@@ -209,7 +214,7 @@ func checkStatus(clientset k8sClient.Clientset) error {
 // runOperator implements the logic of leader election for cilium-operator using
 // built-in leader election capbility in kubernetes.
 // See: https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go
-func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
+func runOperator(olc *operatorLifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 	log.Infof("Cilium Operator %s", version.Version)
 	allSystemsGo := make(chan struct{})
 	IsLeader.Store(false)
@@ -257,7 +262,7 @@ func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 	// See docs on capabilities.LeasesResourceLock for more context.
 	if !capabilities.LeasesResourceLock {
 		log.Info("Support for coordination.k8s.io/v1 not present, fallback to non HA mode")
-		onOperatorStart(leaderElectionCtx, clientset)
+		onOperatorStart(leaderElectionCtx, olc, clientset)
 		return
 	}
 
@@ -301,7 +306,7 @@ func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
-				onOperatorStart(ctx, clientset)
+				onOperatorStart(ctx, olc, clientset)
 			},
 			OnStoppedLeading: func() {
 				log.WithField("operator-id", operatorID).Info("Leader election lost")
@@ -322,8 +327,8 @@ func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 	})
 }
 
-func onOperatorStart(ctx context.Context, clientset k8sClient.Clientset) {
-	OnOperatorStartLeading(ctx, clientset)
+func onOperatorStart(ctx context.Context, olc *operatorLifecycle, clientset k8sClient.Clientset) {
+	OnOperatorStartLeading(ctx, olc, clientset)
 
 	<-shutdownSignal
 	// graceful exit
@@ -342,7 +347,7 @@ func kvstoreEnabled() bool {
 
 // OnOperatorStartLeading is the function called once the operator starts leading
 // in HA mode.
-func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) {
+func OnOperatorStartLeading(ctx context.Context, olc *operatorLifecycle, clientset k8sClient.Clientset) {
 	IsLeader.Store(true)
 
 	// If CiliumEndpointSlice feature is enabled, create CESController, start CEP watcher and run controller.
@@ -499,17 +504,25 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) 
 		operatorWatchers.HandleNodeTolerationAndTaints(clientset, stopCh)
 	}
 
+	fmt.Printf(">>> Calling Operator lifecycle start hooks\n")
+	err = olc.StartLeading(ctx, withKVStore)
+	if err != nil {
+		log.WithError(err).Fatal("Failed to start leading")
+	}
+
+	/* XXX replaced by ciliumNodeSyncCell
 	if err := startSynchronizingCiliumNodes(ctx, clientset, nodeManager, withKVStore); err != nil {
 		log.WithError(err).Fatal("Unable to setup node watcher")
-	}
+	}*/
 
 	if operatorOption.Config.CNPNodeStatusGCInterval != 0 {
 		RunCNPNodeStatusGC(clientset, ciliumNodeStore)
 	}
 
-	if operatorOption.Config.NodesGCInterval != 0 {
-		operatorWatchers.RunCiliumNodeGC(ctx, clientset, ciliumNodeStore, operatorOption.Config.NodesGCInterval)
-	}
+	/*
+		if operatorOption.Config.NodesGCInterval != 0 {
+			operatorWatchers.RunCiliumNodeGC(ctx, clientset, ciliumNodeStore, operatorOption.Config.NodesGCInterval)
+		}*/
 
 	if option.Config.IPAM == ipamOption.IPAMClusterPool || option.Config.IPAM == ipamOption.IPAMClusterPoolV2 {
 		// We will use CiliumNodes as the source of truth for the podCIDRs.
@@ -552,6 +565,8 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) 
 		}
 	}
 
+	fmt.Printf(">>> endpoint sync gc\n")
+
 	if operatorOption.Config.EndpointGCInterval != 0 {
 		enableCiliumEndpointSyncGC(clientset, false)
 	} else {
@@ -560,6 +575,8 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) 
 		// stale entries.
 		enableCiliumEndpointSyncGC(clientset, true)
 	}
+
+	fmt.Printf(">>> cnp watchers\n")
 
 	err = enableCNPWatcher(clientset)
 	if err != nil {
@@ -572,6 +589,8 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) 
 		log.WithError(err).WithField(logfields.LogSubsys, "CCNPWatcher").Fatal(
 			"Cannot connect to Kubernetes apiserver ")
 	}
+
+	fmt.Printf(">>> ingress controller\n")
 
 	if operatorOption.Config.EnableIngressController {
 		ingressController, err := ingress.NewIngressController(
@@ -596,4 +615,47 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) 
 // before executing the next test case.
 func ResetCiliumNodesCacheSyncedStatus() {
 	k8sCiliumNodesCacheSynced = make(chan struct{})
+}
+
+type OperatorLifecycle interface {
+	AppendOnStart(func(ctx context.Context, withKVStore bool) error)
+	AppendOnStop(func() error)
+}
+
+type operatorLifecycle struct {
+	startHooks []func(context.Context, bool) error
+	stopHooks  []func() error
+}
+
+func newOperatorLifecycle() (OperatorLifecycle, *operatorLifecycle) {
+	lc := &operatorLifecycle{}
+	return lc, lc
+}
+
+func (lc *operatorLifecycle) AppendOnStart(fn func(context.Context, bool) error) {
+	lc.startHooks = append(lc.startHooks, fn)
+}
+
+func (lc *operatorLifecycle) AppendOnStop(fn func() error) {
+	lc.stopHooks = append(lc.stopHooks, fn)
+}
+
+func (lc *operatorLifecycle) StartLeading(ctx context.Context, withKVStore bool) error {
+	for _, start := range lc.startHooks {
+		if err := start(ctx, withKVStore); err != nil {
+			// TODO rewind?
+			return err
+		}
+	}
+	return nil
+}
+
+func (lc *operatorLifecycle) StopLeading() error {
+	for i := len(lc.stopHooks) - 1; i >= 0; i-- {
+		stop := lc.stopHooks[i]
+		if err := stop(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
