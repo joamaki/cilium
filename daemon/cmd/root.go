@@ -16,6 +16,7 @@ import (
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
+	k8sResources "github.com/cilium/cilium/pkg/k8s/resources"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/version"
 )
@@ -73,6 +74,7 @@ func init() {
 
 		gops.Cell,
 		k8sClient.Cell,
+		k8sResources.Cell,
 
 		hive.NewCellWithConfig[DaemonCellConfig]("daemon", fx.Invoke(registerDaemonHooks)),
 	)
