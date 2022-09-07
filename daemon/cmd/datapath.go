@@ -54,8 +54,10 @@ import (
 
 // LocalConfig returns the local configuration of the daemon's nodediscovery.
 func (d *Daemon) LocalConfig() *datapath.LocalNodeConfiguration {
+	// Block until NodeDiscovery has been initialized to make sure node addresses
+	// (pkg/node/address.go) has been filled in.
 	d.nodeDiscovery.WaitForLocalNodeInit()
-	return &d.nodeDiscovery.LocalConfig
+	return &d.localNodeConf
 }
 
 func (d *Daemon) createNodeConfigHeaderfile() error {
@@ -67,7 +69,7 @@ func (d *Daemon) createNodeConfigHeaderfile() error {
 	}
 	defer f.Close()
 
-	if err = d.datapath.WriteNodeConfig(f, &d.nodeDiscovery.LocalConfig); err != nil {
+	if err = d.datapath.WriteNodeConfig(f, &d.localNodeConf); err != nil {
 		log.WithError(err).WithField(logfields.Path, nodeConfigPath).Fatal("Failed to write node configuration file")
 		return err
 	}

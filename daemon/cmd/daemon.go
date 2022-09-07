@@ -153,6 +153,8 @@ type Daemon struct {
 
 	netConf *cnitypes.NetConf
 
+	localNodeConf datapath.LocalNodeConfiguration
+
 	endpointManager *endpointmanager.EndpointManager
 
 	identityAllocator CachingIdentityAllocator
@@ -472,6 +474,8 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		externalIP,
 	)
 
+	localNodeConf := newLocalNodeConfiguration(mtuConfig)
+
 	nodeMngr.Subscribe(dp.Node())
 
 	identity.IterateReservedIdentities(func(_ identity.NumericIdentity, _ *identity.Identity) {
@@ -483,7 +487,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		metrics.Identity.WithLabelValues(identity.WellKnownIdentityType).Add(float64(num))
 	}
 
-	nd := nodediscovery.NewNodeDiscovery(nodeMngr, mtuConfig, netConf)
+	nd := nodediscovery.NewNodeDiscovery(nodeMngr, netConf)
 
 	devMngr, err := linuxdatapath.NewDeviceManager()
 	if err != nil {
@@ -497,6 +501,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		compilationMutex:  new(lock.RWMutex),
 		netConf:           netConf,
 		mtuConfig:         mtuConfig,
+		localNodeConf:     localNodeConf,
 		datapath:          dp,
 		deviceManager:     devMngr,
 		nodeDiscovery:     nd,
