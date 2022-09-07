@@ -80,6 +80,7 @@ import (
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
 	wireguardTypes "github.com/cilium/cilium/pkg/wireguard/types"
+	cnitypes "github.com/cilium/cilium/plugins/cilium-cni/types"
 )
 
 const (
@@ -718,9 +719,6 @@ func initializeFlags() {
 	flags.String(option.IPv4NodeAddr, "auto", "IPv4 address of node")
 	option.BindEnv(Vp, option.IPv4NodeAddr)
 
-	flags.String(option.ReadCNIConfiguration, "", "Read to the CNI configuration at specified path to extract per node configuration")
-	option.BindEnv(Vp, option.ReadCNIConfiguration)
-
 	flags.Bool(option.Restore, true, "Restores state, if possible, from previous daemon")
 	option.BindEnv(Vp, option.Restore)
 
@@ -881,9 +879,6 @@ func initializeFlags() {
 	flags.Bool(option.SelectiveRegeneration, true, "only regenerate endpoints which need to be regenerated upon policy changes")
 	flags.MarkHidden(option.SelectiveRegeneration)
 	option.BindEnv(Vp, option.SelectiveRegeneration)
-
-	flags.String(option.WriteCNIConfigurationWhenReady, "", fmt.Sprintf("Write the CNI configuration as specified via --%s to path when agent is ready", option.ReadCNIConfiguration))
-	option.BindEnv(Vp, option.WriteCNIConfigurationWhenReady)
 
 	flags.Duration(option.PolicyTriggerInterval, defaults.PolicyTriggerInterval, "Time between triggers of policy updates (regenerations for all endpoints)")
 	flags.MarkHidden(option.PolicyTriggerInterval)
@@ -1582,7 +1577,7 @@ type daemonResolves struct {
 //
 // If an object still owned by Daemon is required in a module, it should be provided indirectly, e.g. via
 // a callback.
-func newDaemonLifecycle(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager) (out daemonOut, err error) {
+func newDaemonLifecycle(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager, netConf *cnitypes.NetConf) (out daemonOut, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cleaner := NewDaemonCleanup()
 
@@ -1593,7 +1588,7 @@ func newDaemonLifecycle(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nod
 		OnStart: func(context.Context) error {
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
-			go runDaemon(ctx, cleaner, shutdowner, nodeMngr, resolves)
+			go runDaemon(ctx, cleaner, shutdowner, nodeMngr, netConf, resolves)
 			return nil
 		},
 		OnStop: func(context.Context) error {
@@ -1606,7 +1601,7 @@ func newDaemonLifecycle(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nod
 }
 
 // runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager, resolves daemonResolves) {
+func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager, netConf *cnitypes.NetConf, resolves daemonResolves) {
 	bootstrapStats.earlyInit.Start()
 	initEnv()
 	bootstrapStats.earlyInit.End(true)
@@ -1663,6 +1658,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 
 	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
 		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
+		netConf,
 		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent),
 		nodeMngr)
 	if err != nil {
@@ -1849,12 +1845,10 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 		Info("Daemon initialization completed")
 
 	if option.Config.WriteCNIConfigurationWhenReady != "" {
-		input, err := os.ReadFile(option.Config.ReadCNIConfiguration)
-		if err != nil {
-			log.Fatalf("unable to read cni configuration file: %s", err)
+		if netConf == nil {
+			log.Fatalf("%s must be set when using %s", option.ReadCNIConfiguration, option.WriteCNIConfigurationWhenReady)
 		}
-
-		if err = os.WriteFile(option.Config.WriteCNIConfigurationWhenReady, input, 0644); err != nil {
+		if err = netConf.WriteFile(option.Config.WriteCNIConfigurationWhenReady); err != nil {
 			log.Fatalf("unable to write CNI configuration file to %s: %s",
 				option.Config.WriteCNIConfigurationWhenReady,
 				err)

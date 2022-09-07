@@ -151,8 +151,6 @@ type Daemon struct {
 	// ipam is the IP address manager of the agent
 	ipam *ipam.IPAM
 
-	netConf *cnitypes.NetConf
-
 	localNodeConf datapath.LocalNodeConfiguration
 
 	endpointManager *endpointmanager.EndpointManager
@@ -368,11 +366,9 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 }
 
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager, dp datapath.Datapath, nodeMngr *nodemanager.Manager) (*Daemon, *endpointRestoreState, error) {
-
+func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager, netConf *cnitypes.NetConf, dp datapath.Datapath, nodeMngr *nodemanager.Manager) (*Daemon, *endpointRestoreState, error) {
 	var (
 		err           error
-		netConf       *cnitypes.NetConf
 		configuredMTU = option.Config.MTU
 	)
 
@@ -383,17 +379,9 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		return nil, nil, fmt.Errorf("invalid daemon configuration: %s", err)
 	}
 
-	if option.Config.ReadCNIConfiguration != "" {
-		netConf, err = cnitypes.ReadNetConf(option.Config.ReadCNIConfiguration)
-		if err != nil {
-			log.WithError(err).Error("Unable to read CNI configuration")
-			return nil, nil, fmt.Errorf("unable to read CNI configuration: %w", err)
-		}
-
-		if netConf.MTU != 0 {
-			configuredMTU = netConf.MTU
-			log.WithField("mtu", configuredMTU).Info("Overwriting MTU based on CNI configuration")
-		}
+	if netConf != nil && netConf.MTU != 0 {
+		configuredMTU = netConf.MTU
+		log.WithField("mtu", configuredMTU).Info("Overwriting MTU based on CNI configuration")
 	}
 
 	apiLimiterSet, err := rate.NewAPILimiterSet(option.Config.APIRateLimit, apiRateLimitDefaults, &apiRateLimitingMetrics{})
@@ -499,7 +487,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		prefixLengths:     createPrefixLengthCounter(),
 		buildEndpointSem:  semaphore.NewWeighted(int64(numWorkerThreads())),
 		compilationMutex:  new(lock.RWMutex),
-		netConf:           netConf,
 		mtuConfig:         mtuConfig,
 		localNodeConf:     localNodeConf,
 		datapath:          dp,
