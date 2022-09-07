@@ -62,7 +62,7 @@ func init() {
 
 		gops.Cell,
 		nodeManager.Cell,
-		hive.NewCell("daemon", fx.Invoke(registerDaemonHooks)),
+		hive.NewCell("daemon", fx.Provide(newDaemonLifecycle)),
 
 		node.LocalNodeStoreCell,
 		hive.Invoke(func(store node.LocalNodeStore) {

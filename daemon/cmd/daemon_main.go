@@ -67,6 +67,7 @@ import (
 	"github.com/cilium/cilium/pkg/maps/policymap"
 	"github.com/cilium/cilium/pkg/metrics"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
+	"github.com/cilium/cilium/pkg/mtu"
 	"github.com/cilium/cilium/pkg/node"
 	nodemanager "github.com/cilium/cilium/pkg/node/manager"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -74,6 +75,7 @@ import (
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/sysctl"
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -1555,6 +1557,21 @@ func (d *Daemon) initKVStore() {
 	}
 }
 
+// daemonOut provides the values lifted out from the daemon. This is a temporary
+// measure to have access to values owned by the Daemon until they have been
+// implemented as hive cells.
+type daemonOut struct {
+	fx.Out
+
+	// MTUConfig is lifted from daemon for nodediscovery. mtu.NewConfiguration
+	// in turn depends on node info from k8s and IPsec.
+	MTUConfig promise.Promise[mtu.Configuration]
+}
+
+type daemonResolves struct {
+	mtu func(mtu.Configuration)
+}
+
 // registerDaemonHooks registers the lifecycle hooks for the part of the cilium-agent that has
 // not yet been modularized.
 //
@@ -1565,14 +1582,18 @@ func (d *Daemon) initKVStore() {
 //
 // If an object still owned by Daemon is required in a module, it should be provided indirectly, e.g. via
 // a callback.
-func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager) error {
+func newDaemonLifecycle(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager) (out daemonOut, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cleaner := NewDaemonCleanup()
+
+	var resolves daemonResolves
+	resolves.mtu, out.MTUConfig = promise.New[mtu.Configuration]()
+
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
-			go runDaemon(ctx, cleaner, shutdowner, nodeMngr)
+			go runDaemon(ctx, cleaner, shutdowner, nodeMngr, resolves)
 			return nil
 		},
 		OnStop: func(context.Context) error {
@@ -1581,11 +1602,11 @@ func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *no
 			return nil
 		},
 	})
-	return nil
+	return out, nil
 }
 
 // runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager) {
+func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager, resolves daemonResolves) {
 	bootstrapStats.earlyInit.Start()
 	initEnv()
 	bootstrapStats.earlyInit.End(true)
@@ -1647,6 +1668,8 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 	if err != nil {
 		log.Fatalf("daemon creation failed: %s", err)
 	}
+
+	resolves.mtu(d.mtuConfig)
 
 	// This validation needs to be done outside of the agent until
 	// datapath.NodeAddressing is used consistently across the code base.
