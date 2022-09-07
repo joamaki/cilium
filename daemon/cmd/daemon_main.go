@@ -1838,19 +1838,6 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, in daemonIn, resolve
 
 	resolveDaemon(d)
 
-	if option.Config.WriteCNIConfigurationWhenReady != "" {
-		if in.NetConf == nil {
-			log.Fatalf("%s must be set when using %s", option.ReadCNIConfiguration, option.WriteCNIConfigurationWhenReady)
-		}
-		if err = in.NetConf.WriteFile(option.Config.WriteCNIConfigurationWhenReady); err != nil {
-			log.Fatalf("unable to write CNI configuration file to %s: %s",
-				option.Config.WriteCNIConfigurationWhenReady,
-				err)
-		} else {
-			log.Infof("Wrote CNI configuration file to %s", option.Config.WriteCNIConfigurationWhenReady)
-		}
-	}
-
 	bootstrapStats.overall.End(true)
 	bootstrapStats.updateMetrics()
 	go d.launchHubble()

@@ -64,7 +64,7 @@ func init() {
 		gops.Cell,
 		nodeManager.Cell,
 		nodediscovery.Cell,
-		netconfCell,
+		netconfCell, netconfWriterCell,
 		hive.NewCell("daemon", fx.Provide(newDaemonLifecycle)),
 
 		node.LocalNodeStoreCell,

@@ -1813,12 +1813,6 @@ type DaemonConfig struct {
 	// RunMonitorAgent indicates whether to run the monitor agent
 	RunMonitorAgent bool
 
-	// WriteCNIConfigurationWhenReady writes the CNI configuration to the
-	// specified location once the agent is ready to serve requests. This
-	// allows to keep a Kubernetes node NotReady until Cilium is up and
-	// running and able to schedule endpoints.
-	WriteCNIConfigurationWhenReady string
-
 	// EnableNodePort enables k8s NodePort service implementation in BPF
 	EnableNodePort bool
 
@@ -2908,7 +2902,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.SockopsEnable = vp.GetBool(SockopsEnableName)
 	c.TracePayloadlen = vp.GetInt(TracePayloadlen)
 	c.Version = vp.GetString(Version)
-	c.WriteCNIConfigurationWhenReady = vp.GetString(WriteCNIConfigurationWhenReady)
 	c.PolicyTriggerInterval = vp.GetDuration(PolicyTriggerInterval)
 	c.CTMapEntriesTimeoutTCP = vp.GetDuration(CTMapEntriesTimeoutTCPName)
 	c.CTMapEntriesTimeoutAny = vp.GetDuration(CTMapEntriesTimeoutAnyName)
