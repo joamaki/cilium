@@ -14,7 +14,7 @@ import (
 )
 
 // typedListWatcher is a generic interface that all the typed k8s clients match.
-type typedListWatcher[T k8sRuntime.Object] interface {
+type TypedListWatcher[T k8sRuntime.Object] interface {
 	List(ctx context.Context, opts metav1.ListOptions) (T, error)
 	Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error)
 }
@@ -22,7 +22,7 @@ type typedListWatcher[T k8sRuntime.Object] interface {
 // genListWatcher takes a typed list watcher and implements cache.ListWatch
 // using it.
 type genListWatcher[T k8sRuntime.Object] struct {
-	lw typedListWatcher[T]
+	lw TypedListWatcher[T]
 }
 
 func (g *genListWatcher[T]) List(opts metav1.ListOptions) (k8sRuntime.Object, error) {
@@ -36,7 +36,7 @@ func (g *genListWatcher[T]) Watch(opts metav1.ListOptions) (watch.Interface, err
 // ListerWatcherFromTyped adapts a typed k8s client to cache.ListerWatcher so it can be used
 // with an informer. With this construction we can use fake clients for testing,
 // which would not be possible if we used NewListWatchFromClient and RESTClient().
-func ListerWatcherFromTyped[T k8sRuntime.Object](lw typedListWatcher[T]) cache.ListerWatcher {
+func ListerWatcherFromTyped[T k8sRuntime.Object](lw TypedListWatcher[T]) cache.ListerWatcher {
 	return &genListWatcher[T]{lw: lw}
 }
 

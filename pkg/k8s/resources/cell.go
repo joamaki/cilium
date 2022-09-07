@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
@@ -107,6 +108,8 @@ func newResourceWithLifecycle[T k8sRuntime.Object](lw func(c k8sClient.Clientset
 
 		lc.Append(fx.Hook{
 			OnStart: func(context.Context) error {
+				var foo T
+				fmt.Printf("started resource for type %T\n", foo)
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
