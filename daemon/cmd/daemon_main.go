@@ -67,10 +67,10 @@ import (
 	"github.com/cilium/cilium/pkg/maps/policymap"
 	"github.com/cilium/cilium/pkg/metrics"
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
-	"github.com/cilium/cilium/pkg/mtu"
 	"github.com/cilium/cilium/pkg/node"
 	nodemanager "github.com/cilium/cilium/pkg/node/manager"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
+	"github.com/cilium/cilium/pkg/nodediscovery"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
@@ -1552,20 +1552,16 @@ func (d *Daemon) initKVStore() {
 	}
 }
 
-// daemonOut provides the values lifted out from the daemon. This is a temporary
-// measure to have access to values owned by the Daemon until they have been
-// implemented as hive cells.
-type daemonOut struct {
-	fx.Out
+type daemonIn struct {
+	fx.In
 
-	// MTUConfig is lifted from daemon for nodediscovery. mtu.NewConfiguration
-	// in turn depends on node info from k8s and IPsec.
-	MTUConfig promise.Promise[mtu.Configuration]
+	Lifecycle fx.Lifecycle
+	Shutdowner fx.Shutdowner
+	NodeManager *nodemanager.Manager
+	NodeDiscovery *nodediscovery.NodeDiscovery
+	NetConf *cnitypes.NetConf
 }
 
-type daemonResolves struct {
-	mtu func(mtu.Configuration)
-}
 
 // registerDaemonHooks registers the lifecycle hooks for the part of the cilium-agent that has
 // not yet been modularized.
@@ -1573,22 +1569,19 @@ type daemonResolves struct {
 // The Daemon struct and objects referred to from there are not supplied to the graph as
 // object creation in Daemon is intertwined with side-effectful initialization. This stops
 // us from constructing and inspecting the dependency graph, so instead the daemon is constructed
-// and started via an OnStart hook.
-//
-// If an object still owned by Daemon is required in a module, it should be provided indirectly, e.g. via
-// a callback.
-func newDaemonLifecycle(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager, netConf *cnitypes.NetConf) (out daemonOut, err error) {
+// and started via an OnStart hook. Access to *Daemon is provided via a promise that is resolved
+// after it has been started.
+func newDaemonLifecycle(in daemonIn) (promise.Promise[*Daemon], error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cleaner := NewDaemonCleanup()
 
-	var resolves daemonResolves
-	resolves.mtu, out.MTUConfig = promise.New[mtu.Configuration]()
+	resolveDaemon, p := promise.New[*Daemon]()
 
-	lc.Append(fx.Hook{
+	in.Lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
-			go runDaemon(ctx, cleaner, shutdowner, nodeMngr, netConf, resolves)
+			go runDaemon(ctx, cleaner, in, resolveDaemon)
 			return nil
 		},
 		OnStop: func(context.Context) error {
@@ -1597,11 +1590,11 @@ func newDaemonLifecycle(lc fx.Lifecycle, shutdowner fx.Shutdowner, nodeMngr *nod
 			return nil
 		},
 	})
-	return out, nil
+	return p, nil
 }
 
 // runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, nodeMngr *nodemanager.Manager, netConf *cnitypes.NetConf, resolves daemonResolves) {
+func runDaemon(ctx context.Context, cleaner *daemonCleanup, in daemonIn, resolveDaemon func(*Daemon)) {
 	bootstrapStats.earlyInit.Start()
 	initEnv()
 	bootstrapStats.earlyInit.End(true)
@@ -1658,14 +1651,13 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 
 	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
 		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
-		netConf,
+		in.NetConf,
 		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent),
-		nodeMngr)
+		in.NodeManager, in.NodeDiscovery)
 	if err != nil {
 		log.Fatalf("daemon creation failed: %s", err)
 	}
 
-	resolves.mtu(d.mtuConfig)
 
 	// This validation needs to be done outside of the agent until
 	// datapath.NodeAddressing is used consistently across the code base.
@@ -1787,7 +1779,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 		err := <-errs
 		if err != nil {
 			log.WithError(err).Error("Cannot start metrics server")
-			shutdowner.Shutdown()
+			in.Shutdowner.Shutdown()
 		}
 	}(initMetrics())
 
@@ -1844,11 +1836,13 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 	log.WithField("bootstrapTime", time.Since(bootstrapTimestamp)).
 		Info("Daemon initialization completed")
 
+	resolveDaemon(d)
+
 	if option.Config.WriteCNIConfigurationWhenReady != "" {
-		if netConf == nil {
+		if in.NetConf == nil {
 			log.Fatalf("%s must be set when using %s", option.ReadCNIConfiguration, option.WriteCNIConfigurationWhenReady)
 		}
-		if err = netConf.WriteFile(option.Config.WriteCNIConfigurationWhenReady); err != nil {
+		if err = in.NetConf.WriteFile(option.Config.WriteCNIConfigurationWhenReady); err != nil {
 			log.Fatalf("unable to write CNI configuration file to %s: %s",
 				option.Config.WriteCNIConfigurationWhenReady,
 				err)
@@ -1874,7 +1868,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 	err = srv.Serve()
 	if err != nil {
 		log.WithError(err).Error("Error returned from non-returning Serve() call")
-		shutdowner.Shutdown()
+		in.Shutdowner.Shutdown()
 	}
 }
 

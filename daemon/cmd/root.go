@@ -16,6 +16,7 @@ import (
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/node"
 	nodeManager "github.com/cilium/cilium/pkg/node/manager"
+	"github.com/cilium/cilium/pkg/nodediscovery"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/version"
 )
@@ -62,6 +63,7 @@ func init() {
 
 		gops.Cell,
 		nodeManager.Cell,
+		nodediscovery.Cell,
 		netconfCell,
 		hive.NewCell("daemon", fx.Provide(newDaemonLifecycle)),
 

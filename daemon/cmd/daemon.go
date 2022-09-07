@@ -366,7 +366,7 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 }
 
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager, netConf *cnitypes.NetConf, dp datapath.Datapath, nodeMngr *nodemanager.Manager) (*Daemon, *endpointRestoreState, error) {
+func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager, netConf *cnitypes.NetConf, dp datapath.Datapath, nodeMngr *nodemanager.Manager, nd *nodediscovery.NodeDiscovery) (*Daemon, *endpointRestoreState, error) {
 	var (
 		err           error
 		configuredMTU = option.Config.MTU
@@ -474,8 +474,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		num := identity.InitWellKnownIdentities(option.Config)
 		metrics.Identity.WithLabelValues(identity.WellKnownIdentityType).Add(float64(num))
 	}
-
-	nd := nodediscovery.NewNodeDiscovery(nodeMngr, netConf)
 
 	devMngr, err := linuxdatapath.NewDeviceManager()
 	if err != nil {
