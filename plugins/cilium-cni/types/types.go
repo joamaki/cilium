@@ -94,6 +94,14 @@ func LoadNetConf(bytes []byte) (*NetConf, error) {
 	return parsePrevResult(n)
 }
 
+func (n *NetConf) WriteFile(path string) error {
+	bytes, err := json.Marshal(n)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, bytes, 0644)
+}
+
 // ArgsSpec is the specification of additional arguments of the CNI ADD call
 type ArgsSpec struct {
 	cniTypes.CommonArgs

@@ -85,6 +85,7 @@ import (
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
 	wireguardTypes "github.com/cilium/cilium/pkg/wireguard/types"
+	cnitypes "github.com/cilium/cilium/plugins/cilium-cni/types"
 )
 
 const (
@@ -1610,6 +1611,7 @@ type daemonParams struct {
 	Shutdowner      hive.Shutdowner
 	NodeManager     *nodeManager.Manager
 	EndpointManager *endpointmanager.EndpointManager
+	NetConf         *cnitypes.NetConf
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
@@ -1645,6 +1647,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 				ctx, cleaner,
 				params.EndpointManager,
 				params.NodeManager,
+				params.NetConf,
 				params.Datapath,
 				params.Clientset)
 			if err != nil {
@@ -1652,17 +1655,20 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 			}
 			daemon = d
 
-			daemonResolver.Resolve(daemon)
-
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
 			if !option.Config.DryMode {
 				wg.Add(1)
+				initDone := make(chan struct{})
 				go func() {
-					runDaemon(daemon, restoredEndpoints, cleaner, params)
+					runDaemon(daemon, restoredEndpoints, cleaner, initDone, params)
 					wg.Done()
 				}()
+				// Wait until runDaemon has finished initialization before we resolve
+				// the promise.
+				<-initDone
 			}
+			daemonResolver.Resolve(daemon)
 			return nil
 		},
 		OnStop: func(context.Context) error {
@@ -1679,7 +1685,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 }
 
 // runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *daemonCleanup, params daemonParams) {
+func runDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *daemonCleanup, initDone chan struct{}, params daemonParams) {
 	log.Info("Initializing daemon")
 
 	option.Config.RunMonitorAgent = true
@@ -1866,23 +1872,11 @@ func runDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *daem
 	log.WithField("bootstrapTime", time.Since(bootstrapTimestamp)).
 		Info("Daemon initialization completed")
 
-	if option.Config.WriteCNIConfigurationWhenReady != "" {
-		input, err := os.ReadFile(option.Config.ReadCNIConfiguration)
-		if err != nil {
-			log.Fatalf("unable to read cni configuration file: %s", err)
-		}
-
-		if err = os.WriteFile(option.Config.WriteCNIConfigurationWhenReady, input, 0644); err != nil {
-			log.Fatalf("unable to write CNI configuration file to %s: %s",
-				option.Config.WriteCNIConfigurationWhenReady,
-				err)
-		} else {
-			log.Infof("Wrote CNI configuration file to %s", option.Config.WriteCNIConfigurationWhenReady)
-		}
-	}
-
 	bootstrapStats.overall.End(true)
 	bootstrapStats.updateMetrics()
+
+	close(initDone)
+
 	go d.launchHubble()
 
 	err = option.Config.StoreInFile(option.Config.StateDir)

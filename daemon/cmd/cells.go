@@ -54,6 +54,11 @@ var (
 
 		// daemonCell wraps the legacy daemon initialization and provides Promise[*Daemon].
 		daemonCell,
+
+		// netconfCell provides NetConf, the Cilium specific CNI network configuration.
+		// This cell should be kept as last to make sure the CNI configuration is written
+		// out after everything has started.
+		netconfCell,
 	)
 
 	// Datapath provides the privileged operations to apply control-plane

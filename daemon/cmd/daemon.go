@@ -157,8 +157,6 @@ type Daemon struct {
 	// ipam is the IP address manager of the agent
 	ipam *ipam.IPAM
 
-	netConf *cnitypes.NetConf
-
 	endpointManager *endpointmanager.EndpointManager
 
 	identityAllocator CachingIdentityAllocator
@@ -377,13 +375,13 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	epMgr *endpointmanager.EndpointManager,
 	nodeMngr *nodeManager.Manager,
+	netConf *cnitypes.NetConf,
 	dp datapath.Datapath,
 	clientset k8sClient.Clientset,
 ) (*Daemon, *endpointRestoreState, error) {
 
 	var (
 		err           error
-		netConf       *cnitypes.NetConf
 		configuredMTU = option.Config.MTU
 	)
 
@@ -400,17 +398,9 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		return nil, nil, fmt.Errorf("CRD Identity allocation mode requires k8s to be configured")
 	}
 
-	if option.Config.ReadCNIConfiguration != "" {
-		netConf, err = cnitypes.ReadNetConf(option.Config.ReadCNIConfiguration)
-		if err != nil {
-			log.WithError(err).Error("Unable to read CNI configuration")
-			return nil, nil, fmt.Errorf("unable to read CNI configuration: %w", err)
-		}
-
-		if netConf.MTU != 0 {
-			configuredMTU = netConf.MTU
-			log.WithField("mtu", configuredMTU).Info("Overwriting MTU based on CNI configuration")
-		}
+	if netConf != nil && netConf.MTU != 0 {
+		configuredMTU = netConf.MTU
+		log.WithField("mtu", configuredMTU).Info("Overwriting MTU based on CNI configuration")
 	}
 
 	apiLimiterSet, err := rate.NewAPILimiterSet(option.Config.APIRateLimit, apiRateLimitDefaults, &apiRateLimitingMetrics{})
@@ -515,7 +505,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		prefixLengths:     createPrefixLengthCounter(),
 		buildEndpointSem:  semaphore.NewWeighted(int64(numWorkerThreads())),
 		compilationMutex:  new(lock.RWMutex),
-		netConf:           netConf,
 		mtuConfig:         mtuConfig,
 		datapath:          dp,
 		deviceManager:     devMngr,
