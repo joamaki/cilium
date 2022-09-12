@@ -34,7 +34,7 @@ var netconfCell = hive.NewCellWithConfig[netconfConfig](
 	fx.Provide(readNetconf),
 )
 
-var netconfWriteCell = hive.NewCell(
+var netconfWriterCell = hive.NewCell(
 	"netconf-writer",
 	fx.Invoke(writeNetconf),
 )
@@ -48,8 +48,9 @@ func readNetconf(cfg netconfConfig) (*cnitypes.NetConf, error) {
 
 func writeNetconf(cfg netconfConfig, netConf *cnitypes.NetConf, shutdowner fx.Shutdowner, dp promise.Promise[*Daemon]) {
 	go func() {
-		// Wait for daemon initialization to finish.
+		// Wait for daemon initialization to finish before writing.
 		dp.Await()
+
 		if cfg.WriteCNIConfWhenReady != "" {
 			if cfg.ReadCNIConf == "" {
 				log.Fatalf("%s must be set when using %s", option.ReadCNIConfiguration, option.WriteCNIConfigurationWhenReady)

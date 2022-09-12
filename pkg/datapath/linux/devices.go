@@ -16,15 +16,18 @@ import (
 	"github.com/cilium/ebpf/asm"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
+	"go.uber.org/fx"
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/probes"
+	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/stream"
 )
 
 var (
@@ -41,6 +44,52 @@ var (
 		Table: unix.RT_TABLE_UNSPEC,
 	}
 	routeFilterMask = netlink.RT_FILTER_TABLE
+)
+
+type Device struct {
+	Name string
+	Addresses []net.IP
+}
+
+func newDevicesStream(lc fx.Lifecycle, dm *DeviceManager) stream.Observable[[]*Device] {
+	ctx, cancel := context.WithCancel(context.Background())
+	src, emit, complete := stream.Multicast[[]*Device]()
+
+	lc.Append(fx.Hook{
+		  OnStart: func(context.Context) error {
+			devsCh, err := dm.Listen(ctx)
+			if err != nil {
+				complete(err)
+				return err
+			}
+			go func() {
+				defer complete(nil)
+				for names := range devsCh {
+					devs := []*Device{}
+					for _, name := range names {
+						devs = append(devs, &Device{Name: name})
+					}
+					emit(devs)
+				}
+			}()
+			return nil
+		  },
+		  OnStop: func(context.Context) error {
+			  cancel()
+			  return nil
+		  },
+	})
+
+	return src
+}
+
+var DevicesCell = hive.NewCell(
+	"devices",
+
+	fx.Provide(
+		NewDeviceManager,
+		newDevicesStream,
+	),
 )
 
 type DeviceManager struct {

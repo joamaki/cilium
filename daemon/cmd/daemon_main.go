@@ -76,6 +76,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
 	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/stream"
 	"github.com/cilium/cilium/pkg/sysctl"
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -1560,6 +1561,8 @@ type daemonIn struct {
 	NodeManager *nodemanager.Manager
 	NodeDiscovery *nodediscovery.NodeDiscovery
 	NetConf *cnitypes.NetConf
+	DeviceManager *linuxdatapath.DeviceManager
+	Devices stream.Observable[[]*linuxdatapath.Device]
 }
 
 
@@ -1652,10 +1655,23 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, in daemonIn, resolve
 	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
 		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
 		in.NetConf,
+		in.DeviceManager,
 		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent),
 		in.NodeManager, in.NodeDiscovery)
 	if err != nil {
 		log.Fatalf("daemon creation failed: %s", err)
+	}
+
+	// Start listening to changed devices if requested.
+	if option.Config.EnableRuntimeDeviceDetection {
+		if in.DeviceManager.AreDevicesRequired() {
+			in.Devices.Observe(
+				ctx,
+				d.ReloadOnDeviceChange,
+				func(error) {})
+		} else {
+			log.Info("Runtime device detection requested, but no feature requires it. Disabling detection.")
+		}
 	}
 
 

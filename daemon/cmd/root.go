@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 
+	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/node"
@@ -64,8 +65,8 @@ func init() {
 		gops.Cell,
 		nodeManager.Cell,
 		nodediscovery.Cell,
+		linuxdatapath.DevicesCell,
 		netconfCell, netconfWriterCell,
-		hive.NewCell("daemon", fx.Provide(newDaemonLifecycle)),
 
 		node.LocalNodeStoreCell,
 		hive.Invoke(func(store node.LocalNodeStore) {
@@ -74,6 +75,8 @@ func init() {
 			// LocalNodeStore directly.
 			node.SetLocalNodeStore(store)
 		}),
+
+		hive.NewCell("daemon", fx.Provide(newDaemonLifecycle)),
 	)
 }
 

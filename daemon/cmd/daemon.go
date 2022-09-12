@@ -366,7 +366,10 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 }
 
 // NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager, netConf *cnitypes.NetConf, dp datapath.Datapath, nodeMngr *nodemanager.Manager, nd *nodediscovery.NodeDiscovery) (*Daemon, *endpointRestoreState, error) {
+func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanager.EndpointManager,
+	netConf *cnitypes.NetConf, devMngr *linuxdatapath.DeviceManager, dp datapath.Datapath,
+	nodeMngr *nodemanager.Manager, nd *nodediscovery.NodeDiscovery,
+) (*Daemon, *endpointRestoreState, error) {
 	var (
 		err           error
 		configuredMTU = option.Config.MTU
@@ -473,11 +476,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		// Must be done before calling policy.NewPolicyRepository() below.
 		num := identity.InitWellKnownIdentities(option.Config)
 		metrics.Identity.WithLabelValues(identity.WellKnownIdentityType).Add(float64(num))
-	}
-
-	devMngr, err := linuxdatapath.NewDeviceManager()
-	if err != nil {
-		return nil, nil, err
 	}
 
 	d := Daemon{
@@ -1204,23 +1202,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 	d.ipcache.InitIPIdentityWatcher()
 	identitymanager.Subscribe(d.policy)
 
-	// Start listening to changed devices if requested.
-	if option.Config.EnableRuntimeDeviceDetection {
-		if d.deviceManager.AreDevicesRequired() {
-			devicesChan, err := d.deviceManager.Listen(ctx)
-			if err != nil {
-				log.WithError(err).Warn("Runtime device detection failed to start")
-			}
-			go func() {
-				for devices := range devicesChan {
-					d.ReloadOnDeviceChange(devices)
-				}
-			}()
-		} else {
-			log.Info("Runtime device detection requested, but no feature requires it. Disabling detection.")
-		}
-	}
-
 	if option.Config.EnableIPSec {
 		if err := ipsec.StartKeyfileWatcher(ctx, option.Config.IPSecKeyFile, nd, d.Datapath().Node()); err != nil {
 			log.WithError(err).Error("Unable to start IPSec keyfile watcher")
@@ -1278,7 +1259,12 @@ func (d *Daemon) bootstrapClusterMesh(nodeMngr *nodemanager.Manager) {
 
 // ReloadOnDeviceChange regenerates device related information and reloads the datapath.
 // The devices is the new set of devices that replaces the old set.
-func (d *Daemon) ReloadOnDeviceChange(devices []string) {
+func (d *Daemon) ReloadOnDeviceChange(devs []*linuxdatapath.Device) {
+	devices := []string{}
+	for _, dev := range devs {
+		devices = append(devices, dev.Name)
+	}
+
 	option.Config.SetDevices(devices)
 
 	if option.Config.EnableIPv4Masquerade && option.Config.EnableBPFMasquerade {
