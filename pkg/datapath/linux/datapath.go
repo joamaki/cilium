@@ -6,7 +6,6 @@ package linux
 import (
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/linux/config"
-	"github.com/cilium/cilium/pkg/datapath/loader"
 	"github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
 )
@@ -26,19 +25,19 @@ type linuxDatapath struct {
 	node           datapath.NodeHandler
 	nodeAddressing types.NodeAddressing
 	config         DatapathConfiguration
-	loader         *loader.Loader
+	loader         datapath.Loader
 	wgAgent        datapath.WireguardAgent
 	lbmap          types.LBMap
 }
 
 // NewDatapath creates a new Linux datapath
-func NewDatapath(cfg DatapathConfiguration, ruleManager datapath.IptablesManager, wgAgent datapath.WireguardAgent) datapath.Datapath {
+func NewDatapath(cfg DatapathConfiguration, loader datapath.Loader, ruleManager datapath.IptablesManager, wgAgent datapath.WireguardAgent) datapath.Datapath {
 	dp := &linuxDatapath{
 		ConfigWriter:    &config.HeaderfileWriter{},
 		IptablesManager: ruleManager,
 		nodeAddressing:  NewNodeAddressing(),
 		config:          cfg,
-		loader:          loader.NewLoader(canDisableDwarfRelocations),
+		loader:          loader,
 		wgAgent:         wgAgent,
 		lbmap:           lbmap.New(),
 	}
