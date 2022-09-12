@@ -7,7 +7,9 @@ import (
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/linux/config"
 	"github.com/cilium/cilium/pkg/datapath/types"
+	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
+	"github.com/cilium/cilium/pkg/option"
 )
 
 // DatapathConfiguration is the static configuration of the datapath. The
@@ -31,7 +33,12 @@ type linuxDatapath struct {
 }
 
 // NewDatapath creates a new Linux datapath
-func NewDatapath(cfg DatapathConfiguration, loader datapath.Loader, ruleManager datapath.IptablesManager, wgAgent datapath.WireguardAgent) datapath.Datapath {
+func NewDatapath(loader datapath.Loader, ruleManager datapath.IptablesManager, wgAgent datapath.WireguardAgent) datapath.Datapath {
+	cfg := DatapathConfiguration{
+		HostDevice: defaults.HostDevice,
+		ProcFs:     option.Config.ProcFs,
+	}
+
 	dp := &linuxDatapath{
 		ConfigWriter:    &config.HeaderfileWriter{},
 		IptablesManager: ruleManager,

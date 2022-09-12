@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 
+	"github.com/cilium/cilium/pkg/datapath/iptables"
 	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive"
@@ -20,6 +21,7 @@ import (
 	"github.com/cilium/cilium/pkg/nodediscovery"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/version"
+	wg "github.com/cilium/cilium/pkg/wireguard/agent"
 )
 
 var (
@@ -66,6 +68,9 @@ func init() {
 		nodeManager.Cell,
 		nodediscovery.Cell,
 		linuxdatapath.DevicesCell,
+		linuxdatapath.DatapathCell,
+		wg.Cell,
+		iptables.Cell,
 		netconfCell, netconfWriterCell,
 
 		node.LocalNodeStoreCell,
