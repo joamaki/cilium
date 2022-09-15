@@ -13,11 +13,14 @@ import (
 	"github.com/spf13/pflag"
 	"go.uber.org/fx"
 
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	k8sResources "github.com/cilium/cilium/pkg/k8s/resources"
+	k8sWatchers "github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/version"
 )
 
@@ -76,8 +79,31 @@ func init() {
 		k8sClient.Cell,
 		k8sResources.Cell,
 
+		k8sWatchers.NamespaceWatcherCell,
+
 		hive.NewCellWithConfig[DaemonCellConfig]("daemon", fx.Provide(daemonProvider)),
+
+		hive.Invoke(daemonLifter),
 	)
+}
+
+type liftedOut struct {
+	fx.Out
+
+	EndpointManager promise.Promise[*endpointmanager.EndpointManager]
+}
+
+// daemonLifter lifts objects depended on by new cells out from the daemon struct.
+// We do this as we don't want to import `daemon/cmd` or export all the fields.
+func daemonLifter(daemonPromise promise.Promise[*Daemon]) liftedOut {
+	return liftedOut{
+		EndpointManager: promise.Map(
+			daemonPromise,
+			func(d *Daemon) *endpointmanager.EndpointManager {
+				return d.endpointManager
+			}),
+	}
+
 }
 
 func runApp(cmd *cobra.Command, args []string) {

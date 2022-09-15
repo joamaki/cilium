@@ -69,7 +69,7 @@ type Event[T k8sRuntime.Object] interface {
 	// compile-time error at use-sites.
 	Dispatch(
 		onSync func(Store[T]),
-		onUpdate func(Key, T),
+		onUpdate func(T),
 		onDelete func(Key),
 	)
 }
@@ -82,20 +82,19 @@ type SyncEvent[T k8sRuntime.Object] struct {
 
 var _ Event[*corev1.Node] = &SyncEvent[*corev1.Node]{}
 
-func (s *SyncEvent[T]) Dispatch(onSync func(store Store[T]), onUpdate func(Key, T), onDelete func(Key)) {
+func (s *SyncEvent[T]) Dispatch(onSync func(store Store[T]), onUpdate func(T), onDelete func(Key)) {
 	onSync(s.Store)
 }
 
 // UpdateEvent is emitted when an object has been added or updated
 type UpdateEvent[T k8sRuntime.Object] struct {
-	Key    Key
 	Object T
 }
 
 var _ Event[*corev1.Node] = &UpdateEvent[*corev1.Node]{}
 
-func (ev *UpdateEvent[T]) Dispatch(onSync func(Store[T]), onUpdate func(Key, T), onDelete func(Key)) {
-	onUpdate(ev.Key, ev.Object)
+func (ev *UpdateEvent[T]) Dispatch(onSync func(Store[T]), onUpdate func(T), onDelete func(Key)) {
+	onUpdate(ev.Object)
 }
 
 // DeleteEvent is emitted when an object has been deleted
@@ -105,7 +104,7 @@ type DeleteEvent[T k8sRuntime.Object] struct {
 
 var _ Event[*corev1.Node] = &DeleteEvent[*corev1.Node]{}
 
-func (ev *DeleteEvent[T]) Dispatch(onSync func(Store[T]), onUpdate func(Key, T), onDelete func(Key)) {
+func (ev *DeleteEvent[T]) Dispatch(onSync func(Store[T]), onUpdate func(T), onDelete func(Key)) {
 	onDelete(ev.Key)
 }
 
@@ -278,7 +277,7 @@ func (r *resource[T]) Observe(subCtx context.Context, next func(Event[T]), compl
 		initialVersions := make(map[Key]string)
 		for _, obj := range r.store.List() {
 			key := NewKey(obj.(T))
-			next(&UpdateEvent[T]{key, obj.(T)})
+			next(&UpdateEvent[T]{obj.(T)})
 			if v := resourceVersion(obj); v != "" {
 				initialVersions[key] = v
 			}
@@ -318,7 +317,7 @@ func (r *resource[T]) Observe(subCtx context.Context, next func(Event[T]), compl
 
 			obj, ok := rawObj.(T)
 			if exists && ok {
-				next(&UpdateEvent[T]{key, obj})
+				next(&UpdateEvent[T]{obj})
 			} else {
 				next(&DeleteEvent[T]{key})
 			}
