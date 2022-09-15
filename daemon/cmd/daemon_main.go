@@ -74,6 +74,7 @@ import (
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/sysctl"
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -1552,9 +1553,12 @@ func (d *Daemon) initKVStore() {
 //
 // If an object still owned by Daemon is required in a module, it should be provided indirectly, e.g. via
 // a callback.
-func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner, cfg DaemonCellConfig, clientset k8sClient.Clientset) error {
+func daemonProvider(lc fx.Lifecycle, shutdowner fx.Shutdowner, cfg DaemonCellConfig, clientset k8sClient.Clientset) (promise.Promise[*Daemon], error) {
+	resolveDaemon, daemonPromise := promise.New[*Daemon]()
+
 	if cfg.SkipDaemon {
-		return nil
+		resolveDaemon(nil)
+		return daemonPromise, nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1581,7 +1585,7 @@ func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner, cfg DaemonCe
 
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
-			go runDaemon(ctx, cleaner, shutdowner, clientset)
+			go runDaemon(ctx, cleaner, shutdowner, clientset, resolveDaemon)
 			return nil
 		},
 		OnStop: func(context.Context) error {
@@ -1590,11 +1594,11 @@ func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner, cfg DaemonCe
 			return nil
 		},
 	})
-	return nil
+	return daemonPromise, nil
 }
 
 // runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, clientset k8sClient.Clientset) {
+func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner, clientset k8sClient.Clientset, resolveDaemon func(*Daemon)) {
 	datapathConfig := linuxdatapath.DatapathConfiguration{
 		HostDevice: defaults.HostDevice,
 		ProcFs:     option.Config.ProcFs,
@@ -1821,6 +1825,8 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 
 	log.WithField("bootstrapTime", time.Since(bootstrapTimestamp)).
 		Info("Daemon initialization completed")
+
+	resolveDaemon(d)
 
 	if option.Config.WriteCNIConfigurationWhenReady != "" {
 		input, err := os.ReadFile(option.Config.ReadCNIConfiguration)
