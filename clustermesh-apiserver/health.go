@@ -12,7 +12,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/cilium/cilium/pkg/defaults"
-	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/option"
 )
@@ -25,10 +25,11 @@ func (HealthAPIServerConfig) CellFlags(flags *pflag.FlagSet) {
 	flags.Int(option.ClusterMeshHealthPort, defaults.ClusterMeshHealthPort, "TCP port for ClusterMesh apiserver health API")
 }
 
-var healthAPIServerCell = hive.NewCellWithConfig[HealthAPIServerConfig](
+var healthAPIServerCell = cell.Group(
 	"health-api-server",
-	fx.Provide(newHealthAPIServer),
-	fx.Invoke(func(HealthAPIServer) {}), // Always instantiate.
+	cell.Config(HealthAPIServerConfig{}),
+	cell.Provide(newHealthAPIServer),
+	cell.Require[HealthAPIServer](),
 )
 
 type HealthAPIServer struct {
