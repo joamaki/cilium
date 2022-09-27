@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -69,8 +70,6 @@ var (
 		},
 	}
 
-	shutdownSignal = make(chan struct{})
-
 	leaderElectionResourceLockName = "cilium-operator-resource-lock"
 
 	// Use a Go context so we can tell the leaderelection code when we
@@ -112,20 +111,28 @@ func Execute() {
 	}
 }
 
-func registerOperatorHooks(lc fx.Lifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
+func registerOperatorHooks(lc fx.Lifecycle, llc *LeaderLifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 	k8s.SetClients(clientset, clientset.Slim(), clientset, clientset)
 	initEnv()
 
 	lc.Append(hive.Hook{
 		OnStart: func(context.Context) error {
-			go runOperator(clientset, shutdowner)
+			go runOperator(llc, clientset, shutdowner)
 			return nil
 		},
-		OnStop: func(context.Context) error {
+		OnStop: func(ctx context.Context) error {
+			if err := llc.Stop(ctx); err != nil {
+				return err
+			}
 			doCleanup()
 			return nil
 		},
 	})
+}
+
+// LeaderLifecycle wraps hive.SimpleLifecycle to give it a unique type name.
+type LeaderLifecycle struct {
+	hive.SimpleLifecycle
 }
 
 func init() {
@@ -135,6 +142,8 @@ func init() {
 	// case Discovery API fails.
 	Vp.Set(option.K8sEnableAPIDiscovery, true)
 
+	leaderLifecycle := &LeaderLifecycle{}
+
 	operatorHive = hive.New(
 		Vp,
 		rootCmd.Flags(),
@@ -142,7 +151,21 @@ func init() {
 		gops.Cell(defaults.GopsPortOperator),
 		k8sClient.Cell,
 
-		cell.Invoke(registerOperatorHooks),
+		cell.Provide(func() *LeaderLifecycle { return leaderLifecycle }),
+		cell.Invoke(
+			registerOperatorHooks,
+			registerAPIServerHooks,
+		),
+
+		// Cells that start when operator is elected leader. These
+		// can register themselves to be started with fx.Lifecycle,
+		// which for them is the *LeaderLifecycle and which is started
+		// by runOperator() on leader election.
+		cell.WithCustomLifecycle(
+			leaderLifecycle,
+
+			cell.OnStart(startCEPWatcher),
+		),
 	)
 }
 
@@ -165,7 +188,6 @@ func initEnv() {
 
 func doCleanup() {
 	IsLeader.Store(false)
-	close(shutdownSignal)
 
 	// Cancelling this conext here makes sure that if the operator hold the
 	// leader lease, it will be released.
@@ -204,28 +226,52 @@ func checkStatus(clientset k8sClient.Clientset) error {
 	return nil
 }
 
-// runOperator implements the logic of leader election for cilium-operator using
-// built-in leader election capbility in kubernetes.
-// See: https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go
-func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
-	log.Infof("Cilium Operator %s", version.Version)
-
+func registerAPIServerHooks(lc fx.Lifecycle, clientset k8sClient.Clientset) error {
 	allSystemsGo := make(chan struct{})
-	IsLeader.Store(false)
+	shutdownSignal := make(chan struct{})
 
 	// Configure API server for the operator.
 	srv, err := api.NewServer(shutdownSignal, allSystemsGo, getAPIServerAddr()...)
 	if err != nil {
-		log.WithError(err).Fatalf("Unable to create operator apiserver")
+		return fmt.Errorf("unable to create operator apiserver: %w", err)
 	}
 	close(allSystemsGo)
 
-	go func() {
-		err = srv.WithStatusCheckFunc(func() error { return checkStatus(clientset) }).StartServer()
-		if err != nil {
-			log.WithError(err).Fatalf("Unable to start operator apiserver")
-		}
-	}()
+	var wg sync.WaitGroup
+
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err = srv.WithStatusCheckFunc(func() error { return checkStatus(clientset) }).StartServer()
+				if err != nil {
+					log.WithError(err).Fatal("unable to start operator apiserver")
+				}
+			}()
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			close(shutdownSignal)
+			wg.Wait()
+			return nil
+		},
+	})
+	return nil
+}
+
+// runOperator implements the logic of leader election for cilium-operator using
+// built-in leader election capbility in kubernetes.
+// See: https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go
+func runOperator(llc *LeaderLifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
+	log.Infof("Cilium Operator %s", version.Version)
+	IsLeader.Store(false)
+
+	llc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			OnOperatorStartLeading(ctx, clientset)
+			return nil
+		}})
 
 	if operatorOption.Config.EnableMetrics {
 		operatorMetrics.Register()
@@ -256,7 +302,9 @@ func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 	// See docs on capabilities.LeasesResourceLock for more context.
 	if !capabilities.LeasesResourceLock {
 		log.Info("Support for coordination.k8s.io/v1 not present, fallback to non HA mode")
-		onOperatorStart(leaderElectionCtx, clientset)
+		if err := llc.Start(leaderElectionCtx); err != nil {
+			log.WithError(err).Fatal("Failed to start leading")
+		}
 		return
 	}
 
@@ -300,11 +348,13 @@ func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
-				onOperatorStart(ctx, clientset)
+				if err := llc.Start(ctx); err != nil {
+					log.WithError(err).Error("Failed to start when elected leader, shutting down")
+					shutdowner.Shutdown()
+				}
 			},
 			OnStoppedLeading: func() {
 				log.WithField("operator-id", operatorID).Info("Leader election lost")
-				// Cleanup everything here, and exit.
 				shutdowner.Shutdown()
 			},
 			OnNewLeader: func(identity string) {
@@ -321,14 +371,6 @@ func runOperator(clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
 	})
 }
 
-func onOperatorStart(ctx context.Context, clientset k8sClient.Clientset) {
-	OnOperatorStartLeading(ctx, clientset)
-
-	<-shutdownSignal
-	// graceful exit
-	log.Info("Received termination signal. Shutting down")
-}
-
 func kvstoreEnabled() bool {
 	if option.Config.KVStore == "" {
 		return false
@@ -339,11 +381,7 @@ func kvstoreEnabled() bool {
 		operatorOption.Config.SyncK8sNodes
 }
 
-// OnOperatorStartLeading is the function called once the operator starts leading
-// in HA mode.
-func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) {
-	IsLeader.Store(true)
-
+func startCEPWatcher(clientset k8sClient.Clientset) error {
 	// If CiliumEndpointSlice feature is enabled, create CESController, start CEP watcher and run controller.
 	if !option.Config.DisableCiliumEndpointCRD && option.Config.EnableCiliumEndpointSlice {
 		log.Info("Create and run CES controller, start CEP watcher")
@@ -359,6 +397,13 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) 
 		// Start the CES controller, after current CEPs are synced locally in cache.
 		go cesController.Run(operatorWatchers.CiliumEndpointStore, stopCh)
 	}
+	return nil
+}
+
+// OnOperatorStartLeading is the function called once the operator starts leading
+// in HA mode.
+func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) {
+	IsLeader.Store(true)
 
 	// Restart kube-dns as soon as possible since it helps etcd-operator to be
 	// properly setup. If kube-dns is not managed by Cilium it can prevent
