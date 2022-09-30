@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
@@ -40,6 +41,9 @@ import (
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/client"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
+	"github.com/cilium/cilium/pkg/k8s/resource"
+	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	"github.com/cilium/cilium/pkg/k8s/utils"
 	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/logging"
@@ -111,13 +115,13 @@ func Execute() {
 	}
 }
 
-func registerOperatorHooks(lc fx.Lifecycle, llc *LeaderLifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
+func registerOperatorHooks(lc fx.Lifecycle, llc *LeaderLifecycle, clientset k8sClient.Clientset, nodes resource.Resource[*slim_corev1.Node], shutdowner fx.Shutdowner) {
 	k8s.SetClients(clientset, clientset.Slim(), clientset, clientset)
 	initEnv()
 
 	lc.Append(hive.Hook{
 		OnStart: func(context.Context) error {
-			go runOperator(llc, clientset, shutdowner)
+			go runOperator(llc, clientset, nodes, shutdowner)
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
@@ -135,14 +139,37 @@ type LeaderLifecycle struct {
 	hive.SimpleLifecycle
 }
 
+func newLeaderLifecycle() *LeaderLifecycle {
+	return &LeaderLifecycle{}
+}
+
+var resourcesCell = cell.Group(
+	"k8s-resources",
+	cell.Provide(
+		resource.NewResourceConstructor[*slim_corev1.Pod](
+			func(c k8sClient.Clientset) cache.ListerWatcher {
+				// FIXME proper constructor that takes a config as parameter
+				lw := utils.ListerWatcherFromTyped[*slim_corev1.PodList](c.Slim().CoreV1().Pods(operatorOption.Config.CiliumK8sNamespace))
+				lw = utils.ListerWatcherWithModifier(lw, func(opts *metav1.ListOptions) {
+					opts.LabelSelector = operatorOption.Config.CiliumPodLabels
+				})
+				return lw
+			},
+		),
+		resource.NewResourceConstructor[*slim_corev1.Node](
+			func(c k8sClient.Clientset) cache.ListerWatcher {
+				return utils.ListerWatcherFromTyped[*slim_corev1.NodeList](c.Slim().CoreV1().Nodes())
+			},
+		),
+	),
+)
+
 func init() {
 	rootCmd.AddCommand(MetricsCmd)
 
 	// Enable fallback to direct API probing to check for support of Leases in
 	// case Discovery API fails.
 	Vp.Set(option.K8sEnableAPIDiscovery, true)
-
-	leaderLifecycle := &LeaderLifecycle{}
 
 	operatorHive = hive.New(
 		Vp,
@@ -151,7 +178,8 @@ func init() {
 		gops.Cell(defaults.GopsPortOperator),
 		k8sClient.Cell,
 
-		cell.Provide(func() *LeaderLifecycle { return leaderLifecycle }),
+		cell.Provide(newLeaderLifecycle),
+
 		cell.Invoke(
 			registerOperatorHooks,
 			registerAPIServerHooks,
@@ -161,13 +189,31 @@ func init() {
 		// can register themselves to be started with fx.Lifecycle,
 		// which for them is the *LeaderLifecycle and which is started
 		// by runOperator() on leader election.
-		cell.WithCustomLifecycle(
-			leaderLifecycle,
+		cell.Decorate(
+			func(llc *LeaderLifecycle) fx.Lifecycle { return llc },
 
+			resourcesCell,
 			cell.OnStart(startCEPWatcher),
+			//cell.OnStart(testPodsResource),
 		),
 	)
 }
+
+/*
+func testPodsResource(r resource.Resource[*slim_corev1.Pod]) error {
+	go func() {
+		errs := make(chan error, 1)
+		podEvents := stream.ToChannel[resource.Event[*slim_corev1.Pod]](context.TODO(), errs, r)
+
+		for ev := range podEvents {
+			switch ev := ev.(type) {
+			case *resource.UpdateEvent[*slim_corev1.Pod]:
+				fmt.Printf("Pod updated: %v\n", ev.Object)
+			}
+		}
+	}()
+	return nil
+}*/
 
 func initEnv() {
 	// Prepopulate option.Config with options from CLI.
@@ -263,13 +309,13 @@ func registerAPIServerHooks(lc fx.Lifecycle, clientset k8sClient.Clientset) erro
 // runOperator implements the logic of leader election for cilium-operator using
 // built-in leader election capbility in kubernetes.
 // See: https://github.com/kubernetes/client-go/blob/master/examples/leader-election/main.go
-func runOperator(llc *LeaderLifecycle, clientset k8sClient.Clientset, shutdowner fx.Shutdowner) {
+func runOperator(llc *LeaderLifecycle, clientset k8sClient.Clientset, nodes resource.Resource[*slim_corev1.Node], shutdowner fx.Shutdowner) {
 	log.Infof("Cilium Operator %s", version.Version)
 	IsLeader.Store(false)
 
 	llc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			OnOperatorStartLeading(ctx, clientset)
+			OnOperatorStartLeading(ctx, clientset, nodes)
 			return nil
 		}})
 
@@ -402,7 +448,7 @@ func startCEPWatcher(clientset k8sClient.Clientset) error {
 
 // OnOperatorStartLeading is the function called once the operator starts leading
 // in HA mode.
-func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) {
+func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset, nodes resource.Resource[*slim_corev1.Node]) {
 	IsLeader.Store(true)
 
 	// Restart kube-dns as soon as possible since it helps etcd-operator to be
@@ -540,7 +586,7 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset) 
 			"set-cilium-is-up-condition": operatorOption.Config.SetCiliumIsUpCondition,
 		}).Info("Removing Cilium Node Taints or Setting Cilium Is Up Condition for Kubernetes Nodes")
 
-		operatorWatchers.HandleNodeTolerationAndTaints(clientset, stopCh)
+		operatorWatchers.HandleNodeTolerationAndTaints(nodes, clientset, stopCh)
 	}
 
 	if err := startSynchronizingCiliumNodes(ctx, clientset, nodeManager, withKVStore); err != nil {

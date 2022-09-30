@@ -23,6 +23,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
+	"github.com/cilium/cilium/pkg/k8s/resource"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	k8sUtils "github.com/cilium/cilium/pkg/k8s/utils"
@@ -57,53 +58,25 @@ var (
 	mno markNodeOptions
 )
 
-func checkTaintForNextNodeItem(c kubernetes.Interface, nodeGetter slimNodeGetter, workQueue workqueue.RateLimitingInterface) bool {
-	// Get the next 'key' from the queue.
-	key, quit := workQueue.Get()
-	if quit {
-		return false
-	}
-	// Done marks item as done processing, and if it has been marked as dirty
-	// again while it was being processed, it will be re-added to the queue for
-	// re-processing.
-	defer workQueue.Done(key)
-
-	success := checkAndMarkNode(c, nodeGetter, key.(string), mno)
-	if !success {
-		workQueue.Forget(key)
-		return true
-	}
-
-	// If the event was processed correctly then forget it from the queue.
-	// If we don't do this, the next ".Get()" will always return this 'key'.
-	// It also depends on if the queue has a rate-limiter (not used in this
-	// program)
-	workQueue.Forget(key)
-	return true
+type nodeMarker struct {
+	clientset kubernetes.Interface
+	options   markNodeOptions
 }
 
 // checkAndMarkNode checks if the node contains a Cilium pod in running state
 // so that it can remove the toleration and taints of that node.
-func checkAndMarkNode(c kubernetes.Interface, nodeGetter slimNodeGetter, nodeName string, options markNodeOptions) bool {
-	node, err := nodeGetter.GetK8sSlimNode(nodeName)
-	if err != nil && !k8sErrors.IsNotFound(err) {
-		return false
-	}
-	if node == nil {
-		return false
-	}
-
-	if (options.RemoveNodeTaint && hasAgentNotReadyTaint(node)) ||
-		(options.SetCiliumIsUpCondition && !HasCiliumIsUpCondition(node)) {
+func (m *nodeMarker) checkAndMarkNode(key resource.Key, node *slim_corev1.Node) error {
+	if (m.options.RemoveNodeTaint && hasAgentNotReadyTaint(node)) ||
+		(m.options.SetCiliumIsUpCondition && !HasCiliumIsUpCondition(node)) {
 		if isCiliumPodRunning(node.GetName()) {
-			markNode(c, nodeGetter, node.GetName(), options)
+			markNode(m.clientset, node, m.options)
 		} else {
 			log.WithFields(logrus.Fields{logfields.NodeName: node.GetName()}).Debug("Cilium pod not running for node")
 		}
 	} else {
 		log.WithFields(logrus.Fields{logfields.NodeName: node.GetName()}).Debug("Node without taint and with CiliumIsUp condition")
 	}
-	return true
+	return nil
 }
 
 // ciliumPodsWatcher starts up a pod watcher to handle pod events.
@@ -170,8 +143,13 @@ func processNextCiliumPodItem(c kubernetes.Interface, nodeGetter slimNodeGetter,
 	pod := podInterface.(*slim_corev1.Pod)
 	nodeName := pod.Spec.NodeName
 
-	success := checkAndMarkNode(c, nodeGetter, nodeName, mno)
-	if !success {
+	node, err := nodeGetter.GetK8sSlimNode(nodeName)
+	if err != nil {
+		return true
+	}
+
+	err = (&nodeMarker{c, mno}).checkAndMarkNode(resource.Key{Name: nodeName}, node)
+	if err != nil {
 		workQueue.Forget(key)
 		return true
 	}
@@ -275,12 +253,7 @@ func convertToCiliumPod(obj interface{}) interface{} {
 // setNodeNetworkUnavailableFalse sets Kubernetes NodeNetworkUnavailable to
 // false as Cilium is managing the network connectivity.
 // https://kubernetes.io/docs/concepts/architecture/nodes/#condition
-func setNodeNetworkUnavailableFalse(ctx context.Context, c kubernetes.Interface, nodeGetter slimNodeGetter, nodeName string) error {
-	n, err := nodeGetter.GetK8sSlimNode(nodeName)
-	if err != nil {
-		return err
-	}
-
+func setNodeNetworkUnavailableFalse(ctx context.Context, c kubernetes.Interface, n *slim_corev1.Node) error {
 	if HasCiliumIsUpCondition(n) {
 		return nil
 	}
@@ -299,7 +272,7 @@ func setNodeNetworkUnavailableFalse(ctx context.Context, c kubernetes.Interface,
 		return err
 	}
 	patch := []byte(fmt.Sprintf(`{"status":{"conditions":%s}}`, raw))
-	_, err = c.CoreV1().Nodes().PatchStatus(ctx, nodeName, patch)
+	_, err = c.CoreV1().Nodes().PatchStatus(ctx, n.Name, patch)
 	return err
 }
 
@@ -319,12 +292,7 @@ func HasCiliumIsUpCondition(n *slim_corev1.Node) bool {
 // removeNodeTaint removes the AgentNotReadyNodeTaint allowing for pods to be
 // scheduled once Cilium is setup. Mostly used in cloud providers to prevent
 // existing CNI plugins from managing pods.
-func removeNodeTaint(ctx context.Context, c kubernetes.Interface, nodeGetter slimNodeGetter, nodeName string) error {
-	k8sNode, err := nodeGetter.GetK8sSlimNode(nodeName)
-	if err != nil {
-		return err
-	}
-
+func removeNodeTaint(ctx context.Context, c kubernetes.Interface, k8sNode *slim_corev1.Node) error {
 	var taintFound bool
 
 	var taints []slim_corev1.Taint
@@ -339,13 +307,13 @@ func removeNodeTaint(ctx context.Context, c kubernetes.Interface, nodeGetter sli
 	// No cilium taints found
 	if !taintFound {
 		log.WithFields(logrus.Fields{
-			logfields.NodeName: nodeName,
+			logfields.NodeName: k8sNode.Name,
 			"taint":            pkgOption.Config.AgentNotReadyNodeTaintValue(),
 		}).Debug("Taint not found in node")
 		return nil
 	}
 	log.WithFields(logrus.Fields{
-		logfields.NodeName: nodeName,
+		logfields.NodeName: k8sNode.Name,
 		"taint":            pkgOption.Config.AgentNotReadyNodeTaintValue(),
 	}).Debug("Removing Node Taint")
 
@@ -367,7 +335,7 @@ func removeNodeTaint(ctx context.Context, c kubernetes.Interface, nodeGetter sli
 		return err
 	}
 
-	_, err = c.CoreV1().Nodes().Patch(ctx, nodeName, k8sTypes.JSONPatchType, patch, metav1.PatchOptions{})
+	_, err = c.CoreV1().Nodes().Patch(ctx, k8sNode.Name, k8sTypes.JSONPatchType, patch, metav1.PatchOptions{})
 	return err
 }
 
@@ -378,22 +346,22 @@ type markNodeOptions struct {
 
 // markNode marks the Kubernetes node depending on the modes that it is passed
 // on.
-func markNode(c kubernetes.Interface, nodeGetter slimNodeGetter, nodeName string, options markNodeOptions) {
-	log.WithField(logfields.NodeName, nodeName).Debug("Setting NetworkUnavailable=false and removing taint of node")
+func markNode(c kubernetes.Interface, node *slim_corev1.Node, options markNodeOptions) {
+	log.WithField(logfields.NodeName, node.Name).Debug("Setting NetworkUnavailable=false and removing taint of node")
 
-	ctrlName := fmt.Sprintf("mark-k8s-node-%s-as-available", nodeName)
+	ctrlName := fmt.Sprintf("mark-k8s-node-%s-as-available", node.Name)
 
 	ctrlMgr.UpdateController(ctrlName,
 		controller.ControllerParams{
 			DoFunc: func(ctx context.Context) error {
 				if options.RemoveNodeTaint {
-					err := removeNodeTaint(ctx, c, nodeGetter, nodeName)
+					err := removeNodeTaint(ctx, c, node)
 					if err != nil {
 						return err
 					}
 				}
 				if options.SetCiliumIsUpCondition {
-					err := setNodeNetworkUnavailableFalse(ctx, c, nodeGetter, nodeName)
+					err := setNodeNetworkUnavailableFalse(ctx, c, node)
 					if err != nil {
 						return err
 					}
@@ -404,20 +372,25 @@ func markNode(c kubernetes.Interface, nodeGetter slimNodeGetter, nodeName string
 }
 
 // HandleNodeTolerationAndTaints remove node
-func HandleNodeTolerationAndTaints(clientset k8sClient.Clientset, stopCh <-chan struct{}) {
+func HandleNodeTolerationAndTaints(nodes resource.Resource[*slim_corev1.Node], clientset k8sClient.Clientset, stopCh <-chan struct{}) {
 	mno = markNodeOptions{
 		RemoveNodeTaint:        option.Config.RemoveCiliumNodeTaints,
 		SetCiliumIsUpCondition: option.Config.SetCiliumIsUpCondition,
 	}
-	nodesInit(clientset.Slim(), stopCh)
 
-	go func() {
-		// Do not use the k8sClient provided by the nodesInit function since we
-		// need a k8s client that can update node structures and not simply
-		// watch for node events.
-		for checkTaintForNextNodeItem(clientset, &nodeGetter{}, nodeQueue) {
-		}
-	}()
+	nodeMarker := nodeMarker{clientset: clientset, options: mno}
+
+	nodes.Observe(
+		context.TODO(), // FIXME
+		func(ev resource.Event[*slim_corev1.Node]) {
+			ev.Handle(
+				func(_ resource.Store[*slim_corev1.Node]) error { return nil },
+				nodeMarker.checkAndMarkNode,
+				func(key resource.Key, deletedNode *slim_corev1.Node) error { return nil },
+			)
+		},
+		func(err error) {},
+	)
 
 	ciliumPodsWatcher(clientset, stopCh)
 }
