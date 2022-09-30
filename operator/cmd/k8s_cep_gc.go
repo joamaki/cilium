@@ -33,7 +33,7 @@ import (
 //     delete CEP if the corresponding pod does not exist
 //
 // CiliumEndpoint objects have the same name as the pod they represent
-func enableCiliumEndpointSyncGC(clientset k8sClient.Clientset, once bool) {
+func enableCiliumEndpointSyncGC(clientset k8sClient.Clientset, pods resource.Resource[*slim_corev1.Pod], once bool) {
 	var (
 		controllerName = "to-k8s-ciliumendpoint-gc"
 		scopedLog      = log.WithField("controller", controllerName)
@@ -65,13 +65,19 @@ func enableCiliumEndpointSyncGC(clientset k8sClient.Clientset, once bool) {
 		controller.ControllerParams{
 			RunInterval: gcInterval,
 			DoFunc: func(ctx context.Context) error {
-				return doCiliumEndpointSyncGC(ctx, clientset, once, stopCh, scopedLog)
+				return doCiliumEndpointSyncGC(ctx, clientset, pods, once, stopCh, scopedLog)
 			},
 		})
 }
 
-func doCiliumEndpointSyncGC(ctx context.Context, clientset k8sClient.Clientset, once bool, stopCh chan struct{}, scopedLog *logrus.Entry) error {
+func doCiliumEndpointSyncGC(ctx context.Context, clientset k8sClient.Clientset, pods resource.Resource[*slim_corev1.Pod], once bool, stopCh chan struct{}, scopedLog *logrus.Entry) error {
 	ciliumClient := clientset.CiliumV2()
+
+	podStore, err := pods.Store(ctx)
+	if err != nil {
+		return err
+	}
+
 	// For each CEP we fetched, check if we know about it
 	for _, cepObj := range watchers.CiliumEndpointStore.List() {
 		cep, ok := cepObj.(*cilium_v2.CiliumEndpoint)
@@ -96,7 +102,7 @@ func doCiliumEndpointSyncGC(ctx context.Context, clientset k8sClient.Clientset, 
 			for _, owner := range cep.ObjectMeta.OwnerReferences {
 				switch owner.Kind {
 				case "Pod":
-					podObj, exists, err = watchers.PodStore.GetByKey(resource.NewKey(cepFullName))
+					podObj, exists, err = podStore.GetByKey(resource.NewKey(cepFullName))
 					if err != nil {
 						scopedLog.WithError(err).Warn("Unable to get pod from store")
 					}
@@ -115,7 +121,7 @@ func doCiliumEndpointSyncGC(ctx context.Context, clientset k8sClient.Clientset, 
 			if !exists && !podChecked {
 				// Check for a Pod in case none of the owners existed
 				// This keeps the old behavior even if OwnerReferences are missing
-				podObj, exists, err = watchers.PodStore.GetByKey(resource.NewKey(cepFullName))
+				podObj, exists, err = podStore.GetByKey(resource.NewKey(cepFullName))
 				if err != nil {
 					scopedLog.WithError(err).Warn("Unable to get pod from store")
 				}

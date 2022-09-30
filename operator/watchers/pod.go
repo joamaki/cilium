@@ -4,8 +4,6 @@
 package watchers
 
 import (
-	"context"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
@@ -23,11 +21,7 @@ const PodNodeNameIndex = "pod-node"
 type PodNodeNameKey string
 
 var (
-	// PodStore has a minimal copy of all pods running in the cluster.
-	// Warning: The pods stored in the cache are not intended to be used for Update
-	// operations in k8s as some of its fields are not populated.
-	PodStore resource.Store[*slim_corev1.Pod]
-
+	// FIXME: initialized in operator/cmd/root.go, only used in pkg/ipam/node.go. Refactor this.
 	PodsByNode resource.IndexedStore[PodNodeNameKey, *slim_corev1.Pod]
 
 	// UnmanagedKubeDNSPodStore has a minimal copy of the unmanaged kube-dns pods running
@@ -40,15 +34,6 @@ var (
 	// with k8s.
 	UnmanagedPodStoreSynced = make(chan struct{})
 )
-
-func PodsInit(pods resource.Resource[*slim_corev1.Pod], podsByNode resource.IndexedStore[PodNodeNameKey, *slim_corev1.Pod]) (err error) {
-	PodStore, err = pods.Store(context.TODO())
-	if err != nil {
-		return err
-	}
-	PodsByNode = podsByNode
-	return nil
-}
 
 /* FIXME(JM): Do something like this to Resource[*slim_corev1.Pod] to drop even more data:
  * Probably should be done in the ListerWatcher construction.

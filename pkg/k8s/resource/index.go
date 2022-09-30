@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -16,9 +17,13 @@ type IndexedStore[IxKey comparable, Obj k8sRuntime.Object] interface {
 }
 
 type indexer[IxKey comparable, Obj k8sRuntime.Object] struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	mu      lock.RWMutex
+	// TODO: should this ctx+cancel+wg + start() + stop() pattern
+	// be abstracted or not?
+	ctx    context.Context
+	cancel context.CancelFunc
+	mu     lock.RWMutex
+	wg     sync.WaitGroup
+
 	res     Resource[Obj]
 	toIxKey func(Obj) IxKey
 	index   map[IxKey]Set[Key]
@@ -37,7 +42,7 @@ func (ix *indexer[IxKey, Obj]) processEvent(ev Event[Obj]) {
 
 	case *UpdateEvent[Obj]:
 		key := ix.toIxKey(ev.Object)
-		fmt.Printf(">>> Indexed %s as %v\n", ev.Key, key)
+		fmt.Printf(">>> Indexed %s under %v\n", ev.Key, key)
 		keys := ix.index[key]
 		if keys == nil {
 			keys = NewSet[Key]()
@@ -58,10 +63,11 @@ func (ix *indexer[IxKey, Obj]) start(ctx context.Context) (err error) {
 
 	fmt.Printf(">>> starting indexer %T\n", ix)
 
+	ix.wg.Add(1)
 	ix.res.Observe(
 		ix.ctx,
 		ix.processEvent,
-		func(err error) {})
+		func(err error) { ix.wg.Done() })
 
 	fmt.Printf(">>> started %T\n", ix)
 
@@ -70,6 +76,7 @@ func (ix *indexer[IxKey, Obj]) start(ctx context.Context) (err error) {
 
 func (ix *indexer[IxKey, Obj]) stop(context.Context) error {
 	ix.cancel()
+	ix.wg.Wait()
 	return nil
 }
 
@@ -107,7 +114,7 @@ func NewIndexedStoreCell[IxKey comparable, Obj k8sRuntime.Object](name string, t
 			toIxKey: toKey,
 			index:   make(map[IxKey]Set[Key]),
 		}
-		lc.Append(hive.Hook{OnStart: ix.start})
+		lc.Append(hive.Hook{OnStart: ix.start, OnStop: ix.stop})
 		return ix
 
 	})

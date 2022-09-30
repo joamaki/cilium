@@ -172,6 +172,17 @@ var resourcesCell = cell.Group(
 		}),
 )
 
+var contextCell = cell.Provide(
+	func(lc hive.Lifecycle) context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		lc.Append(fx.Hook{OnStop: func(context.Context) error {
+			cancel()
+			return nil
+		}})
+		return ctx
+	})
+
 func init() {
 	rootCmd.AddCommand(MetricsCmd)
 
@@ -200,12 +211,17 @@ func init() {
 		cell.Decorate(
 			func(llc *LeaderLifecycle) fx.Lifecycle { return llc },
 
+			contextCell,
 			resourcesCell,
+
+			cell.OnStart(func(s resource.IndexedStore[watchers.PodNodeNameKey, *slim_corev1.Pod]) error {
+				watchers.PodsByNode = s
+				return nil
+			}),
+			cell.OnStart(OnOperatorStartLeading),
 			cell.OnStart(startCEPWatcher),
-			cell.OnStart(watchers.PodsInit),
 		),
 	)
-
 }
 
 /*
@@ -337,12 +353,6 @@ func runOperator(llc *LeaderLifecycle, clientset k8sClient.Clientset, nodes reso
 	log.Infof("Cilium Operator %s", version.Version)
 	IsLeader.Store(false)
 
-	llc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			OnOperatorStartLeading(ctx, clientset, nodes)
-			return nil
-		}})
-
 	if operatorOption.Config.EnableMetrics {
 		operatorMetrics.Register()
 	}
@@ -472,8 +482,7 @@ func startCEPWatcher(clientset k8sClient.Clientset) error {
 
 // OnOperatorStartLeading is the function called once the operator starts leading
 // in HA mode.
-func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset, nodes resource.Resource[*slim_corev1.Node]) {
-	IsLeader.Store(true)
+func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset, nodes resource.Resource[*slim_corev1.Node], pods resource.Resource[*slim_corev1.Pod]) error {
 
 	// Restart kube-dns as soon as possible since it helps etcd-operator to be
 	// properly setup. If kube-dns is not managed by Cilium it can prevent
@@ -667,12 +676,12 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset, 
 	}
 
 	if operatorOption.Config.EndpointGCInterval != 0 {
-		enableCiliumEndpointSyncGC(clientset, false)
+		enableCiliumEndpointSyncGC(clientset, pods, false)
 	} else {
 		// Even if the EndpointGC is disabled we still want it to run at least
 		// once. This is to prevent leftover CEPs from populating ipcache with
 		// stale entries.
-		enableCiliumEndpointSyncGC(clientset, true)
+		enableCiliumEndpointSyncGC(clientset, pods, true)
 	}
 
 	err = enableCNPWatcher(clientset)
@@ -706,6 +715,8 @@ func OnOperatorStartLeading(ctx context.Context, clientset k8sClient.Clientset, 
 	}
 
 	log.Info("Initialization complete")
+
+	return nil
 }
 
 // ResetCiliumNodesCacheSyncedStatus resets the current status of
