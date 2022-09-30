@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	"github.com/cilium/cilium/pkg/k8s/utils"
@@ -45,17 +46,17 @@ func main() {
 
 		client.Cell,
 		resourcesCell,
-		printServicesCell,
+		cell.Provide(newPrintServices),
 
-		hive.Require[*PrintServices](),
+		cell.Require[*PrintServices](),
 	)
 	pflag.Parse()
 	hive.Run()
 }
 
-var resourcesCell = hive.NewCell(
+var resourcesCell = cell.Group(
 	"resources",
-	fx.Provide(
+	cell.Provide(
 		resource.NewResourceConstructor[*corev1.Pod](
 			func(c client.Clientset) cache.ListerWatcher {
 				return utils.ListerWatcherFromTyped[*corev1.PodList](c.CoreV1().Pods(""))
@@ -67,11 +68,6 @@ var resourcesCell = hive.NewCell(
 			},
 		),
 	),
-)
-
-var printServicesCell = hive.NewCell(
-	"print-services",
-	fx.Provide(newPrintServices),
 )
 
 type PrintServices struct {
