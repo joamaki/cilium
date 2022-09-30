@@ -17,6 +17,7 @@ import (
 	"github.com/cilium/cilium/pkg/controller"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
+	"github.com/cilium/cilium/pkg/k8s/resource"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	k8sUtils "github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -54,7 +55,8 @@ func enableCiliumEndpointSyncGC(clientset k8sClient.Clientset, once bool) {
 		// If we are running this function "once" it means that we
 		// will delete all CEPs in the cluster regardless of the pod
 		// state.
-		watchers.PodsInit(clientset, stopCh)
+		// FIXME(JM): Wut?
+		//watchers.PodsInit(clientset, stopCh)
 	}
 	<-k8sCiliumNodesCacheSynced
 
@@ -94,7 +96,7 @@ func doCiliumEndpointSyncGC(ctx context.Context, clientset k8sClient.Clientset, 
 			for _, owner := range cep.ObjectMeta.OwnerReferences {
 				switch owner.Kind {
 				case "Pod":
-					podObj, exists, err = watchers.PodStore.GetByKey(cepFullName)
+					podObj, exists, err = watchers.PodStore.GetByKey(resource.NewKey(cepFullName))
 					if err != nil {
 						scopedLog.WithError(err).Warn("Unable to get pod from store")
 					}
@@ -113,7 +115,7 @@ func doCiliumEndpointSyncGC(ctx context.Context, clientset k8sClient.Clientset, 
 			if !exists && !podChecked {
 				// Check for a Pod in case none of the owners existed
 				// This keeps the old behavior even if OwnerReferences are missing
-				podObj, exists, err = watchers.PodStore.GetByKey(cepFullName)
+				podObj, exists, err = watchers.PodStore.GetByKey(resource.NewKey(cepFullName))
 				if err != nil {
 					scopedLog.WithError(err).Warn("Unable to get pod from store")
 				}

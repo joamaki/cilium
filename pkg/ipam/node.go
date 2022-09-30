@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"k8s.io/client-go/tools/cache"
 
 	operatorOption "github.com/cilium/cilium/operator/option"
 	"github.com/cilium/cilium/operator/watchers"
@@ -269,23 +268,23 @@ func (n *Node) GetNeededAddresses() int {
 	return 0
 }
 
-// getPendingPodCount computes the number of pods in pending state on a given node. watchers.PodStore is assumed to be
-// initialized before this function is called.
-func getPendingPodCount(nodeName string) (int, error) {
-	pendingPods := 0
-	if watchers.PodStore == nil {
-		return pendingPods, fmt.Errorf("pod store uninitialized")
-	}
-	values, err := watchers.PodStore.(cache.Indexer).ByIndex(watchers.PodNodeNameIndex, nodeName)
+// getPendingPodCount computes the number of pods in pending state on a given node.
+func (n *Node) getPendingPodCount() (int, error) {
+
+	pods, err := watchers.PodsByNode.Get(watchers.PodNodeNameKey(n.name))
 	if err != nil {
-		return pendingPods, fmt.Errorf("unable to access pod to node name index: %w", err)
+		return 0, err
 	}
-	for _, pod := range values {
-		p := pod.(*v1.Pod)
-		if p.Status.Phase == v1.PodPending {
+
+	pendingPods := 0
+	for _, pod := range pods {
+		if pod.Status.Phase == v1.PodPending {
 			pendingPods++
 		}
 	}
+
+	fmt.Printf(">>> getPendingPodCount(): %d\n", pendingPods)
+
 	return pendingPods, nil
 }
 
@@ -608,7 +607,7 @@ func (n *Node) determineMaintenanceAction() (*maintenanceAction, error) {
 	}
 
 	surgeAllocate := 0
-	numPendingPods, err := getPendingPodCount(n.name)
+	numPendingPods, err := n.getPendingPodCount()
 	if err != nil {
 		if n.logLimiter.Allow() {
 			scopedLog.WithError(err).Warningf("Unable to compute pending pods, will not surge-allocate")

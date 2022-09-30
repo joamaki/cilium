@@ -29,6 +29,7 @@ import (
 	operatorOption "github.com/cilium/cilium/operator/option"
 	ces "github.com/cilium/cilium/operator/pkg/ciliumendpointslice"
 	"github.com/cilium/cilium/operator/pkg/ingress"
+	"github.com/cilium/cilium/operator/watchers"
 	operatorWatchers "github.com/cilium/cilium/operator/watchers"
 
 	"github.com/cilium/cilium/pkg/components"
@@ -70,6 +71,7 @@ var (
 				genMarkdown(cobraCmd, cmdRefDir)
 				os.Exit(0)
 			}
+			operatorHive.PrintObjects()
 			operatorHive.Run()
 		},
 	}
@@ -149,10 +151,11 @@ var resourcesCell = cell.Group(
 		resource.NewResourceConstructor[*slim_corev1.Pod](
 			func(c k8sClient.Clientset) cache.ListerWatcher {
 				// FIXME proper constructor that takes a config as parameter
-				lw := utils.ListerWatcherFromTyped[*slim_corev1.PodList](c.Slim().CoreV1().Pods(operatorOption.Config.CiliumK8sNamespace))
-				lw = utils.ListerWatcherWithModifier(lw, func(opts *metav1.ListOptions) {
-					opts.LabelSelector = operatorOption.Config.CiliumPodLabels
-				})
+				//lw := utils.ListerWatcherFromTyped[*slim_corev1.PodList](c.Slim().CoreV1().Pods(operatorOption.Config.CiliumK8sNamespace))
+				//lw = utils.ListerWatcherWithModifier(lw, func(opts *metav1.ListOptions) {
+				//	opts.LabelSelector = operatorOption.Config.CiliumPodLabels
+				//})
+				lw := utils.ListerWatcherFromTyped[*slim_corev1.PodList](c.Slim().CoreV1().Pods(""))
 				return lw
 			},
 		),
@@ -162,6 +165,11 @@ var resourcesCell = cell.Group(
 			},
 		),
 	),
+	resource.NewIndexedStoreCell(
+		"pod-node",
+		func(pod *slim_corev1.Pod) watchers.PodNodeNameKey {
+			return watchers.PodNodeNameKey(pod.Spec.NodeName)
+		}),
 )
 
 func init() {
@@ -194,10 +202,26 @@ func init() {
 
 			resourcesCell,
 			cell.OnStart(startCEPWatcher),
-			//cell.OnStart(testPodsResource),
+			cell.OnStart(watchers.PodsInit),
 		),
 	)
+
 }
+
+/*
+func testPodsIndex(s resource.IndexedStore[PodNodeNameKey, *slim_corev1.Pod]) error {
+	go func() {
+		for {
+			pods, err := s.Get(PodNodeNameKey("kind-control-plane"))
+			fmt.Printf(">>> Get error: %s\n", err)
+			for _, pod := range pods {
+				fmt.Printf(">>> Pod %s is on kind-control-plane\n", pod.Name)
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+	return nil
+}*/
 
 /*
 func testPodsResource(r resource.Resource[*slim_corev1.Pod]) error {

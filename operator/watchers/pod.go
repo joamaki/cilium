@@ -4,13 +4,15 @@
 package watchers
 
 import (
+	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
+	"github.com/cilium/cilium/pkg/k8s/resource"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	k8sUtils "github.com/cilium/cilium/pkg/k8s/utils"
@@ -18,14 +20,15 @@ import (
 
 const PodNodeNameIndex = "pod-node"
 
+type PodNodeNameKey string
+
 var (
 	// PodStore has a minimal copy of all pods running in the cluster.
 	// Warning: The pods stored in the cache are not intended to be used for Update
 	// operations in k8s as some of its fields are not populated.
-	PodStore cache.Store
+	PodStore resource.Store[*slim_corev1.Pod]
 
-	// PodStoreSynced is closed once the PodStore is synced with k8s.
-	PodStoreSynced = make(chan struct{})
+	PodsByNode resource.IndexedStore[PodNodeNameKey, *slim_corev1.Pod]
 
 	// UnmanagedKubeDNSPodStore has a minimal copy of the unmanaged kube-dns pods running
 	// in the cluster.
@@ -38,35 +41,17 @@ var (
 	UnmanagedPodStoreSynced = make(chan struct{})
 )
 
-// podNodeNameIndexFunc indexes pods by node name
-func podNodeNameIndexFunc(obj interface{}) ([]string, error) {
-	pod := obj.(*slim_corev1.Pod)
-	if pod.Spec.NodeName != "" {
-		return []string{pod.Spec.NodeName}, nil
+func PodsInit(pods resource.Resource[*slim_corev1.Pod], podsByNode resource.IndexedStore[PodNodeNameKey, *slim_corev1.Pod]) (err error) {
+	PodStore, err = pods.Store(context.TODO())
+	if err != nil {
+		return err
 	}
-	return []string{}, nil
+	PodsByNode = podsByNode
+	return nil
 }
 
-func PodsInit(clientset k8sClient.Clientset, stopCh <-chan struct{}) {
-	var podInformer cache.Controller
-	PodStore = cache.NewIndexer(cache.DeletionHandlingMetaNamespaceKeyFunc, cache.Indexers{
-		PodNodeNameIndex: podNodeNameIndexFunc,
-	})
-	podInformer = informer.NewInformerWithStore(
-		k8sUtils.ListerWatcherWithFields(
-			k8sUtils.ListerWatcherFromTyped[*slim_corev1.PodList](clientset.Slim().CoreV1().Pods("")),
-			fields.Everything()),
-		&slim_corev1.Pod{},
-		0,
-		cache.ResourceEventHandlerFuncs{},
-		convertToPod,
-		PodStore,
-	)
-	go podInformer.Run(stopCh)
-
-	cache.WaitForCacheSync(stopCh, podInformer.HasSynced)
-	close(PodStoreSynced)
-}
+/* FIXME(JM): Do something like this to Resource[*slim_corev1.Pod] to drop even more data:
+ * Probably should be done in the ListerWatcher construction.
 
 // convertToPod stores a minimal version of the pod as it is only intended
 // for it to check if a pod is running in the cluster or not. The stored pod
@@ -118,7 +103,7 @@ func convertToPod(obj interface{}) interface{} {
 	default:
 		return obj
 	}
-}
+}*/
 
 func UnmanagedKubeDNSPodsInit(clientset k8sClient.Clientset) {
 	var unmanagedPodInformer cache.Controller
