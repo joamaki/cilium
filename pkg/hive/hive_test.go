@@ -231,3 +231,35 @@ var shutdownOnStartCell = cell.Invoke(func(lc hive.Lifecycle, shutdowner hive.Sh
 			return nil
 		}})
 })
+
+type MyMetricsConfig struct {
+	EnableFooMetric bool
+}
+
+func (def MyMetricsConfig) Flags(flags *pflag.FlagSet) {
+	flags.Bool("enable-foo-metric", def.EnableFooMetric, "Enable the foo metric")
+}
+
+func newMyMetrics(cfg MyMetricsConfig) []*cell.Metric {
+	return []*cell.Metric{
+		{Meta: cell.MetricMeta{Enabled: cfg.EnableFooMetric, Description: "Foo metric"}},
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	testCell := cell.Module(
+		"metrics-test",
+
+		cell.Config(MyMetricsConfig{}),
+		cell.Metrics(newMyMetrics),
+	)
+
+	h := hive.New(
+		testCell,
+		shutdownOnStartCell,
+	)
+
+	h.PrintObjects()
+	err := h.Run()
+	assert.NoError(t, err)
+}

@@ -84,6 +84,8 @@ func New(cells ...cell.Cell) *Hive {
 		log.WithError(err).Fatal("Failed to provide default objects")
 	}
 
+	metricsRegistry.Apply(h.container)
+
 	// Apply all cells to the container. This registers all constructors
 	// and adds all config flags. Invokes are delayed until Start() is
 	// called.
@@ -275,6 +277,46 @@ func (h *Hive) Shutdown(opts ...ShutdownOption) {
 	close(h.shutdown)
 }
 
+type metricsIn struct {
+	cell.In
+	Registry *MetricsRegistry
+	Metrics  []*cell.Metric `group:"metrics"`
+}
+
+// PLACEHOLDER
+type MetricsRegistry struct {
+	metrics []*cell.Metric
+}
+
+func newMetricsRegistry() *MetricsRegistry {
+	return &MetricsRegistry{}
+}
+
+func (r *MetricsRegistry) RegisterMetric(m *cell.Metric) {
+	//fmt.Printf("Registering metric %#v\n", m)
+	r.metrics = append(r.metrics, m)
+}
+
+func (r *MetricsRegistry) PrintMetrics() {
+	fmt.Printf("Metrics:\n")
+	for _, metric := range r.metrics {
+		fmt.Printf("  %#v\n", metric)
+	}
+}
+
+func registerMetrics(in metricsIn) {
+	for _, metric := range in.Metrics {
+		in.Registry.RegisterMetric(metric)
+	}
+}
+
+var metricsRegistry = cell.Module(
+	"metrics-registry",
+
+	cell.Provide(newMetricsRegistry),
+	cell.Invoke(registerMetrics),
+)
+
 func (h *Hive) PrintObjects() {
 	fmt.Printf("Cells:\n\n")
 	for _, c := range h.cells {
@@ -286,7 +328,11 @@ func (h *Hive) PrintObjects() {
 		log.WithError(err).Fatal("Failed to populate object graph")
 	}
 
-	fmt.Printf("Start hooks:\n\n")
+	h.container.Invoke(func(r *MetricsRegistry) {
+		r.PrintMetrics()
+	})
+
+	fmt.Printf("\nStart hooks:\n\n")
 	for _, hook := range h.lifecycle.hooks {
 		if hook.OnStart == nil {
 			continue
