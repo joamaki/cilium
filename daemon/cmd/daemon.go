@@ -372,8 +372,8 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 	return nil
 }
 
-// NewDaemon creates and returns a new Daemon with the parameters set in c.
-func NewDaemon(ctx context.Context, cleaner *daemonCleanup,
+// newDaemon creates and returns a new Daemon with the parameters set in c.
+func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	epMgr *endpointmanager.EndpointManager, dp datapath.Datapath,
 	clientset k8sClient.Clientset,
 ) (*Daemon, *endpointRestoreState, error) {
@@ -389,6 +389,12 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup,
 	// Validate the daemon-specific global options.
 	if err := option.Config.Validate(Vp); err != nil {
 		return nil, nil, fmt.Errorf("invalid daemon configuration: %s", err)
+	}
+
+	// Validate configuration options that depend on other cells.
+	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD && !clientset.IsEnabled() &&
+		option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
+		return nil, nil, fmt.Errorf("CRD Identity allocation mode requires k8s to be configured")
 	}
 
 	if option.Config.ReadCNIConfiguration != "" {
