@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -33,6 +34,7 @@ import (
 	"github.com/cilium/cilium/pkg/common"
 	"github.com/cilium/cilium/pkg/components"
 	"github.com/cilium/cilium/pkg/controller"
+	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
@@ -77,6 +79,7 @@ import (
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/sysctl"
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -1080,6 +1083,9 @@ func restoreExecPermissions(searchDir string, patterns ...string) error {
 }
 
 func initEnv() {
+	bootstrapStats.earlyInit.Start()
+	defer bootstrapStats.earlyInit.End(true)
+
 	var debugDatapath bool
 
 	option.Config.SetMapElementSizes(
@@ -1156,13 +1162,6 @@ func initEnv() {
 			log.Fatalf("Envoy version %s does not match with required version %s ,aborting.",
 				envoyVersionArray[2], envoy.RequiredEnvoyVersionSHA)
 		}
-	}
-
-	// This check is here instead of in DaemonConfig.Populate (invoked at the
-	// start of this function as option.Config.Populate) to avoid an import loop.
-	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD && !k8s.IsEnabled() &&
-		option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
-		log.Fatal("CRD Identity allocation mode requires k8s to be configured.")
 	}
 
 	if option.Config.PProf {
@@ -1362,30 +1361,6 @@ func initEnv() {
 		log.Fatal("BPF masquerade is not supported for IPv6.")
 	}
 
-	// If there is one device specified, use it to derive better default
-	// allocation prefixes
-	node.InitDefaultPrefix(option.Config.DirectRoutingDevice)
-
-	if option.Config.IPv6NodeAddr != "auto" {
-		if ip := net.ParseIP(option.Config.IPv6NodeAddr); ip == nil {
-			log.WithField(logfields.IPAddr, option.Config.IPv6NodeAddr).Fatal("Invalid IPv6 node address")
-		} else {
-			if !ip.IsGlobalUnicast() {
-				log.WithField(logfields.IPAddr, ip).Fatal("Invalid IPv6 node address: not a global unicast address")
-			}
-
-			node.SetIPv6(ip)
-		}
-	}
-
-	if option.Config.IPv4NodeAddr != "auto" {
-		if ip := net.ParseIP(option.Config.IPv4NodeAddr); ip == nil {
-			log.WithField(logfields.IPAddr, option.Config.IPv4NodeAddr).Fatal("Invalid IPv4 node address")
-		} else {
-			node.SetIPv4(ip)
-		}
-	}
-
 	k8s.SidecarIstioProxyImageRegexp, err = regexp.Compile(option.Config.SidecarIstioProxyImage)
 	if err != nil {
 		log.WithError(err).Fatal("Invalid sidecar-istio-proxy-image regular expression")
@@ -1539,90 +1514,50 @@ func (d *Daemon) initKVStore() {
 	}
 }
 
-type daemonParams struct {
-	cell.In
+func newDatapath(lc hive.Lifecycle, localNode node.LocalNodeStore) datapath.Datapath {
+	// If there is one device specified, use it to derive better default
+	// allocation prefixes
+	node.InitDefaultPrefix(option.Config.DirectRoutingDevice)
 
-	Lifecycle      hive.Lifecycle
-	Shutdowner     hive.Shutdowner
-	Config         DaemonCellConfig
-	LocalNodeStore node.LocalNodeStore
-	Clientset      k8sClient.Clientset
-}
-
-// registerDaemonHooks registers the lifecycle hooks for the part of the cilium-agent that has
-// not yet been modularized.
-//
-// The Daemon struct and objects referred to from there are not supplied to the graph as
-// object creation in Daemon is intertwined with side-effectful initialization. This stops
-// us from constructing and inspecting the dependency graph, so instead the daemon is constructed
-// and started via an OnStart hook.
-//
-// If an object still owned by Daemon is required in a module, it should be provided indirectly, e.g. via
-// a callback.
-func registerDaemonHooks(params daemonParams) error {
-	if params.Config.SkipDaemon {
-		return nil
-	}
-
-	// daemonCtx is the daemon-wide context cancelled when stopping.
-	daemonCtx, cancelDaemonCtx := context.WithCancel(context.Background())
-	cleaner := NewDaemonCleanup()
-
-	if Vp.GetString(option.DatapathMode) == datapathOption.DatapathModeLBOnly {
-		// In lb-only mode the k8s client is not used, even if its configuration
-		// is available, so disable it here before it starts. Using GetString
-		// directly as option.Config not populated yet.
-		params.Clientset.Disable()
-	}
-
-	// Set the global LocalNodeStore. This is to retain the API of getters and setters
-	// defined in pkg/node/address.go until uses of them have been converted to use
-	// LocalNodeStore directly.
-	node.SetLocalNodeStore(params.LocalNodeStore)
-
-	params.Lifecycle.Append(hive.Hook{
-		OnStart: func(hive.HookContext) error {
-			// Set the k8s clients provided by the K8s client cell. The global clients will be refactored out
-			// by later commits.
-			if params.Clientset.IsEnabled() {
-				k8s.SetClients(params.Clientset, params.Clientset.Slim(), params.Clientset, params.Clientset)
+	// Initialize node IP addresses from configuration.
+	if option.Config.IPv6NodeAddr != "auto" {
+		if ip := net.ParseIP(option.Config.IPv6NodeAddr); ip == nil {
+			log.WithField(logfields.IPAddr, option.Config.IPv6NodeAddr).Fatal("Invalid IPv6 node address")
+		} else {
+			if !ip.IsGlobalUnicast() {
+				log.WithField(logfields.IPAddr, ip).Fatal("Invalid IPv6 node address: not a global unicast address")
 			}
+			localNode.Update(func(n *nodeTypes.Node) {
+				n.SetNodeInternalIP(ip)
+			})
+		}
+	}
+	if option.Config.IPv4NodeAddr != "auto" {
+		if ip := net.ParseIP(option.Config.IPv4NodeAddr); ip == nil {
+			log.WithField(logfields.IPAddr, option.Config.IPv4NodeAddr).Fatal("Invalid IPv4 node address")
+		} else {
+			localNode.Update(func(n *nodeTypes.Node) {
+				n.SetNodeInternalIP(ip)
+			})
+		}
+	}
 
-			bootstrapStats.earlyInit.Start()
-			initEnv()
-			bootstrapStats.earlyInit.End(true)
-
-			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
-			// of the start hooks to run.
-			go runDaemon(daemonCtx, cleaner, params.Shutdowner, params.Clientset)
-			return nil
-		},
-		OnStop: func(hive.HookContext) error {
-			cancelDaemonCtx()
-			cleaner.Clean()
-			return nil
-		},
-	})
-	return nil
-}
-
-// runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner hive.Shutdowner, clientset k8sClient.Clientset) {
 	datapathConfig := linuxdatapath.DatapathConfiguration{
 		HostDevice: defaults.HostDevice,
 		ProcFs:     option.Config.ProcFs,
 	}
 
-	log.Info("Initializing daemon")
-
-	option.Config.RunMonitorAgent = true
-
-	if err := enableIPForwarding(); err != nil {
-		log.Fatalf("enabling IP forwarding via sysctl failed: %s", err)
-	}
-
 	iptablesManager := &iptables.IptablesManager{}
-	iptablesManager.Init()
+
+	lc.Append(hive.Hook{
+		OnStart: func(hive.HookContext) error {
+			if err := enableIPForwarding(); err != nil {
+				log.Fatalf("enabling IP forwarding via sysctl failed: %s", err)
+			}
+
+			iptablesManager.Init()
+			return nil
+		}})
 
 	var wgAgent *wireguard.Agent
 	if option.Config.EnableWireguard {
@@ -1642,21 +1577,109 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner hive.Shut
 			log.Fatalf("failed to initialize wireguard: %s", err)
 		}
 
-		cleaner.cleanupFuncs.Add(func() {
-			_ = wgAgent.Close()
+		lc.Append(hive.Hook{
+			OnStop: func(hive.HookContext) error {
+				wgAgent.Close()
+				return nil
+			},
 		})
 	} else {
 		// Delete wireguard device from previous run (if such exists)
 		link.DeleteByName(wireguardTypes.IfaceName)
 	}
+	return linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent)
+}
 
-	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
-		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
-		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent),
-		clientset)
-	if err != nil {
-		log.Fatalf("daemon creation failed: %s", err)
+// daemonCell wraps the existing implementation of the cilium-agent that has
+// not yet been converted into a cell. Provides *Daemon as a Promise that is
+// resolved once daemon has been started to facilitate conversion into modules.
+var daemonCell = cell.Module(
+	"Daemon",
+
+	cell.Provide(newDaemonPromise),
+	cell.Invoke(func(promise.Promise[*Daemon]) {}), // Force instantiation.
+)
+
+type daemonParams struct {
+	cell.In
+
+	Lifecycle      hive.Lifecycle
+	Clientset      k8sClient.Clientset
+	Datapath       datapath.Datapath
+	LocalNodeStore node.LocalNodeStore
+	Shutdowner     hive.Shutdowner
+}
+
+func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
+	daemonResolver, daemonPromise := promise.New[*Daemon]()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cleaner := NewDaemonCleanup()
+
+	if Vp.GetString(option.DatapathMode) == datapathOption.DatapathModeLBOnly {
+		// In lb-only mode the k8s client is not used, even if its configuration
+		// is available, so disable it here before it starts. Using GetString
+		// directly as option.Config not populated yet.
+		params.Clientset.Disable()
 	}
+
+	// Set the global LocalNodeStore. This is to retain the API of getters and setters
+	// defined in pkg/node/address.go until uses of them have been converted to use
+	// LocalNodeStore directly.
+	node.SetLocalNodeStore(params.LocalNodeStore)
+
+	var daemon *Daemon
+	var wg sync.WaitGroup
+
+	params.Lifecycle.Append(hive.Hook{
+		OnStart: func(hive.HookContext) error {
+			// Set the k8s clients provided by the K8s client cell. The global clients will be refactored out
+			// by later commits.
+			if params.Clientset.IsEnabled() {
+				k8s.SetClients(params.Clientset, params.Clientset.Slim(), params.Clientset, params.Clientset)
+			}
+
+			d, restoredEndpoints, err := newDaemon(
+				ctx, cleaner,
+				WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
+				params.Datapath,
+				params.Clientset)
+			if err != nil {
+				return fmt.Errorf("daemon creation failed: %w", err)
+			}
+			daemon = d
+
+			daemonResolver.Resolve(daemon)
+
+			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
+			// of the start hooks to run.
+			if !option.Config.DryMode {
+				wg.Add(1)
+				go func() {
+					runDaemon(daemon, restoredEndpoints, cleaner, params)
+					wg.Done()
+				}()
+			}
+			return nil
+		},
+		OnStop: func(hive.HookContext) error {
+			cancel()
+			if daemon != nil {
+				daemon.Close()
+			}
+			cleaner.Clean()
+			wg.Wait()
+			return nil
+		},
+	})
+	return daemonPromise
+}
+
+// runDaemon runs the old unmodular part of the cilium-agent.
+func runDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *daemonCleanup, params daemonParams) {
+	log.Info("Initializing daemon")
+
+	option.Config.RunMonitorAgent = true
 
 	// This validation needs to be done outside of the agent until
 	// datapath.NodeAddressing is used consistently across the code base.
@@ -1680,7 +1703,8 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner hive.Shut
 	}
 	bootstrapStats.k8sInit.End(true)
 	restoreComplete := d.initRestore(restoredEndpoints)
-	if wgAgent != nil {
+
+	if wgAgent, ok := d.datapath.WireguardAgent().(*wireguard.Agent); ok && wgAgent != nil {
 		if err := wgAgent.RestoreFinished(); err != nil {
 			log.WithError(err).Error("Failed to set up wireguard peers")
 		}
@@ -1782,7 +1806,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner hive.Shut
 		err := <-errs
 		if err != nil {
 			log.WithError(err).Error("Cannot start metrics server")
-			shutdowner.Shutdown(hive.ShutdownWithError(err))
+			params.Shutdowner.Shutdown(hive.ShutdownWithError(err))
 		}
 	}(initMetrics())
 
@@ -1804,7 +1828,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner hive.Shut
 	srv.ConfigureAPI()
 	bootstrapStats.initAPI.End(true)
 
-	err = d.SendNotification(monitorAPI.StartMessage(time.Now()))
+	err := d.SendNotification(monitorAPI.StartMessage(time.Now()))
 	if err != nil {
 		log.WithError(err).Warn("Failed to send agent start monitor message")
 	}
@@ -1871,7 +1895,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner hive.Shut
 	err = srv.Serve()
 	if err != nil {
 		log.WithError(err).Error("Error returned from non-returning Serve() call")
-		shutdowner.Shutdown(hive.ShutdownWithError(err))
+		params.Shutdowner.Shutdown(hive.ShutdownWithError(err))
 	}
 }
 
