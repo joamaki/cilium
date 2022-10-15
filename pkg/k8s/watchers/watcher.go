@@ -266,8 +266,7 @@ type K8sWatcher struct {
 	ciliumNodeStoreMU lock.RWMutex
 	ciliumNodeStore   cache.Store
 
-	namespaceStore cache.Store
-	datapath       datapath.Datapath
+	datapath datapath.Datapath
 
 	networkpolicyStore cache.Store
 
@@ -540,7 +539,7 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 			k.NodesInit(k.clientset)
 		case k8sAPIGroupNamespaceV1Core:
 			asyncControllers.Add(1)
-			go k.namespacesInit(k.clientset.Slim(), asyncControllers)
+			go k.namespacesInit(asyncControllers)
 		case k8sAPIGroupCiliumNodeV2:
 			asyncControllers.Add(1)
 			go k.ciliumNodeInit(k.clientset, asyncControllers)
@@ -981,8 +980,6 @@ func (k *K8sWatcher) GetStore(name string) cache.Store {
 	switch name {
 	case "networkpolicy":
 		return k.networkpolicyStore
-	case "namespace":
-		return k.namespaceStore
 	case "pod":
 		// Wait for podStore to get initialized.
 		<-k.podStoreSet
