@@ -227,7 +227,9 @@ func (r *resource[T]) Observe(subCtx context.Context, next func(Event[T]), compl
 		// Wait for the store so we can emit the initial items and the sync event.
 		store, err := r.storePromise.Await(subCtx)
 		if err != nil {
-			complete(err)
+			if complete != nil {
+				complete(err)
+			}
 			return
 		}
 
@@ -276,7 +278,9 @@ func (r *resource[T]) Observe(subCtx context.Context, next func(Event[T]), compl
 		r.mu.Lock()
 		delete(r.queues, subId)
 		r.mu.Unlock()
-		complete(queue.getError())
+		if complete != nil {
+			complete(queue.getError())
+		}
 	}()
 
 	// Fork a goroutine to wait for either the subscriber cancelling or the resource
