@@ -1603,11 +1603,12 @@ var daemonCell = cell.Module(
 type daemonParams struct {
 	cell.In
 
-	Lifecycle      hive.Lifecycle
-	Clientset      k8sClient.Clientset
-	Datapath       datapath.Datapath
-	LocalNodeStore node.LocalNodeStore
-	Shutdowner     hive.Shutdowner
+	Lifecycle       hive.Lifecycle
+	Clientset       k8sClient.Clientset
+	Datapath        datapath.Datapath
+	LocalNodeStore  node.LocalNodeStore
+	Shutdowner      hive.Shutdowner
+	SharedResources k8s.SharedResources
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
@@ -1628,22 +1629,23 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 	// LocalNodeStore directly.
 	node.SetLocalNodeStore(params.LocalNodeStore)
 
+	// Set the k8s clients provided by the K8s client cell. The global clients will be refactored out
+	// by later commits.
+	if params.Clientset.IsEnabled() {
+		k8s.SetClients(params.Clientset, params.Clientset.Slim(), params.Clientset, params.Clientset)
+	}
+
 	var daemon *Daemon
 	var wg sync.WaitGroup
 
 	params.Lifecycle.Append(hive.Hook{
 		OnStart: func(hive.HookContext) error {
-			// Set the k8s clients provided by the K8s client cell. The global clients will be refactored out
-			// by later commits.
-			if params.Clientset.IsEnabled() {
-				k8s.SetClients(params.Clientset, params.Clientset.Slim(), params.Clientset, params.Clientset)
-			}
-
 			d, restoredEndpoints, err := newDaemon(
 				ctx, cleaner,
 				WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
 				params.Datapath,
-				params.Clientset)
+				params.Clientset,
+				params.SharedResources)
 			if err != nil {
 				return fmt.Errorf("daemon creation failed: %w", err)
 			}

@@ -376,6 +376,7 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	epMgr *endpointmanager.EndpointManager, dp datapath.Datapath,
 	clientset k8sClient.Clientset,
+	sharedResources k8s.SharedResources,
 ) (*Daemon, *endpointRestoreState, error) {
 
 	var (
@@ -676,6 +677,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		option.Config,
 		d.ipcache,
 		d.cgroupManager,
+		sharedResources,
 	)
 	nd.RegisterK8sGetters(d.k8sWatcher)
 	d.ipcache.RegisterK8sSyncedChecker(&d)
@@ -883,7 +885,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		// from performing Gets directly into kube-apiserver to get the most up
 		// to date version of the k8s node. This allows for better scalability
 		// in large clusters.
-		d.k8sWatcher.NodesInit(k8s.Client())
+		d.k8sWatcher.NodesInit()
 
 		if option.Config.IPAM == ipamOption.IPAMClusterPool || option.Config.IPAM == ipamOption.IPAMClusterPoolV2 {
 			// Create the CiliumNode custom resource. This call will block until
