@@ -49,7 +49,10 @@ type LocalNodeStoreParams struct {
 // LocalNodeStoreCell provides the LocalNodeStore when given a LocalNodeInitializer.
 // The LocalNodeStore is the canonical owner of `types.Node` for the local node and
 // provides a reactive API for observing and updating it.
-var LocalNodeStoreCell = cell.Provide(newLocalNodeStore)
+var LocalNodeStoreCell = cell.Module(
+	"LocalNodeStore",
+	cell.Provide(newLocalNodeStore),
+)
 
 // localNodeStore implements the LocalNodeStore using a simple in-memory
 // backing. Reflecting the new state to persistent stores, e.g. kvstore or k8s
