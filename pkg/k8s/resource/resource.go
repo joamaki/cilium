@@ -146,7 +146,7 @@ func (r *resource[T]) Start(startCtx hive.HookContext) error {
 			DeleteFunc: func(obj any) { r.pushDelete(obj) },
 		}
 
-	store, informer := cache.NewInformer(r.lw, objType, 0, handlerFuncs)
+	store, informer := cache.NewTransformingInformer(r.lw, objType, 0, handlerFuncs, r.opts.transform)
 
 	r.wg.Add(2)
 	go func() {

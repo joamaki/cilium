@@ -18,7 +18,7 @@ var (
 
 		Infrastructure,
 		ControlPlane,
-		Datapath,
+		//Datapath,
 	)
 
 	// Infrastructure provides access and services to the outside.
@@ -50,7 +50,7 @@ var (
 		k8s.SharedResourcesCell,
 
 		// daemonCell wraps the legacy daemon initialization and provides Promise[*Daemon].
-		daemonCell,
+		//daemonCell,
 	)
 
 	// Datapath provides the privileged operations to apply control-plane

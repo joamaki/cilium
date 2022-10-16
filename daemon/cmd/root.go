@@ -82,7 +82,7 @@ func runApp(cmd *cobra.Command, args []string) {
 	}
 
 	// Initialize option.Config, logging, working directories and validate the configuration.
-	initEnv()
+	//initEnv()
 
 	if err := agentHive.Run(); err != nil {
 		log.Fatal(err)
