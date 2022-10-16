@@ -17,6 +17,7 @@
 set -o errexit
 set -o nounset
 set -o pipefail
+set -x
 
 # generate-groups generates everything for a project with external types only, e.g. a project based
 # on CustomResourceDefinitions.
@@ -71,7 +72,7 @@ done
 
 if [ "${GENS}" = "all" ] || grep -qw "deepcopy" <<<"${GENS}"; then
   echo "Generating deepcopy funcs"
-  "${gobin}/deepcopy-gen" --input-dirs "$(codegen::join , "${FQ_APIS[@]}")" -O zz_generated.deepcopy "$@"
+  "${gobin}/deepcopy-gen" -v 4 --input-dirs "$(codegen::join , "${FQ_APIS[@]}")" -O zz_generated.deepcopy "$@"
 fi
 
 if [ "${GENS}" = "all" ] || grep -qw "client" <<<"${GENS}"; then

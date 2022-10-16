@@ -18,12 +18,29 @@ import (
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	slim_discovery_v1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1"
 	slim_discovery_v1beta1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1beta1"
+	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
+	"github.com/cilium/cilium/pkg/k8s/types"
 	"github.com/cilium/cilium/pkg/k8s/version"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
+
+// CommonEndpoints is the target structure to which we parse Endpoints and EndpointSlices.
+// This exposes a common object kind to the rest of the agent, regardless of the capabilities
+// of the api-server.
+// TODO merge with 'Endpoints' below?
+//
+// +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+type CommonEndpoints struct {
+	types.UnserializableObject
+	slim_metav1.ObjectMeta
+
+	EndpointSliceID
+	Endpoints
+}
 
 // Endpoints is an abstraction for the Kubernetes endpoints object. Endpoints
 // consists of a set of backend IPs in combination with a set of ports and

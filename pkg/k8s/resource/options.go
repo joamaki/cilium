@@ -4,6 +4,7 @@
 package resource
 
 import (
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -20,9 +21,16 @@ func WithErrorHandler(h ErrorHandler) Option {
 	return func(o *options) { o.errorHandler = h }
 }
 
+// WithTransform sets a function to transform the objects before
+// they're added to the store and emitted.
+func WithTransform(transform cache.TransformFunc) Option {
+	return func(o *options) { o.transform = transform }
+}
+
 type options struct {
 	rateLimiter  func() workqueue.RateLimiter
 	errorHandler ErrorHandler
+	transform    cache.TransformFunc
 }
 
 func defaultOptions() options {
@@ -31,5 +39,6 @@ func defaultOptions() options {
 			return workqueue.DefaultControllerRateLimiter()
 		},
 		errorHandler: AlwaysRetry,
+		transform:    nil,
 	}
 }

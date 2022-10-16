@@ -175,7 +175,7 @@ func (r *resource[T]) startWhenNeeded() {
 			DeleteFunc: func(obj any) { r.pushDelete(obj) },
 		}
 
-	store, informer := cache.NewInformer(r.lw, objType, 0, handlerFuncs)
+	store, informer := cache.NewTransformingInformer(r.lw, objType, 0, handlerFuncs, r.opts.transform)
 
 	r.wg.Add(1)
 	go func() {
