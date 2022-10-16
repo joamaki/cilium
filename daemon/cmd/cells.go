@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"github.com/cilium/cilium/pkg/defaults"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
@@ -43,6 +44,9 @@ var (
 		// LocalNodeStore holds onto the information about the local node and allows
 		// observing changes to it.
 		node.LocalNodeStoreCell,
+
+		// EndpointManager maintains a collection of the locally running endpoints.
+		endpointmanager.Cell,
 
 		// daemonCell wraps the legacy daemon initialization and provides Promise[*Daemon].
 		daemonCell,

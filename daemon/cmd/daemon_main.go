@@ -44,7 +44,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/maps"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/defaults"
-	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/flowdebug"
 	"github.com/cilium/cilium/pkg/hive"
@@ -1602,11 +1602,12 @@ var daemonCell = cell.Module(
 type daemonParams struct {
 	cell.In
 
-	Lifecycle      hive.Lifecycle
-	Clientset      k8sClient.Clientset
-	Datapath       datapath.Datapath
-	LocalNodeStore node.LocalNodeStore
-	Shutdowner     hive.Shutdowner
+	Lifecycle       hive.Lifecycle
+	Clientset       k8sClient.Clientset
+	Datapath        datapath.Datapath
+	LocalNodeStore  node.LocalNodeStore
+	Shutdowner      hive.Shutdowner
+	EndpointManager *endpointmanager.EndpointManager
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
@@ -1640,7 +1641,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 
 			d, restoredEndpoints, err := newDaemon(
 				ctx, cleaner,
-				WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
+				params.EndpointManager,
 				params.Datapath,
 				params.Clientset)
 			if err != nil {

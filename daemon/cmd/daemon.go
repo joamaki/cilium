@@ -622,7 +622,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	proxy.Allocator = d.identityAllocator
 
 	d.endpointManager = epMgr
-	d.endpointManager.InitMetrics()
 
 	// Start the proxy before we start K8s watcher or restore endpoints so that we can inject
 	// the daemon's proxy into the k8s watcher and each endpoint.
@@ -1280,23 +1279,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	}
 
 	return &d, restoredEndpoints, nil
-}
-
-// WithDefaultEndpointManager creates the default endpoint manager with a
-// functional endpoint synchronizer.
-func WithDefaultEndpointManager(ctx context.Context, checker endpointmanager.EndpointCheckerFunc) *endpointmanager.EndpointManager {
-	mgr := WithCustomEndpointManager(&watchers.EndpointSynchronizer{})
-	if option.Config.EndpointGCInterval > 0 {
-		mgr = mgr.WithPeriodicEndpointGC(ctx, checker, option.Config.EndpointGCInterval)
-	}
-	return mgr
-}
-
-// WithCustomEndpointManager creates the custom endpoint manager with the
-// provided endpoint synchronizer. This is useful for tests which want to mock
-// out the real endpoint synchronizer.
-func WithCustomEndpointManager(s endpointmanager.EndpointResourceSynchronizer) *endpointmanager.EndpointManager {
-	return endpointmanager.NewEndpointManager(s)
 }
 
 func (d *Daemon) bootstrapClusterMesh(nodeMngr *nodemanager.Manager) {
