@@ -15,7 +15,7 @@ import (
 //
 
 // Map applies a function onto values of an observable and emits the resulting values.
-func Map[A, B any](src Observable[A], apply func(A) B) Observable[B] {
+func Map[A, B any, O Observable[A]](src O, apply func(A) B) Observable[B] {
 	return FuncObservable[B](
 		func(ctx context.Context, next func(B), complete func(error)) {
 			src.Observe(
