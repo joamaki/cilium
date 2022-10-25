@@ -10,6 +10,7 @@ import (
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
+	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/node"
 	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 )
@@ -38,6 +39,10 @@ var (
 		// Provides cluster-size dependent backoff. The node count is managed.
 		// by NodeManager.
 		backoff.Cell,
+
+		// Provides BackendOperations for accessing the key-value store
+		cell.ProvidePrivate(kvstoreExtraOptions),
+		kvstore.Cell,
 	)
 
 	// ControlPlane implement the per-node control functions. These are pure
@@ -74,3 +79,17 @@ var (
 		cell.Provide(newDatapath),
 	)
 )
+
+func kvstoreExtraOptions(csb *backoff.ClusterSizeBackoff, cfg kvstore.KVStoreConfig) *kvstore.ExtraOptions {
+	// FIXME: Remove the ExtraOptions and make kvstore depend on ClusterSizeBackoff directly.
+	opts := &kvstore.ExtraOptions{
+		ClusterSizeDependantInterval: csb.ClusterSizeDependantInterval,
+	}
+
+	// TODO: k8s service dialer. Need to split up the connecting to start hook and
+	// implement a custom dialer that waits for service cache to be ready.
+	// see initKVStore().
+	//
+	//
+	return opts
+}
