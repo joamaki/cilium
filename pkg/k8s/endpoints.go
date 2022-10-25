@@ -27,30 +27,21 @@ import (
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
-// CommonEndpoints is the target structure to which we parse Endpoints and EndpointSlices.
-// This exposes a common object kind to the rest of the agent, regardless of the capabilities
-// of the api-server.
-// TODO merge with 'Endpoints' below?
-//
-// +k8s:deepcopy-gen=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-type CommonEndpoints struct {
-	types.UnserializableObject
-	slim_metav1.ObjectMeta
-
-	EndpointSliceID
-	Endpoints
-}
-
 // Endpoints is an abstraction for the Kubernetes endpoints object. Endpoints
 // consists of a set of backend IPs in combination with a set of ports and
 // protocols. The name of the backend ports must match the names of the
 // frontend ports of the corresponding service.
 //
 // +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +deepequal-gen=true
 // +deepequal-gen:private-method=true
 type Endpoints struct {
+	types.UnserializableObject
+	slim_metav1.ObjectMeta
+
+	EndpointSliceID
+
 	// Backends is a map containing all backend IPs and ports. The key to
 	// the map is the backend IP in string form. The value defines the list
 	// of ports for that backend IP, plus an additional optional node name.
@@ -153,17 +144,21 @@ func (e *Endpoints) CIDRPrefixes() ([]*net.IPNet, error) {
 	return valid, nil
 }
 
-// ParseEndpointsID parses a Kubernetes endpoints and returns the ServiceID
-func ParseEndpointsID(svc *slim_corev1.Endpoints) ServiceID {
-	return ServiceID{
-		Name:      svc.ObjectMeta.Name,
-		Namespace: svc.ObjectMeta.Namespace,
+// ParseEndpointsID parses a Kubernetes endpoints and returns the EndpointSliceID
+func ParseEndpointsID(ep *slim_corev1.Endpoints) EndpointSliceID {
+	return EndpointSliceID{
+		ServiceID: ServiceID{
+			Name:      ep.ObjectMeta.Name,
+			Namespace: ep.ObjectMeta.Namespace,
+		},
+		EndpointSliceName: ep.ObjectMeta.Name,
 	}
 }
 
 // ParseEndpoints parses a Kubernetes Endpoints resource
-func ParseEndpoints(ep *slim_corev1.Endpoints) (ServiceID, *Endpoints) {
+func ParseEndpoints(ep *slim_corev1.Endpoints) (EndpointSliceID, *Endpoints) {
 	endpoints := newEndpoints()
+	endpoints.ObjectMeta = ep.ObjectMeta
 
 	for _, sub := range ep.Subsets {
 		for _, addr := range sub.Addresses {
@@ -184,7 +179,8 @@ func ParseEndpoints(ep *slim_corev1.Endpoints) (ServiceID, *Endpoints) {
 		}
 	}
 
-	return ParseEndpointsID(ep), endpoints
+	endpoints.EndpointSliceID = ParseEndpointsID(ep)
+	return endpoints.EndpointSliceID, endpoints
 }
 
 type endpointSlice interface {
@@ -210,6 +206,7 @@ func ParseEndpointSliceID(es endpointSlice) EndpointSliceID {
 // return an EndpointSlice ID and a filtered list of Endpoints for service load-balancing.
 func ParseEndpointSliceV1Beta1(ep *slim_discovery_v1beta1.EndpointSlice) (EndpointSliceID, *Endpoints) {
 	endpoints := newEndpoints()
+	endpoints.ObjectMeta = ep.ObjectMeta
 
 	for _, sub := range ep.Endpoints {
 		skipEndpoint := false
@@ -294,6 +291,7 @@ func parseEndpointPortV1Beta1(port slim_discovery_v1beta1.EndpointPort) (string,
 // return an EndpointSlice ID and a filtered list of Endpoints for service load-balancing.
 func ParseEndpointSliceV1(ep *slim_discovery_v1.EndpointSlice) (EndpointSliceID, *Endpoints) {
 	endpoints := newEndpoints()
+	endpoints.ObjectMeta = ep.ObjectMeta
 
 	for _, sub := range ep.Endpoints {
 		skipEndpoint := false
