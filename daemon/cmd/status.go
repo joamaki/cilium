@@ -784,7 +784,7 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 				// 2048  | 1m15s
 				// 8192  | 1m30s
 				// 16384 | 1m32s
-				return d.nodeDiscovery.Manager.ClusterSizeDependantInterval(10 * time.Second)
+				return d.clusterSizeBackoff.ClusterSizeDependantInterval(10 * time.Second)
 			},
 			Probe: func(ctx context.Context) (interface{}, error) {
 				return d.getK8sStatus(), nil

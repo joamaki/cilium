@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/check.v1"
 
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/checker"
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/fake"
@@ -181,7 +182,7 @@ func (s *managerTestSuite) TestNodeLifecycle(c *check.C) {
 	dp.EnableNodeUpdateEvent = true
 	dp.EnableNodeDeleteEvent = true
 	ipcacheMock := newIPcacheMock()
-	mngr, err := NewManager("test", &configMock{})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{})
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
 	c.Assert(err, check.IsNil)
@@ -253,7 +254,7 @@ func (s *managerTestSuite) TestMultipleSources(c *check.C) {
 	dp.EnableNodeUpdateEvent = true
 	dp.EnableNodeDeleteEvent = true
 	ipcacheMock := newIPcacheMock()
-	mngr, err := NewManager("test", &configMock{})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
@@ -326,7 +327,7 @@ func (s *managerTestSuite) TestMultipleSources(c *check.C) {
 func (s *managerTestSuite) BenchmarkUpdateAndDeleteCycle(c *check.C) {
 	ipcacheMock := newIPcacheMock()
 	dp := fake.NewNodeHandler()
-	mngr, err := NewManager("test", &configMock{})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
@@ -348,7 +349,8 @@ func (s *managerTestSuite) BenchmarkUpdateAndDeleteCycle(c *check.C) {
 func (s *managerTestSuite) TestClusterSizeDependantInterval(c *check.C) {
 	ipcacheMock := newIPcacheMock()
 	dp := fake.NewNodeHandler()
-	mngr, err := NewManager("test", &configMock{})
+	csBackoff := &backoff.ClusterSizeBackoff{}
+	mngr, err := NewManager("test", csBackoff, &configMock{})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
@@ -359,7 +361,7 @@ func (s *managerTestSuite) TestClusterSizeDependantInterval(c *check.C) {
 	for i := 0; i < 1000; i++ {
 		n := nodeTypes.Node{Name: fmt.Sprintf("%d", i), Source: source.Local}
 		mngr.NodeUpdated(n)
-		newInterval := mngr.ClusterSizeDependantInterval(time.Minute)
+		newInterval := csBackoff.ClusterSizeDependantInterval(time.Minute)
 		c.Assert(newInterval > prevInterval, check.Equals, true)
 	}
 }
@@ -376,7 +378,7 @@ func (s *managerTestSuite) TestBackgroundSync(c *check.C) {
 	signalNodeHandler := newSignalNodeHandler()
 	signalNodeHandler.EnableNodeValidateImplementationEvent = true
 	ipcacheMock := newIPcacheMock()
-	mngr, err := NewManager("test", &configMock{})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{})
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(signalNodeHandler)
 	c.Assert(err, check.IsNil)
@@ -416,7 +418,7 @@ func (s *managerTestSuite) TestBackgroundSync(c *check.C) {
 func (s *managerTestSuite) TestIpcache(c *check.C) {
 	ipcacheMock := newIPcacheMock()
 	dp := newSignalNodeHandler()
-	mngr, err := NewManager("test", &configMock{})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
@@ -465,7 +467,7 @@ func (s *managerTestSuite) TestIpcache(c *check.C) {
 func (s *managerTestSuite) TestIpcacheHealthIP(c *check.C) {
 	ipcacheMock := newIPcacheMock()
 	dp := newSignalNodeHandler()
-	mngr, err := NewManager("test", &configMock{})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
@@ -542,7 +544,7 @@ func (s *managerTestSuite) TestIpcacheHealthIP(c *check.C) {
 func (s *managerTestSuite) TestRemoteNodeIdentities(c *check.C) {
 	ipcacheMock := newIPcacheMock()
 	dp := newSignalNodeHandler()
-	mngr, err := NewManager("test", &configMock{RemoteNodeIdentity: true})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{RemoteNodeIdentity: true})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
@@ -619,7 +621,7 @@ func (s *managerTestSuite) TestRemoteNodeIdentities(c *check.C) {
 func (s *managerTestSuite) TestNodeEncryption(c *check.C) {
 	ipcacheMock := newIPcacheMock()
 	dp := newSignalNodeHandler()
-	mngr, err := NewManager("test", &configMock{NodeEncryption: true, Encryption: true})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{NodeEncryption: true, Encryption: true})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)
@@ -711,7 +713,7 @@ func (s *managerTestSuite) TestNode(c *check.C) {
 	dp.EnableNodeAddEvent = true
 	dp.EnableNodeUpdateEvent = true
 	dp.EnableNodeDeleteEvent = true
-	mngr, err := NewManager("test", &configMock{})
+	mngr, err := NewManager("test", &backoff.ClusterSizeBackoff{}, &configMock{})
 	c.Assert(err, check.IsNil)
 	mngr = mngr.WithIPCache(ipcacheMock)
 	mngr.Subscribe(dp)

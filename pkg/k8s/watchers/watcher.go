@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	k8s_metrics "k8s.io/client-go/tools/metrics"
 
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/cidr"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/controller"
@@ -121,7 +122,6 @@ type nodeDiscoverManager interface {
 	WaitForLocalNodeInit()
 	NodeDeleted(n nodeTypes.Node)
 	NodeUpdated(n nodeTypes.Node)
-	ClusterSizeDependantInterval(baseInterval time.Duration) time.Duration
 }
 
 type policyManager interface {
@@ -252,6 +252,8 @@ type K8sWatcher struct {
 	networkpolicyStore cache.Store
 
 	cfg WatcherConfiguration
+
+	clusterSizeBackoff *backoff.ClusterSizeBackoff
 }
 
 func NewK8sWatcher(
@@ -268,6 +270,7 @@ func NewK8sWatcher(
 	cfg WatcherConfiguration,
 	ipcache *ipcache.IPCache,
 	cgroupManager cgroupManager,
+	clusterSizeBackoff *backoff.ClusterSizeBackoff,
 ) *K8sWatcher {
 	return &K8sWatcher{
 		K8sSvcCache:           k8s.NewServiceCache(datapath.LocalNodeAddressing()),
@@ -289,6 +292,7 @@ func NewK8sWatcher(
 		CiliumNodeChain:       subscriber.NewCiliumNodeChain(),
 		envoyConfigManager:    envoyConfigManager,
 		cfg:                   cfg,
+		clusterSizeBackoff:    clusterSizeBackoff,
 	}
 }
 

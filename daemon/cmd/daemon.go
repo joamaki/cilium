@@ -21,6 +21,7 @@ import (
 
 	"github.com/cilium/cilium/api/v1/models"
 	health "github.com/cilium/cilium/cilium-health/launch"
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/bandwidth"
 	"github.com/cilium/cilium/pkg/bgp/speaker"
 	bgpv1 "github.com/cilium/cilium/pkg/bgpv1/agent"
@@ -73,7 +74,6 @@ import (
 	monitorAPI "github.com/cilium/cilium/pkg/monitor/api"
 	"github.com/cilium/cilium/pkg/mtu"
 	"github.com/cilium/cilium/pkg/node"
-	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 	nodemanager "github.com/cilium/cilium/pkg/node/manager"
 	nodeStore "github.com/cilium/cilium/pkg/node/store"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
@@ -93,7 +93,6 @@ import (
 	"github.com/cilium/cilium/pkg/status"
 	"github.com/cilium/cilium/pkg/trigger"
 	wg "github.com/cilium/cilium/pkg/wireguard/agent"
-	cnitypes "github.com/cilium/cilium/plugins/cilium-cni/types"
 )
 
 const (
@@ -204,6 +203,8 @@ type Daemon struct {
 
 	// BIG-TCP config values
 	bigTCPConfig bigtcp.Configuration
+
+	clusterSizeBackoff *backoff.ClusterSizeBackoff
 }
 
 // GetPolicyRepository returns the policy repository of the daemon
@@ -372,13 +373,7 @@ func removeOldRouterState(ipv6 bool, restoredIP net.IP) error {
 }
 
 // newDaemon creates and returns a new Daemon with the parameters set in c.
-func newDaemon(ctx context.Context, cleaner *daemonCleanup,
-	epMgr *endpointmanager.EndpointManager,
-	nodeMngr *nodeManager.Manager,
-	netConf *cnitypes.NetConf,
-	dp datapath.Datapath,
-	clientset k8sClient.Clientset,
-) (*Daemon, *endpointRestoreState, error) {
+func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams) (*Daemon, *endpointRestoreState, error) {
 
 	var (
 		err           error
@@ -393,13 +388,13 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	}
 
 	// Validate configuration options that depend on other cells.
-	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD && !clientset.IsEnabled() &&
+	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD && !params.Clientset.IsEnabled() &&
 		option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
 		return nil, nil, fmt.Errorf("CRD Identity allocation mode requires k8s to be configured")
 	}
 
-	if netConf != nil && netConf.MTU != 0 {
-		configuredMTU = netConf.MTU
+	if params.NetConf != nil && params.NetConf.MTU != 0 {
+		configuredMTU = params.NetConf.MTU
 		log.WithField("mtu", configuredMTU).Info("Overwriting MTU based on CNI configuration")
 	}
 
@@ -481,7 +476,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		externalIP,
 	)
 
-	nodeMngr.Subscribe(dp.Node())
+	params.NodeManager.Subscribe(params.Datapath.Node())
 
 	identity.IterateReservedIdentities(func(_ identity.NumericIdentity, _ *identity.Identity) {
 		metrics.Identity.WithLabelValues(identity.ReservedIdentityType).Inc()
@@ -492,7 +487,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		metrics.Identity.WithLabelValues(identity.WellKnownIdentityType).Add(float64(num))
 	}
 
-	nd := nodediscovery.NewNodeDiscovery(nodeMngr, mtuConfig, netConf)
+	nd := nodediscovery.NewNodeDiscovery(params.NodeManager, params.ClusterSizeBackoff, mtuConfig, params.NetConf)
 
 	devMngr, err := linuxdatapath.NewDeviceManager()
 	if err != nil {
@@ -500,18 +495,20 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	}
 
 	d := Daemon{
-		ctx:               ctx,
-		clientset:         clientset,
-		prefixLengths:     createPrefixLengthCounter(),
-		buildEndpointSem:  semaphore.NewWeighted(int64(numWorkerThreads())),
-		compilationMutex:  new(lock.RWMutex),
-		mtuConfig:         mtuConfig,
-		datapath:          dp,
-		deviceManager:     devMngr,
-		nodeDiscovery:     nd,
-		endpointCreations: newEndpointCreationManager(),
-		apiLimiterSet:     apiLimiterSet,
-		controllers:       controller.NewManager(),
+		ctx:                ctx,
+		clientset:          params.Clientset,
+		prefixLengths:      createPrefixLengthCounter(),
+		buildEndpointSem:   semaphore.NewWeighted(int64(numWorkerThreads())),
+		compilationMutex:   new(lock.RWMutex),
+		mtuConfig:          mtuConfig,
+		datapath:           params.Datapath,
+		deviceManager:      devMngr,
+		nodeDiscovery:      nd,
+		endpointCreations:  newEndpointCreationManager(),
+		apiLimiterSet:      apiLimiterSet,
+		controllers:        controller.NewManager(),
+		clusterSizeBackoff: params.ClusterSizeBackoff,
+		endpointManager:    params.EndpointManager,
 	}
 
 	if option.Config.RunMonitorAgent {
@@ -565,13 +562,13 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 	// TODO: convert these package level variables to types for easier unit
 	// testing in the future.
 	d.identityAllocator = NewCachingIdentityAllocator(&d)
-	if err := d.initPolicy(epMgr); err != nil {
+	if err := d.initPolicy(params.EndpointManager); err != nil {
 		return nil, nil, fmt.Errorf("error while initializing policy subsystem: %w", err)
 	}
 	d.ipcache = ipcache.NewIPCache(&ipcache.Configuration{
 		IdentityAllocator: d.identityAllocator,
 		PolicyHandler:     d.policy.GetSelectorCache(),
-		DatapathHandler:   epMgr,
+		DatapathHandler:   params.EndpointManager,
 	})
 	// Preallocate IDs for old CIDRs. This must be done before any Identity allocations are
 	// possible so that the old IDs are still available. That is why we do this ASAP after the
@@ -604,11 +601,9 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 			}
 		}
 	}
-	nodeMngr = nodeMngr.WithIPCache(d.ipcache)
+	params.NodeManager.WithIPCache(d.ipcache)
 
 	proxy.Allocator = d.identityAllocator
-
-	d.endpointManager = epMgr
 
 	// Start the proxy before we start K8s watcher or restore endpoints so that we can inject
 	// the daemon's proxy into the k8s watcher and each endpoint.
@@ -662,6 +657,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		option.Config,
 		d.ipcache,
 		d.cgroupManager,
+		d.clusterSizeBackoff,
 	)
 	nd.RegisterK8sGetters(d.k8sWatcher)
 	d.ipcache.RegisterK8sSyncedChecker(&d)
@@ -894,7 +890,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		bootstrapStats.k8sInit.End(true)
 	}
 
-	if wgAgent := dp.WireguardAgent(); option.Config.EnableWireguard {
+	if wgAgent := params.Datapath.WireguardAgent(); option.Config.EnableWireguard {
 		if err := wgAgent.(*wg.Agent).Init(d.ipcache, mtuConfig); err != nil {
 			log.WithError(err).Error("failed to initialize wireguard agent")
 			return nil, nil, fmt.Errorf("failed to initialize wireguard agent: %w", err)
@@ -1170,7 +1166,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup,
 		realIdentityAllocator := d.identityAllocator
 		realIdentityAllocator.InitIdentityAllocator(k8s.CiliumClient(), nil)
 
-		d.bootstrapClusterMesh(nodeMngr)
+		d.bootstrapClusterMesh(params.NodeManager)
 	}
 
 	// Must be done at least after initializing BPF LB-related maps

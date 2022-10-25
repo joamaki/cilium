@@ -150,14 +150,7 @@ type NodeManager struct {
 	releaseExcessIPs   bool
 	stableInstancesAPI bool
 	prefixDelegation   bool
-}
-
-func (n *NodeManager) ClusterSizeDependantInterval(baseInterval time.Duration) time.Duration {
-	n.mutex.RLock()
-	numNodes := len(n.nodes)
-	n.mutex.RUnlock()
-
-	return backoff.ClusterSizeDependantInterval(baseInterval, numNodes)
+	clusterSizeBackoff *backoff.ClusterSizeBackoff
 }
 
 // NewNodeManager returns a new NodeManager
@@ -168,13 +161,14 @@ func NewNodeManager(instancesAPI AllocationImplementation, k8sAPI CiliumNodeGett
 	}
 
 	mngr := &NodeManager{
-		nodes:            nodeMap{},
-		instancesAPI:     instancesAPI,
-		k8sAPI:           k8sAPI,
-		metricsAPI:       metrics,
-		parallelWorkers:  parallelWorkers,
-		releaseExcessIPs: releaseExcessIPs,
-		prefixDelegation: prefixDelegation,
+		nodes:              nodeMap{},
+		instancesAPI:       instancesAPI,
+		k8sAPI:             k8sAPI,
+		metricsAPI:         metrics,
+		parallelWorkers:    parallelWorkers,
+		releaseExcessIPs:   releaseExcessIPs,
+		prefixDelegation:   prefixDelegation,
+		clusterSizeBackoff: &backoff.ClusterSizeBackoff{},
 	}
 
 	resyncTrigger, err := trigger.NewTrigger(trigger.Parameters{
@@ -274,6 +268,7 @@ func (n *NodeManager) Update(resource *v2.CiliumNode) (nodeSynced bool) {
 	n.mutex.Lock()
 	node, ok := n.nodes[resource.Name]
 	defer func() {
+		n.clusterSizeBackoff.UpdateNodeCount(len(n.nodes))
 		n.mutex.Unlock()
 		if nodeSynced {
 			nodeSynced = node.UpdatedResource(resource)
@@ -292,10 +287,10 @@ func (n *NodeManager) Update(resource *v2.CiliumNode) (nodeSynced bool) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		backoff := &backoff.Exponential{
-			Max:         5 * time.Minute,
-			Jitter:      true,
-			NodeManager: n,
-			Name:        fmt.Sprintf("ipam-pool-maintainer-%s", resource.Name),
+			Max:                5 * time.Minute,
+			Jitter:             true,
+			ClusterSizeBackoff: n.clusterSizeBackoff,
+			Name:               fmt.Sprintf("ipam-pool-maintainer-%s", resource.Name),
 		}
 		poolMaintainer, err := trigger.NewTrigger(trigger.Parameters{
 			Name:            fmt.Sprintf("ipam-pool-maintainer-%s", resource.Name),
@@ -366,6 +361,7 @@ func (n *NodeManager) Delete(nodeName string) {
 	}
 
 	delete(n.nodes, nodeName)
+	n.clusterSizeBackoff.UpdateNodeCount(len(n.nodes))
 	n.mutex.Unlock()
 }
 

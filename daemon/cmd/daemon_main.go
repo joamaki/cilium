@@ -27,6 +27,7 @@ import (
 	"github.com/cilium/cilium/api/v1/server"
 	"github.com/cilium/cilium/api/v1/server/restapi"
 	"github.com/cilium/cilium/pkg/aws/eni"
+	"github.com/cilium/cilium/pkg/backoff"
 	bgpv1 "github.com/cilium/cilium/pkg/bgpv1/agent"
 	"github.com/cilium/cilium/pkg/bgpv1/gobgp"
 	"github.com/cilium/cilium/pkg/bpf"
@@ -1469,7 +1470,7 @@ func initEnv() {
 
 func (d *Daemon) initKVStore() {
 	goopts := &kvstore.ExtraOptions{
-		ClusterSizeDependantInterval: d.nodeDiscovery.Manager.ClusterSizeDependantInterval,
+		ClusterSizeDependantInterval: d.clusterSizeBackoff.ClusterSizeDependantInterval,
 	}
 
 	controller.NewManager().UpdateController("kvstore-locks-gc",
@@ -1604,14 +1605,15 @@ var daemonCell = cell.Module(
 type daemonParams struct {
 	cell.In
 
-	Lifecycle       hive.Lifecycle
-	Clientset       k8sClient.Clientset
-	Datapath        datapath.Datapath
-	LocalNodeStore  node.LocalNodeStore
-	Shutdowner      hive.Shutdowner
-	NodeManager     *nodeManager.Manager
-	EndpointManager *endpointmanager.EndpointManager
-	NetConf         *cnitypes.NetConf
+	Lifecycle          hive.Lifecycle
+	Clientset          k8sClient.Clientset
+	Datapath           datapath.Datapath
+	LocalNodeStore     node.LocalNodeStore
+	Shutdowner         hive.Shutdowner
+	NodeManager        *nodeManager.Manager
+	EndpointManager    *endpointmanager.EndpointManager
+	NetConf            *cnitypes.NetConf
+	ClusterSizeBackoff *backoff.ClusterSizeBackoff
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
@@ -1643,13 +1645,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 				k8s.SetClients(params.Clientset, params.Clientset.Slim(), params.Clientset, params.Clientset)
 			}
 
-			d, restoredEndpoints, err := newDaemon(
-				ctx, cleaner,
-				params.EndpointManager,
-				params.NodeManager,
-				params.NetConf,
-				params.Datapath,
-				params.Clientset)
+			d, restoredEndpoints, err := newDaemon(ctx, cleaner, &params)
 			if err != nil {
 				return fmt.Errorf("daemon creation failed: %w", err)
 			}

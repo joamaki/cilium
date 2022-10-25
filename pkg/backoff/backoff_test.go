@@ -5,7 +5,6 @@ package backoff
 
 import (
 	"fmt"
-	"math"
 	"testing"
 	"time"
 
@@ -29,42 +28,24 @@ func (b *BackoffSuite) TestJitter(c *check.C) {
 	}
 }
 
-type fakeNodeManager struct {
-	nodes *int
-}
-
-func (f *fakeNodeManager) ClusterSizeDependantInterval(baseInterval time.Duration) time.Duration {
-	numNodes := *f.nodes
-
-	if numNodes == 0 {
-		return baseInterval
-	}
-
-	waitNanoseconds := float64(baseInterval.Nanoseconds()) * math.Log1p(float64(numNodes))
-	return time.Duration(int64(waitNanoseconds))
-}
-
 func (b *BackoffSuite) TestClusterSizeDependantInterval(c *check.C) {
 	var (
-		nnodes      = 0
-		nodeManager = fakeNodeManager{
-			nodes: &nnodes,
-		}
+		clusterSizeBackoff = &ClusterSizeBackoff{}
 	)
 
 	nodeBackoff := &Exponential{
-		Min:         time.Second,
-		Max:         2 * time.Minute,
-		NodeManager: &nodeManager,
-		Jitter:      true,
-		Factor:      2.0,
+		Min:                time.Second,
+		Max:                2 * time.Minute,
+		ClusterSizeBackoff: clusterSizeBackoff,
+		Jitter:             true,
+		Factor:             2.0,
 	}
 
 	fmt.Printf("nodes      4        16       128       512      1024      2048\n")
 	for attempt := 1; attempt <= 8; attempt++ {
 		fmt.Printf("%d:", attempt)
 		for _, n := range []int{4, 16, 128, 512, 1024, 2048} {
-			nnodes = n
+			clusterSizeBackoff.UpdateNodeCount(n)
 			fmt.Printf("%10s", nodeBackoff.Duration(attempt).Round(time.Second/10))
 		}
 		fmt.Printf("\n")

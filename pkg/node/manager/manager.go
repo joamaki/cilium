@@ -139,6 +139,11 @@ type Manager struct {
 	// controllerManager manages the controllers that are launched within the
 	// Manager.
 	controllerManager *controller.Manager
+
+	// clusterSizeBackoff provides a backoff duration that is dependent on the
+	// cluster size. Node Manager both uses it for backoff and updates the
+	// node count.
+	clusterSizeBackoff *backoff.ClusterSizeBackoff
 }
 
 // Subscribe subscribes the given node handler to node events.
@@ -174,14 +179,15 @@ func (m *Manager) Iter(f func(nh datapath.NodeHandler)) {
 }
 
 // newManager returns a new node manager
-func NewManager(name string, c Configuration) (*Manager, error) {
+func NewManager(name string, clusterSizeBackoff *backoff.ClusterSizeBackoff, c Configuration) (*Manager, error) {
 	m := &Manager{
-		name:              name,
-		nodes:             map[nodeTypes.Identity]*nodeEntry{},
-		conf:              c,
-		controllerManager: controller.NewManager(),
-		nodeHandlers:      map[datapath.NodeHandler]struct{}{},
-		closeChan:         make(chan struct{}),
+		name:               name,
+		nodes:              map[nodeTypes.Identity]*nodeEntry{},
+		conf:               c,
+		controllerManager:  controller.NewManager(),
+		nodeHandlers:       map[datapath.NodeHandler]struct{}{},
+		closeChan:          make(chan struct{}),
+		clusterSizeBackoff: clusterSizeBackoff,
 	}
 
 	m.metricEventsReceived = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -242,42 +248,12 @@ func (m *Manager) Close() {
 		})
 		n.mutex.Unlock()
 	}
-}
 
-// ClusterSizeDependantInterval returns a time.Duration that is dependant on
-// the cluster size, i.e. the number of nodes that have been discovered. This
-// can be used to control sync intervals of shared or centralized resources to
-// avoid overloading these resources as the cluster grows.
-//
-// Example sync interval with baseInterval = 1 * time.Minute
-//
-// nodes | sync interval
-// ------+-----------------
-// 1     |   41.588830833s
-// 2     | 1m05.916737320s
-// 4     | 1m36.566274746s
-// 8     | 2m11.833474640s
-// 16    | 2m49.992800643s
-// 32    | 3m29.790453687s
-// 64    | 4m10.463236193s
-// 128   | 4m51.588744261s
-// 256   | 5m32.944565093s
-// 512   | 6m14.416550710s
-// 1024  | 6m55.946873494s
-// 2048  | 7m37.506428894s
-// 4096  | 8m19.080616652s
-// 8192  | 9m00.662124608s
-// 16384 | 9m42.247293667s
-func (m *Manager) ClusterSizeDependantInterval(baseInterval time.Duration) time.Duration {
-	m.mutex.RLock()
-	numNodes := len(m.nodes)
-	m.mutex.RUnlock()
-
-	return backoff.ClusterSizeDependantInterval(baseInterval, numNodes)
+	m.clusterSizeBackoff.UpdateNodeCount(0)
 }
 
 func (m *Manager) backgroundSyncInterval() time.Duration {
-	return m.ClusterSizeDependantInterval(baseBackgroundSyncInterval)
+	return m.clusterSizeBackoff.ClusterSizeDependantInterval(baseBackgroundSyncInterval)
 }
 
 // backgroundSync ensures that local node has a valid datapath in-place for
@@ -515,6 +491,7 @@ func (m *Manager) NodeUpdated(n nodeTypes.Node) {
 		entry = &nodeEntry{node: n}
 		entry.mutex.Lock()
 		m.nodes[nodeIdentity] = entry
+		m.clusterSizeBackoff.UpdateNodeCount(len(m.nodes))
 		m.mutex.Unlock()
 		if dpUpdate {
 			m.Iter(func(nh datapath.NodeHandler) {
@@ -617,6 +594,7 @@ func (m *Manager) NodeDeleted(n nodeTypes.Node) {
 
 	entry.mutex.Lock()
 	delete(m.nodes, nodeIdentity)
+	m.clusterSizeBackoff.UpdateNodeCount(len(m.nodes))
 	m.mutex.Unlock()
 	m.Iter(func(nh datapath.NodeHandler) {
 		nh.NodeDelete(n)

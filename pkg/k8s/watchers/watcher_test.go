@@ -9,6 +9,7 @@ import (
 
 	. "gopkg.in/check.v1"
 
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/checker"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	fakeDatapath "github.com/cilium/cilium/pkg/datapath/fake"
@@ -189,6 +190,7 @@ func (s *K8sWatcherSuite) TestUpdateToServiceEndpointsGH9525(c *C) {
 		&fakeWatcherConfiguration{},
 		ipcache.NewIPCache(nil),
 		nil,
+		&backoff.ClusterSizeBackoff{},
 	)
 	go w.k8sServiceHandler()
 	swg := lock.NewStoppableWaitGroup()
@@ -510,6 +512,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 		&fakeWatcherConfiguration{},
 		ipcache.NewIPCache(nil),
 		nil,
+		&backoff.ClusterSizeBackoff{},
 	)
 	go w.k8sServiceHandler()
 	swg := lock.NewStoppableWaitGroup()
@@ -660,6 +663,7 @@ func (s *K8sWatcherSuite) TestChangeSVCPort(c *C) {
 		&fakeWatcherConfiguration{},
 		ipcache.NewIPCache(nil),
 		nil,
+		&backoff.ClusterSizeBackoff{},
 	)
 	go w.k8sServiceHandler()
 	swg := lock.NewStoppableWaitGroup()
@@ -1139,6 +1143,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 		&fakeWatcherConfiguration{},
 		ipcache.NewIPCache(nil),
 		nil,
+		&backoff.ClusterSizeBackoff{},
 	)
 	go w.k8sServiceHandler()
 	swg := lock.NewStoppableWaitGroup()
@@ -1452,6 +1457,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 		&fakeWatcherConfiguration{},
 		ipcache.NewIPCache(nil),
 		nil,
+		&backoff.ClusterSizeBackoff{},
 	)
 	go w.k8sServiceHandler()
 	swg := lock.NewStoppableWaitGroup()
@@ -1758,6 +1764,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 		&fakeWatcherConfiguration{},
 		ipcache.NewIPCache(nil),
 		nil,
+		&backoff.ClusterSizeBackoff{},
 	)
 	go w.k8sServiceHandler()
 	swg := lock.NewStoppableWaitGroup()
@@ -2678,6 +2685,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 		&fakeWatcherConfiguration{},
 		ipcache.NewIPCache(nil),
 		nil,
+		&backoff.ClusterSizeBackoff{},
 	)
 	go w.k8sServiceHandler()
 	swg := lock.NewStoppableWaitGroup()

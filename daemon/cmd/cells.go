@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/gops"
@@ -33,6 +34,10 @@ var (
 
 		// Provides Clientset, API for accessing Kubernetes objects.
 		k8sClient.Cell,
+
+		// Provides cluster-size dependent backoff. The node count is managed.
+		// by NodeManager.
+		backoff.Cell,
 	)
 
 	// ControlPlane implement the per-node control functions. These are pure

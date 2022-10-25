@@ -21,6 +21,7 @@ import (
 	eniTypes "github.com/cilium/cilium/pkg/aws/eni/types"
 	"github.com/cilium/cilium/pkg/aws/metadata"
 	azureTypes "github.com/cilium/cilium/pkg/azure/types"
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/datapath"
@@ -64,6 +65,7 @@ type k8sGetters interface {
 // NodeDiscovery represents a node discovery action
 type NodeDiscovery struct {
 	Manager               *nodemanager.Manager
+	clusterSizeBackoff    *backoff.ClusterSizeBackoff
 	LocalConfig           datapath.LocalNodeConfiguration
 	Registrar             nodestore.NodeRegistrar
 	Registered            chan struct{}
@@ -82,7 +84,7 @@ func enableLocalNodeRoute() bool {
 }
 
 // NewNodeDiscovery returns a pointer to new node discovery object
-func NewNodeDiscovery(manager *nodemanager.Manager, mtuConfig mtu.Configuration, netConf *cnitypes.NetConf) *NodeDiscovery {
+func NewNodeDiscovery(manager *nodemanager.Manager, csb *backoff.ClusterSizeBackoff, mtuConfig mtu.Configuration, netConf *cnitypes.NetConf) *NodeDiscovery {
 	auxPrefixes := []*cidr.CIDR{}
 
 	if option.Config.IPv4ServiceRange != AutoCIDR {
@@ -104,7 +106,8 @@ func NewNodeDiscovery(manager *nodemanager.Manager, mtuConfig mtu.Configuration,
 	}
 
 	return &NodeDiscovery{
-		Manager: manager,
+		Manager:            manager,
+		clusterSizeBackoff: csb,
 		LocalConfig: datapath.LocalNodeConfiguration{
 			MtuConfig:               mtuConfig,
 			UseSingleClusterRoute:   option.Config.UseSingleClusterRoute,
@@ -220,10 +223,6 @@ func (n *NodeDiscovery) NodeDeleted(node nodeTypes.Node) {
 
 func (n *NodeDiscovery) NodeUpdated(node nodeTypes.Node) {
 	n.Manager.NodeUpdated(node)
-}
-
-func (n *NodeDiscovery) ClusterSizeDependantInterval(baseInterval time.Duration) time.Duration {
-	return n.Manager.ClusterSizeDependantInterval(baseInterval)
 }
 
 func (n *NodeDiscovery) fillLocalNode() {

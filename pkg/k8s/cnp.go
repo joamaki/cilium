@@ -40,9 +40,8 @@ type CNPStatusUpdateContext struct {
 	// field entries per node
 	NodeName string
 
-	// NodeManager implements the backoff.NodeManager interface and is used
-	// to provide cluster-size dependent backoff
-	NodeManager backoff.NodeManager
+	// ClusterSizeBackoff provides cluster-size dependent backoff
+	ClusterSizeBackoff *backoff.ClusterSizeBackoff
 
 	// UpdateDuration must be populated using spanstart.Start() to provide
 	// the timestamp of when the status update operation was started. It is
@@ -102,9 +101,9 @@ func (c *CNPStatusUpdateContext) UpdateStatus(ctx context.Context, cnp *types.Sl
 		// 7:   1m55.5s     22.8s      2m0s      2m0s      2m0s      2m0s
 		// 8:   1m45.8s   1m36.7s      2m0s      2m0s      2m0s      2m0s
 		cnpBackoff = backoff.Exponential{
-			Min:         time.Second,
-			NodeManager: c.NodeManager,
-			Jitter:      true,
+			Min:                time.Second,
+			ClusterSizeBackoff: c.ClusterSizeBackoff,
+			Jitter:             true,
 		}
 
 		scopedLog = log.WithFields(logrus.Fields{
