@@ -11,6 +11,9 @@ import (
 
 // Store is a read-only typed wrapper for cache.Store.
 type Store[T k8sRuntime.Object] interface {
+	// FIXME this is temporary
+	CacheStore() cache.Store
+
 	// List returns all items currently in the store.
 	List() []T
 
@@ -30,6 +33,10 @@ type typedStore[T k8sRuntime.Object] struct {
 }
 
 var _ Store[*corev1.Node] = &typedStore[*corev1.Node]{}
+
+func (s *typedStore[T]) CacheStore() cache.Store {
+	return s.store
+}
 
 func (s *typedStore[T]) List() []T {
 	items := s.store.List()

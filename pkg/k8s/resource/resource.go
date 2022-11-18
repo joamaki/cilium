@@ -39,6 +39,11 @@ import (
 type Resource[T k8sRuntime.Object] interface {
 	stream.Observable[Event[T]]
 
+	// Events returns a channel of events. The channel is closed when 'ctx' is
+	// canceled. Each event must be either handled using Handle(), or asynchronously
+	// with Done().
+	Events(ctx context.Context, opts ...EventsOpt) <-chan Event[T]
+
 	// Store retrieves the read-only store for the resource. Blocks until
 	// the store has been synchronized or the context cancelled.
 	// Returns a non-nil error if context is cancelled or the resource
@@ -198,6 +203,17 @@ func (r *resource[T]) Stop(stopCtx hive.HookContext) error {
 	r.cancel()
 	r.wg.Wait()
 	return nil
+}
+
+type EventsOpt struct{} // TBD
+
+// TODO(JM): Testing here if this is a better API for resource. The problem with using stream.Observable
+// is dealing with the completion. Most often anyway you want to consume it through a channel, and
+// especially if you're subscribing to multiple resources. The only way currently for resource subscription
+// to complete is either when ctx closes, or when error handler bails out. We can likely do this
+// much nicer by allowing specifying the error handler as an optional EventsOpt.
+func (r *resource[T]) Events(ctx context.Context, opts ...EventsOpt) <-chan Event[T] {
+	return stream.ToChannel[Event[T]](ctx, make(chan error, 1), r)
 }
 
 func (r *resource[T]) Observe(subCtx context.Context, next func(Event[T]), complete func(error)) {

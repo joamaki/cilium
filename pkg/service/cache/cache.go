@@ -5,10 +5,14 @@ import (
 	"net"
 	"sync"
 
+	"github.com/cilium/cilium/pkg/clustermesh"
 	"github.com/cilium/cilium/pkg/hive"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/service/store"
+	"github.com/cilium/workerpool"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 
@@ -24,7 +28,6 @@ import (
 // somewhere sane.
 type (
 	Service        = k8s.Service
-	ServiceEvent   = k8s.ServiceEvent
 	ServiceID      = k8s.ServiceID
 	Endpoints      = k8s.Endpoints
 	EndpointSlices = k8s.EndpointSlices
@@ -37,19 +40,35 @@ type (
 // synchronized and all subscribers have finished processing the events.
 //
 // The event stream does not provide a replay of events prior to subscription.
-// If full history is required subscribe before start. The events are emitted
+// If full history is required, then subscribe before start. The events are emitted
 // synchronously, so a subscriber can process the event synchronously to block
 // lookups prior to synchronization, e.g. to make sure GetServiceIP() only
 // returns post-sync results that have already been applied to datapath.
 //
 // The event handlers must not call any of the Get* methods as they may block
 // waiting for the synchronization.
-type Services interface {
+type ServiceLookup interface {
 	stream.Observable[*ServiceEvent]
 
-	GetServiceIP(svcID ServiceID) *loadbalancer.L3n4Addr
-	GetServiceFrontendIP(svcID ServiceID, svcType loadbalancer.SVCType) net.IP
+	EnsureService(svcID k8s.ServiceID, swg *lock.StoppableWaitGroup) bool
 	GetEndpointsOfService(svcID ServiceID) *Endpoints
+	GetServiceAddrsWithType(svcID k8s.ServiceID, svcType loadbalancer.SVCType) (map[loadbalancer.FEPortName][]*loadbalancer.L3n4Addr, int)
+	GetServiceFrontendIP(svcID ServiceID, svcType loadbalancer.SVCType) net.IP
+	GetServiceIP(svcID ServiceID) *loadbalancer.L3n4Addr
+}
+
+// TODO: This is separate only because of DebugStatus(). Consider exposing the "debug.RegisterStatusObject"
+// stuff as a cell and have service cache register itself.
+type ServiceCache interface {
+	ServiceLookup
+
+	// FIXME: clever or a sin to embed these interfaces here this way?
+	// would it be better to have these in e.g. pkg/service/types?
+	// Could also just repeat the methods and then assert compliance.
+	store.ServiceMerger
+	clustermesh.ServiceMerger
+
+	DebugStatus() string
 }
 
 var Cell = cell.Module(
@@ -58,16 +77,7 @@ var Cell = cell.Module(
 	cell.Provide(newServiceCache),
 )
 
-type serviceCache struct {
-	params serviceCacheParams
-
-	ctx    context.Context // for stopping processLoop()
-	cancel context.CancelFunc
-	wg     sync.WaitGroup // for waiting for processLoop()
-
-	// mu protects the services and endpoints maps
-	mu lock.RWMutex
-
+type serviceCacheState struct {
 	services map[ServiceID]*Service
 
 	// endpoints maps a service to a map of EndpointSlices. In case the cluster
@@ -78,9 +88,24 @@ type serviceCache struct {
 	// selfNodeZoneLabel implements the Kubernetes topology aware hints
 	// by selecting only the backends in this node's zone.
 	selfNodeZoneLabel string
+}
 
-	// synchronized is a wait group that is done when both services and endpoints
-	// have been fully synchronized.
+type serviceCache struct {
+	serviceCacheParams
+
+	// serviceCacheState is the mutable state associated with the service cache.
+	// It is separated into its own struct for debug dumping purposes.
+	serviceCacheState
+
+	// mu protects the service cache state
+	mu lock.RWMutex
+
+	// wp is the worker pool for background workers. For now just processLoop().
+	wp *workerpool.WorkerPool
+
+	// synchronized is a wait group that is done when all subscribed resources
+	// have been fully synchronized, e.g. services and endpoints map are consistent
+	// and we can start serving lookups.
 	synchronized sync.WaitGroup
 
 	// TODO external endpoints
@@ -89,6 +114,8 @@ type serviceCache struct {
 	emit     func(*ServiceEvent)
 	complete func(error)
 }
+
+var _ ServiceCache = &serviceCache{}
 
 type serviceCacheParams struct {
 	cell.In
@@ -99,92 +126,71 @@ type serviceCacheParams struct {
 	Services  resource.Resource[*slim_corev1.Service]
 	Endpoints resource.Resource[*Endpoints]
 
-	// FIXME: This should not be here.
+	// FIXME: This should not be here. It's used by k8s.ParseService() to expand
+	// the nodeport frontends. That should be performed by datapath.
 	NodeAddressing datapathTypes.NodeAddressing
 }
 
-func newServiceCache(p serviceCacheParams) Services {
+func newServiceCache(p serviceCacheParams) ServiceCache {
 	sc := &serviceCache{
-		params:    p,
-		services:  map[ServiceID]*Service{},
-		endpoints: map[ServiceID]*EndpointSlices{},
+		serviceCacheParams: p,
+		serviceCacheState: serviceCacheState{
+			services:  map[ServiceID]*Service{},
+			endpoints: map[ServiceID]*EndpointSlices{},
+		},
 	}
-	sc.ctx, sc.cancel = context.WithCancel(context.Background())
 	sc.src, sc.emit, sc.complete = stream.Multicast[*ServiceEvent]()
-	sc.synchronized.Add(3)
 	p.Lifecycle.Append(sc)
+
 	return sc
 }
 
 func (sc *serviceCache) Start(hive.HookContext) error {
-	sc.wg.Add(1)
-	go sc.processLoop()
+	workers := []struct {
+		name string
+		fn   func(context.Context) error
+	}{
+		{"processNodeEvents", sc.processNodeEvents},
+		{"processServiceEvents", sc.processServiceEvents},
+		{"processEndpointEvents", sc.processEndpointEvents},
+	}
+	sc.synchronized.Add(len(workers))
+	sc.wp = workerpool.New(len(workers))
+	for _, w := range workers {
+		if err := sc.wp.Submit(w.name, w.fn); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (sc *serviceCache) Stop(hive.HookContext) error {
-	sc.cancel()
-	sc.wg.Wait()
+	if sc.wp != nil {
+		return sc.wp.Close()
+	}
 	return nil
 }
 
-func (sc *serviceCache) processLoop() {
-	defer sc.wg.Done()
+func (sc *serviceCache) markSynced() error {
+	sc.synchronized.Done()
+	return nil
+}
 
-	errs := make(chan error)
-	defer close(errs)
-
-	localNode := stream.ToChannel[resource.Event[*corev1.Node]](sc.ctx, errs, sc.params.LocalNode)
-	services := stream.ToChannel[resource.Event[*slim_corev1.Service]](sc.ctx, errs, sc.params.Services)
-	endpoints := stream.ToChannel[resource.Event[*Endpoints]](sc.ctx, errs, sc.params.Endpoints)
-
-	for localNode != nil || services != nil || endpoints != nil {
-		select {
-		case ev, ok := <-localNode:
-			if !ok {
-				localNode = nil
-			}
-			ev.Handle(
-				func() error {
-					sc.synchronized.Done()
-					return nil
-				},
-				sc.updateNode,
-				nil,
-			)
-		case ev, ok := <-services:
-			if !ok {
-				services = nil
-			}
-			ev.Handle(
-				func() error {
-					sc.synchronized.Done()
-					return nil
-				},
-				sc.updateService,
-				sc.deleteService,
-			)
-
-		case ev, ok := <-endpoints:
-			if !ok {
-				endpoints = nil
-			}
-			ev.Handle(
-				func() error {
-					sc.synchronized.Done()
-					return nil
-				},
-				sc.updateEndpoints,
-				sc.deleteEndpoints,
-			)
-		}
+func (sc *serviceCache) processNodeEvents(ctx context.Context) error {
+	for ev := range sc.LocalNode.Events(ctx) {
+		ev.Handle(
+			sc.markSynced,
+			sc.updateNode,
+			nil,
+		)
 	}
-
-	// TODO log errors
+	return nil
 }
 
 func (sc *serviceCache) updateNode(key resource.Key, node *corev1.Node) error {
-	// FIXME move this option into "ServicesConfig" or similar
+	sc.Log.Infof("updateNode(%s)", key)
+
+	// FIXME move this option into "ServicesConfig" or similar. Perhaps in pkg/service/config.go?
 	if !option.Config.EnableServiceTopology {
 		return nil
 	}
@@ -193,7 +199,7 @@ func (sc *serviceCache) updateNode(key resource.Key, node *corev1.Node) error {
 	defer sc.mu.Unlock()
 
 	labels := node.GetLabels()
-	zone := labels[k8s.LabelTopologyZone]
+	zone := labels[LabelTopologyZone]
 
 	if sc.selfNodeZoneLabel == zone {
 		return nil
@@ -208,21 +214,41 @@ func (sc *serviceCache) updateNode(key resource.Key, node *corev1.Node) error {
 		}
 		if endpoints, ready := sc.correlateEndpoints(id); ready {
 			sc.emit(&ServiceEvent{
-				Action:     k8s.UpdateService,
+				Action:     UpdateService,
 				ID:         id,
 				Service:    svc,
 				OldService: svc,
 				Endpoints:  endpoints,
-				SWG:        nil, // FIXME remove
 			})
 		}
 	}
 	return nil
 }
 
+func (sc *serviceCache) processServiceEvents(ctx context.Context) error {
+	for ev := range sc.Services.Events(ctx) {
+		ev.Handle(
+			sc.markSynced,
+			sc.updateService,
+			sc.deleteService,
+		)
+	}
+	return nil
+}
+
 func (sc *serviceCache) updateService(key resource.Key, k8sSvc *slim_corev1.Service) error {
-	svcID, svc := k8s.ParseService(k8sSvc, sc.params.NodeAddressing)
-	// TODO nil svc? what to do? do we want this retried? likely not.
+	// FIXME move ParseService and the Service type into pkg/service/types or similar from
+	// pkg/k8s.
+	svcID, svc := k8s.ParseService(k8sSvc, sc.NodeAddressing)
+	if svc == nil {
+		// Retrying doesn't make sense here, since we'd just get back the
+		// same object. The problem would be with our parsing code, so log
+		// the error so we can fix the parsing.
+		sc.Log.Errorf("Failed to parse service object %s", key)
+		return nil
+	}
+
+	sc.Log.Infof("updateService: svcID=%s, svc=%#v", svcID, svc)
 
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -240,12 +266,11 @@ func (sc *serviceCache) updateService(key resource.Key, k8sSvc *slim_corev1.Serv
 	endpoints, serviceReady := sc.correlateEndpoints(svcID)
 	if serviceReady {
 		sc.emit(&ServiceEvent{
-			Action:     k8s.UpdateService,
+			Action:     UpdateService,
 			ID:         svcID,
 			Service:    svc,
 			OldService: oldService,
 			Endpoints:  endpoints,
-			SWG:        nil, // FIXME SWG can be killed as emit() is synchronous.
 		})
 	}
 
@@ -253,10 +278,58 @@ func (sc *serviceCache) updateService(key resource.Key, k8sSvc *slim_corev1.Serv
 }
 
 func (sc *serviceCache) deleteService(key resource.Key, svc *slim_corev1.Service) error {
+	sc.Log.Infof("deleteService(%s)", key)
 	return nil
 }
 
-func (sc *serviceCache) updateEndpoints(key resource.Key, eps *Endpoints) error {
+func (sc *serviceCache) processEndpointEvents(ctx context.Context) error {
+	for ev := range sc.Endpoints.Events(ctx) {
+		ev.Handle(
+			sc.markSynced,
+			sc.updateEndpoints,
+			sc.deleteEndpoints,
+		)
+	}
+	return nil
+}
+func newEndpointSlices() *EndpointSlices {
+	return &EndpointSlices{
+		EpSlices: map[string]*Endpoints{},
+	}
+}
+
+func (sc *serviceCache) updateEndpoints(key resource.Key, newEps *Endpoints) error {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	esName := newEps.EndpointSliceID.EndpointSliceName
+	svcID := newEps.EndpointSliceID.ServiceID
+
+	eps, ok := sc.endpoints[svcID]
+	if ok {
+		if eps.EpSlices[esName].DeepEqual(newEps) {
+			return nil
+		}
+	} else {
+		eps = newEndpointSlices()
+		sc.endpoints[svcID] = eps
+	}
+
+	sc.Log.Infof("updateEndpoints: added new eps: %s -> %v", esName, newEps)
+	eps.Upsert(esName, newEps)
+
+	// Check if the corresponding Endpoints resource is already available
+	svc, ok := sc.services[svcID]
+	endpoints, serviceReady := sc.correlateEndpoints(svcID)
+	if ok && serviceReady {
+		sc.Log.Infof("updateEndpoints: service is ready, emit")
+		sc.emit(&ServiceEvent{
+			Action:    UpdateService,
+			ID:        svcID,
+			Service:   svc,
+			Endpoints: endpoints,
+		})
+	}
 	return nil
 }
 
@@ -264,21 +337,11 @@ func (sc *serviceCache) deleteEndpoints(key resource.Key, eps *Endpoints) error 
 	return nil
 }
 
-func (sc *serviceCache) Observe(ctx context.Context, next func(*ServiceEvent), complete func(error)) {
-	sc.src.Observe(ctx, next, complete)
-}
-
-func (sc *serviceCache) GetEndpointsOfService(svcID k8s.ServiceID) *k8s.Endpoints {
-	sc.synchronized.Wait()
-	panic("unimplemented")
-}
-
-func (sc *serviceCache) GetServiceFrontendIP(svcID k8s.ServiceID, svcType loadbalancer.SVCType) net.IP {
-	sc.synchronized.Wait()
-	panic("unimplemented")
-}
-
-func (sc *serviceCache) GetServiceIP(svcID k8s.ServiceID) *loadbalancer.L3n4Addr {
-	sc.synchronized.Wait()
-	panic("unimplemented")
+// DebugStatus implements debug.StatusObject to provide debug status collection
+// ability
+func (sc *serviceCache) DebugStatus() string {
+	sc.mu.RLock()
+	str := spew.Sdump(sc.serviceCacheState)
+	sc.mu.RUnlock()
+	return str
 }

@@ -57,6 +57,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy/api"
 	"github.com/cilium/cilium/pkg/redirectpolicy"
 	"github.com/cilium/cilium/pkg/service"
+	serviceCache "github.com/cilium/cilium/pkg/service/cache"
 	"github.com/cilium/cilium/pkg/source"
 )
 
@@ -220,7 +221,7 @@ type K8sWatcher struct {
 	k8sAPIGroups synced.APIGroups
 
 	// K8sSvcCache is a cache of all Kubernetes services and endpoints
-	K8sSvcCache k8s.ServiceCache
+	K8sSvcCache serviceCache.ServiceCache
 
 	// NodeChain is the root of a notification chain for k8s Node events.
 	// This NodeChain allows registration of subscriber.Node implementations.
@@ -291,10 +292,11 @@ func NewK8sWatcher(
 	ipcache ipcacheManager,
 	cgroupManager cgroupManager,
 	sharedResources k8s.SharedResources,
+	serviceCache serviceCache.ServiceCache,
 ) *K8sWatcher {
 	return &K8sWatcher{
 		clientset:             clientset,
-		K8sSvcCache:           k8s.NewServiceCache(datapath.LocalNodeAddressing()),
+		K8sSvcCache:           serviceCache,
 		endpointManager:       endpointManager,
 		nodeDiscoverManager:   nodeDiscoverManager,
 		policyManager:         policyManager,
@@ -590,9 +592,7 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 }
 
 func (k *K8sWatcher) k8sServiceHandler() {
-	eventHandler := func(event k8s.ServiceEvent) {
-		defer event.SWG.Done()
-
+	eventHandler := func(event *serviceCache.ServiceEvent) {
 		svc := event.Service
 
 		scopedLog := log.WithFields(logrus.Fields{
@@ -608,7 +608,7 @@ func (k *K8sWatcher) k8sServiceHandler() {
 		}).Debug("Kubernetes service definition changed")
 
 		switch event.Action {
-		case k8s.UpdateService:
+		case serviceCache.UpdateService:
 			if err := k.addK8sSVCs(event.ID, event.OldService, svc, event.Endpoints); err != nil {
 				scopedLog.WithError(err).Error("Unable to add/update service to implement k8s event")
 			}
@@ -634,7 +634,7 @@ func (k *K8sWatcher) k8sServiceHandler() {
 				k.policyManager.TriggerPolicyUpdates(true, "Kubernetes service endpoint added")
 			}
 
-		case k8s.DeleteService:
+		case serviceCache.DeleteService:
 			if err := k.delK8sSVCs(event.ID, event.Service, event.Endpoints); err != nil {
 				scopedLog.WithError(err).Error("Unable to delete service to implement k8s event")
 			}
@@ -655,17 +655,14 @@ func (k *K8sWatcher) k8sServiceHandler() {
 			}
 		}
 	}
-	for {
-		select {
-		case <-k.stop:
-			return
-		case event, ok := <-k.K8sSvcCache.Events:
-			if !ok {
-				return
-			}
-			eventHandler(event)
-		}
-	}
+	// FIXME switch k.stop into context.
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-k.stop; cancel() }()
+	k.K8sSvcCache.Observe(
+		ctx,
+		eventHandler,
+		func(error) {},
+	)
 }
 
 func (k *K8sWatcher) RunK8sServiceHandler() {

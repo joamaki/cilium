@@ -83,6 +83,8 @@ func (sc *serviceCache) correlateEndpoints(id ServiceID) (*Endpoints, bool) {
 	localEndpoints := sc.endpoints[id].GetEndpoints()
 	svc, svcFound := sc.services[id]
 
+	sc.Log.Infof("correlateEndpoints(%s) -> %v", id, localEndpoints)
+
 	hasLocalEndpoints := localEndpoints != nil
 	if hasLocalEndpoints {
 		localEndpoints = sc.filterEndpoints(localEndpoints, svc)

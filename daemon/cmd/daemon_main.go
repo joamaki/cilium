@@ -80,6 +80,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/pprof"
 	"github.com/cilium/cilium/pkg/promise"
+	serviceCache "github.com/cilium/cilium/pkg/service/cache"
 	"github.com/cilium/cilium/pkg/sysctl"
 	"github.com/cilium/cilium/pkg/version"
 	wg "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -1546,7 +1547,7 @@ func (d *Daemon) initKVStore() {
 		)
 		log := log.WithField(logfields.LogSubsys, "etcd")
 		goopts.DialOption = []grpc.DialOption{
-			grpc.WithContextDialer(k8s.CreateCustomDialer(&d.k8sWatcher.K8sSvcCache, log)),
+			grpc.WithContextDialer(k8s.CreateCustomDialer(d.k8sWatcher.K8sSvcCache, log)),
 		}
 	}
 
@@ -1635,6 +1636,7 @@ type daemonParams struct {
 	LocalNodeStore  node.LocalNodeStore
 	Shutdowner      hive.Shutdowner
 	SharedResources k8s.SharedResources
+	ServiceCache    serviceCache.ServiceCache
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
@@ -1662,7 +1664,9 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 				params.Datapath,
 				params.WGAgent,
 				params.Clientset,
-				params.SharedResources)
+				params.SharedResources,
+				params.ServiceCache,
+			)
 			if err != nil {
 				return fmt.Errorf("daemon creation failed: %w", err)
 			}
