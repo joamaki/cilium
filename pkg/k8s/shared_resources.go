@@ -16,8 +16,8 @@ import (
 
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	cilium_api_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
-	cilium_api_v2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
+	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	cilium_v2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
@@ -46,6 +46,8 @@ var (
 			lbIPPoolsResource,
 			ciliumIdentityResource,
 			endpointsResource,
+			cecResource,
+			ccecResource,
 		),
 	)
 )
@@ -53,13 +55,15 @@ var (
 type SharedResources struct {
 	cell.In
 
-	LocalNode       *LocalNodeResource
-	LocalCiliumNode *LocalCiliumNodeResource
-	Services        resource.Resource[*slim_corev1.Service]
-	Namespaces      resource.Resource[*slim_corev1.Namespace]
-	LBIPPools       resource.Resource[*cilium_api_v2alpha1.CiliumLoadBalancerIPPool]
-	Identities      resource.Resource[*cilium_api_v2.CiliumIdentity]
-	Endpoints       resource.Resource[*Endpoints]
+	LocalNode                     *LocalNodeResource
+	LocalCiliumNode               *LocalCiliumNodeResource
+	Services                      resource.Resource[*slim_corev1.Service]
+	Namespaces                    resource.Resource[*slim_corev1.Namespace]
+	LBIPPools                     resource.Resource[*cilium_v2alpha1.CiliumLoadBalancerIPPool]
+	Identities                    resource.Resource[*cilium_v2.CiliumIdentity]
+	Endpoints                     resource.Resource[*Endpoints]
+	CiliumEnvoyConfigs            resource.Resource[*cilium_v2.CiliumEnvoyConfig]
+	CiliumClusterwideEnvoyConfigs resource.Resource[*cilium_v2.CiliumClusterwideEnvoyConfig]
 }
 
 func serviceResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*slim_corev1.Service], error) {
@@ -90,19 +94,19 @@ func localNodeResource(lc hive.Lifecycle, cs client.Clientset) (*LocalNodeResour
 	return &LocalNodeResource{Resource: resource.New[*corev1.Node](lc, lw)}, nil
 }
 
-// LocalCiliumNodeResource is a resource.Resource[*cilium_api_v2.Node] but one which will only stream updates for the
+// LocalCiliumNodeResource is a resource.Resource[*cilium_v2.Node] but one which will only stream updates for the
 // CiliumNode object associated with the node we are currently running on.
 type LocalCiliumNodeResource struct {
-	resource.Resource[*cilium_api_v2.CiliumNode]
+	resource.Resource[*cilium_v2.CiliumNode]
 }
 
 func localCiliumNodeResource(lc hive.Lifecycle, cs client.Clientset) (*LocalCiliumNodeResource, error) {
 	if !cs.IsEnabled() {
 		return nil, nil
 	}
-	lw := utils.ListerWatcherFromTyped[*cilium_api_v2.CiliumNodeList](cs.CiliumV2().CiliumNodes())
+	lw := utils.ListerWatcherFromTyped[*cilium_v2.CiliumNodeList](cs.CiliumV2().CiliumNodes())
 	lw = utils.ListerWatcherWithFields(lw, fields.ParseSelectorOrDie("metadata.name="+nodeTypes.GetName()))
-	return &LocalCiliumNodeResource{Resource: resource.New[*cilium_api_v2.CiliumNode](lc, lw)}, nil
+	return &LocalCiliumNodeResource{Resource: resource.New[*cilium_v2.CiliumNode](lc, lw)}, nil
 }
 
 func namespaceResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*slim_corev1.Namespace], error) {
@@ -113,24 +117,24 @@ func namespaceResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resourc
 	return resource.New[*slim_corev1.Namespace](lc, lw), nil
 }
 
-func lbIPPoolsResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*cilium_api_v2alpha1.CiliumLoadBalancerIPPool], error) {
+func lbIPPoolsResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*cilium_v2alpha1.CiliumLoadBalancerIPPool], error) {
 	if !cs.IsEnabled() {
 		return nil, nil
 	}
-	lw := utils.ListerWatcherFromTyped[*cilium_api_v2alpha1.CiliumLoadBalancerIPPoolList](
+	lw := utils.ListerWatcherFromTyped[*cilium_v2alpha1.CiliumLoadBalancerIPPoolList](
 		cs.CiliumV2alpha1().CiliumLoadBalancerIPPools(),
 	)
-	return resource.New[*cilium_api_v2alpha1.CiliumLoadBalancerIPPool](lc, lw), nil
+	return resource.New[*cilium_v2alpha1.CiliumLoadBalancerIPPool](lc, lw), nil
 }
 
-func ciliumIdentityResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*cilium_api_v2.CiliumIdentity], error) {
+func ciliumIdentityResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*cilium_v2.CiliumIdentity], error) {
 	if !cs.IsEnabled() {
 		return nil, nil
 	}
-	lw := utils.ListerWatcherFromTyped[*cilium_api_v2.CiliumIdentityList](
+	lw := utils.ListerWatcherFromTyped[*cilium_v2.CiliumIdentityList](
 		cs.CiliumV2().CiliumIdentities(),
 	)
-	return resource.New[*cilium_api_v2.CiliumIdentity](lc, lw), nil
+	return resource.New[*cilium_v2.CiliumIdentity](lc, lw), nil
 }
 
 // endpointsListerWatcher implements List and Watch for endpoints/endpointslices. It
@@ -200,4 +204,20 @@ func endpointsResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resourc
 		&endpointsListerWatcher{cs: cs},
 		resource.WithTransform(transformEndpoint),
 	), nil
+}
+
+func cecResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*cilium_v2.CiliumEnvoyConfig], error) {
+	if !cs.IsEnabled() {
+		return nil, nil
+	}
+	lw := utils.ListerWatcherFromTyped[*cilium_v2.CiliumEnvoyConfigList](cs.CiliumV2().CiliumEnvoyConfigs(""))
+	return resource.New[*cilium_v2.CiliumEnvoyConfig](lc, lw), nil
+}
+
+func ccecResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*cilium_v2.CiliumClusterwideEnvoyConfig], error) {
+	if !cs.IsEnabled() {
+		return nil, nil
+	}
+	lw := utils.ListerWatcherFromTyped[*cilium_v2.CiliumClusterwideEnvoyConfigList](cs.CiliumV2().CiliumClusterwideEnvoyConfigs())
+	return resource.New[*cilium_v2.CiliumClusterwideEnvoyConfig](lc, lw), nil
 }
