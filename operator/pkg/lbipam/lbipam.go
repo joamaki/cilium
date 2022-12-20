@@ -190,10 +190,10 @@ type ipPoolEvent = resource.Event[*cilium_api_v2alpha1.CiliumLoadBalancerIPPool]
 type svcEvent = resource.Event[*slim_core_v1.Service]
 
 func (ipam *LBIPAM) Run(ctx context.Context) {
-	channelCtx, channelCancel := context.WithCancel(ctx)
-	defer channelCancel()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	poolChan := ipam.poolResource.Events(channelCtx, eventsOpts)
+	poolChan := ipam.poolResource.Events(ctx, eventsOpts)
 
 	ipam.logger.Info("LB-IPAM initializing")
 
@@ -214,7 +214,6 @@ func (ipam *LBIPAM) Run(ctx context.Context) {
 			}
 			poolsSynced = true
 			event.Done(nil)
-
 		} else {
 			ipam.handlePoolEvent(ctx, event)
 		}
@@ -226,7 +225,7 @@ func (ipam *LBIPAM) Run(ctx context.Context) {
 		}
 	}
 
-	svcChan := ipam.svcResource.Events(channelCtx, eventsOpts)
+	svcChan := ipam.svcResource.Events(ctx, eventsOpts)
 
 	for event := range svcChan {
 		if event.Kind == resource.Sync {

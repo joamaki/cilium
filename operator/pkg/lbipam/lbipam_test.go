@@ -1406,7 +1406,7 @@ func TestDisablePool(t *testing.T) {
 		}
 
 		return true
-	}, 100*time.Millisecond)
+	}, 500*time.Millisecond)
 
 	poolA.Spec.Disabled = true
 
@@ -1626,7 +1626,7 @@ func TestRangeDelete(t *testing.T) {
 		}
 
 		return true
-	}, 100*time.Millisecond)
+	}, 500*time.Millisecond)
 
 	// Add a new CIDR, this should not have any effect on the existing service.
 	poolA.Spec.Cidrs = append(poolA.Spec.Cidrs, cilium_api_v2alpha1.CiliumLoadBalancerIPPoolCIDRBlock{
