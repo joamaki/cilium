@@ -90,8 +90,8 @@ func newLBManager(config Config, lbmap datapathTypes.LBMap) *lbManager {
 		backendIDs:        make(map[backendKey]loadbalancer.BackendID),
 		nodePortFrontends: make(map[frontendKey]container.Set[frontendKey]),
 		backendRefCount:   make(counter.Counter[backendKey]),
-		frontendIDAlloc:   NewIDAllocator(0, 100), // FIXME
-		backendIDAlloc:    NewIDAllocator(0, 100), // FIXME
+		frontendIDAlloc:   NewIDAllocator(1, 1000), // FIXME
+		backendIDAlloc:    NewIDAllocator(1, 1000), // FIXME
 		lbmap:             lbmap,
 	}
 	// TODO: add lifecycle hook which does restoreFromBPF()?

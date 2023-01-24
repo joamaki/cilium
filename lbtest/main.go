@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/cilium/controlplane/servicemanager"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/datapath/lb"
+	"github.com/cilium/cilium/pkg/datapath/linux/maps/lbmap"
 	datapathTypes "github.com/cilium/cilium/pkg/datapath/types"
 	pkgEnvoy "github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/hive"
@@ -23,6 +24,18 @@ import (
 )
 
 var h *hive.Hive
+
+var initParams = lbmap.InitParams{
+	IPv4:                     true,
+	IPv6:                     true,
+	MaxSockRevNatMapEntries:  100,
+	ServiceMapMaxEntries:     100,
+	BackEndMapMaxEntries:     100,
+	RevNatMapMaxEntries:      100,
+	AffinityMapMaxEntries:    100,
+	SourceRangeMapMaxEntries: 100,
+	MaglevMapMaxEntries:      100,
+}
 
 func main() {
 	cmd := &cobra.Command{
@@ -46,7 +59,9 @@ func main() {
 		servicemanager.APIHandlersCell,
 
 		lb.Cell,
-		fakeLBMapCell,
+		//fakeLBMapCell,
+		lbmap.Cell,
+		cell.Provide(func() lbmap.InitParams { return initParams }),
 	)
 	h.RegisterFlags(cmd.Flags())
 
