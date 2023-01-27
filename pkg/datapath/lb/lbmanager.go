@@ -3,7 +3,7 @@ package lb
 import (
 	"context"
 	"fmt"
-	"strings"
+	"sync"
 
 	"github.com/cilium/workerpool"
 	"k8s.io/client-go/util/workqueue"
@@ -35,11 +35,33 @@ var Cell = cell.Module(
 	cell.Provide(newLBWorker),
 )
 
+func withLifecycledContext(lc hive.Lifecycle, start func(ctx context.Context, wg *sync.WaitGroup)) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	lc.Append(hive.Hook{
+		OnStart: func(hive.HookContext) error {
+			start(ctx, &wg)
+			return nil
+		},
+		OnStop: func(hive.HookContext) error {
+			cancel()
+			wg.Wait()
+			return nil
+		},
+	})
+}
+
 // newLBWorker creates a new load-balancer worker that implements LoadBalancer API.
 // The worker applies requests sequentially and retries failed requests. Requests
 // for the same frontend will be coalesced.
-func newLBWorker(lc hive.Lifecycle, m *lbManager) LoadBalancer {
-	return (*lbWorker)(newWorker[frontendKey](lc, m))
+func newLBWorker(lc hive.Lifecycle, m *lbManager, devs Devices) LoadBalancer {
+	w := (*lbWorker)(newWorker[frontendKey](lc, m))
+	withLifecycledContext(lc,
+		func(ctx context.Context, wg *sync.WaitGroup) {
+			wg.Add(1)
+			devs.Observe(ctx, w.UpdateDevices, func(error) { wg.Done() })
+		})
+	return w
 }
 
 type (
@@ -59,7 +81,9 @@ type feState struct {
 	// ... ?
 }
 
-// TODO: What to call this thing? lbmapManager? Or just merge into lbmap?
+// TODO: What to call this thing? It sequentially processes work
+// coming from the worker and applies it to lbmap. Should probably
+// merge lbmap and this into one thing.
 type lbManager struct {
 	config Config
 
@@ -80,6 +104,8 @@ type lbManager struct {
 	backendIDAlloc  *IDAllocator
 
 	lbmap datapathTypes.LBMap
+
+	devices []Device
 }
 
 func newLBManager(config Config, lbmap datapathTypes.LBMap) *lbManager {
@@ -95,6 +121,12 @@ func newLBManager(config Config, lbmap datapathTypes.LBMap) *lbManager {
 		lbmap:             lbmap,
 	}
 	// TODO: add lifecycle hook which does restoreFromBPF()?
+}
+
+func (m *lbManager) updateDevices(devs []Device) error {
+	m.devices = devs
+	// TODO: recompute frontends and reconcile
+	return nil
 }
 
 func (m *lbManager) restoreFromBPF() {
@@ -145,9 +177,24 @@ func (m *lbManager) periodicStateCheck() error {
 }
 
 func (m *lbManager) deleteFrontend(key frontendKey) error {
+	if fes := m.nodePortFrontends[key]; len(fes) > 0 {
+		for k := range fes {
+			if err := m.deleteFrontendSingle(k); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return m.deleteFrontendSingle(key)
+}
+
+func (m *lbManager) deleteFrontendSingle(key frontendKey) error {
 	state, ok := m.states[key]
 	if !ok {
-		// TODO can we end up here? log warning?
+		fmt.Printf("XXX deleteFrontend state not found for %s\n", key)
+		// TODO how to handle a deletion request for missing frontend? can
+		// probably only log a warning and there's no point returning an error since
+		// retrying makes no difference.
 		return nil
 	}
 
@@ -181,18 +228,33 @@ func (m *lbManager) deleteFrontend(key frontendKey) error {
 // of frontend IPs and use those when frontend is upserted. When they change
 // all node port frontends would be recomputed and datapath updated
 // (e.g. we'd queue request to lbWorker to recompute... from somewhere).
-var dummyNodePortFrontendIPs = []string{
+/*var dummyNodePortFrontendIPs = []string{
 	"0.0.0.0", // surrogate
 	"1.2.3.4",
-	"2.3.4.5",
+}*/
+func (m *lbManager) allFrontendIPs() []cmtypes.AddrCluster {
+	all := []cmtypes.AddrCluster{}
+	for _, dev := range m.devices {
+		for _, ip := range dev.IPs {
+			ac, ok := cmtypes.AddrClusterFromIP(ip)
+			if ok {
+				all = append(all, ac)
+			}
+		}
+	}
+
+	all = append(all, cmtypes.MustParseAddrCluster("1.2.3.4")) // XXX for selftest.go.
+	return all
 }
 
 func (m *lbManager) expandNodePortFrontends(frontend *loadbalancer.SVC) []*loadbalancer.SVC {
+	allIPs := m.allFrontendIPs()
+
 	// TODO implement the real thing.
-	fes := make([]*loadbalancer.SVC, len(dummyNodePortFrontendIPs))
-	for i, ip := range dummyNodePortFrontendIPs {
+	fes := make([]*loadbalancer.SVC, len(allIPs))
+	for i, ip := range allIPs {
 		fe := *frontend
-		fe.Frontend.AddrCluster = cmtypes.MustParseAddrCluster(ip)
+		fe.Frontend.AddrCluster = ip
 		fes[i] = &fe
 	}
 
@@ -231,7 +293,7 @@ func (m *lbManager) upsertFrontend(frontend *loadbalancer.SVC) error {
 
 func (m *lbManager) addBackend(key backendKey, be *loadbalancer.Backend) error {
 	if _, ok := m.backendIDs[key]; ok {
-		// Existing backend, nothing to do.
+		// Existing backend, nothing to do.()_
 		return nil
 	}
 	addrId, err := m.backendIDAlloc.acquireLocalID(be.L3n4Addr, 0)
@@ -255,7 +317,7 @@ func (m *lbManager) addBackend(key backendKey, be *loadbalancer.Backend) error {
 			be.L3n4Addr.String(), err)
 	}
 
-	fmt.Printf("LBMANAGER: Created backend %s with id %d\n", be.L3n4Addr.String(), id)
+	//fmt.Printf("LBMANAGER: Created backend %s with id %d\n", be.L3n4Addr.String(), id)
 	m.backendIDs[key] = id
 	return nil
 }
@@ -283,7 +345,7 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 	// full (ENOSPC) and retrying (with backoff) allows user intervention to make more space and
 	// to eventually recover.
 
-	fmt.Printf("LBMANAGER: upsert: fe[%s]=%s, nbackends=%d\n", frontend.Type, frontend.Frontend.String(), len(backends))
+	//fmt.Printf("LBMANAGER: upsert: fe[%s]=%s, nbackends=%d\n", frontend.Type, frontend.Frontend.String(), len(backends))
 
 	frontendKey := frontend.Frontend.Hash()
 	state, ok := m.states[frontendKey]
@@ -357,7 +419,7 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 		Port:                      frontend.Frontend.Port,
 		ActiveBackends:            legacyBackends,
 		NonActiveBackends:         nil,               // FIXME
-		PreferredBackends:         nil,               // FIXME
+		PreferredBackends:         legacyBackends,    // FIXME
 		PrevBackendsCount:         prevBackendsCount, // Used to clean up unused slots.
 		IPv6:                      frontend.Frontend.IsIPv6(),
 		Type:                      frontend.Type,
@@ -373,8 +435,8 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 		Name:                      frontend.Name,
 		LoopbackHostport:          frontend.LoopbackHostport,
 	}
-	fmt.Printf("LBMANAGER: Upserting frontend %s (%s:%d) (id %d) with %d backends\n",
-		params.Name, params.IP.String(), params.Port, params.ID, len(params.ActiveBackends))
+	//fmt.Printf("LBMANAGER: Upserting frontend %s (%s:%d) (id %d) with %d backends\n",
+	//	params.Name, params.IP.String(), params.Port, params.ID, len(params.ActiveBackends))
 
 	if err := m.lbmap.UpsertService(&params); err != nil {
 		// FIXME delete the created backends, or leave them around as we keep
@@ -389,9 +451,9 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 
 	//fmt.Println("\033[2J\033[H")
 
-	fmt.Printf("LBMANAGER: upsert OK: type=%s, name=%s, frontend=%s, backends=%s\n",
-		frontend.Type,
-		frontend.Name, frontend.Frontend.String(), strings.Join(backendAddrs, ", "))
+	/*fmt.Printf("LBMANAGER: upsert OK: type=%s, name=%s, frontend=%s, backends=%s\n",
+	frontend.Type,
+	frontend.Name, frontend.Frontend.String(), strings.Join(backendAddrs, ", "))*/
 
 	//helpers.WriteLBMapAsTable(os.Stdout, m.lbmap.(*mockmaps.LBMockMap))
 
@@ -487,6 +549,22 @@ func (r gcRequest) apply(m *lbManager) error {
 
 func (w *lbWorker) GarbageCollect() {
 	w.requests <- gcRequest{}
+}
+
+type updateDevices struct {
+	newDevices []Device
+}
+
+func (r updateDevices) key() string {
+	return "__devices__"
+}
+
+func (r updateDevices) apply(m *lbManager) error {
+	return m.updateDevices(r.newDevices)
+}
+
+func (w *lbWorker) UpdateDevices(newDevices []Device) {
+	w.requests <- updateDevices{newDevices}
 }
 
 //

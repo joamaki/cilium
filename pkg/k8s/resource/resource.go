@@ -225,7 +225,6 @@ func (r *resource[T]) startWhenNeeded() {
 	}
 
 	// Construct the informer and run it.
-	var objType T
 	handlerFuncs :=
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    func(obj any) { r.pushUpdate(NewKey(obj)) },
@@ -233,7 +232,7 @@ func (r *resource[T]) startWhenNeeded() {
 			DeleteFunc: func(obj any) { r.pushDelete(obj) },
 		}
 
-	store, informer := cache.NewTransformingInformer(r.lw, objType, 0, handlerFuncs, r.opts.transform)
+	store, informer := cache.NewTransformingInformer(r.lw, r.opts.fromObject, 0, handlerFuncs, r.opts.transform)
 	r.storeResolver.Resolve(&typedStore[T]{store})
 
 	r.wg.Add(1)

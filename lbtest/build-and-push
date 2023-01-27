@@ -1,0 +1,5 @@
+#!/bin/sh
+set -ex
+
+GOARCH=arm64 go build -o lbtest.arm 
+scp lbtest.arm ../bpf/bpf_xdp.o root@192.168.1.245:

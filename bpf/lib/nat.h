@@ -360,8 +360,11 @@ snat_v4_rev_nat_handle_mapping(struct __ctx_buff *ctx,
 {
 	int ret;
 
+	printk("snat_v4_rev_nat_handle_mapping lookup sport=%x, dport=%x", tuple->sport, tuple->dport);
+
 	*state = snat_v4_lookup(tuple);
 	ret = snat_v4_track_connection(ctx, tuple, *state, NAT_DIR_INGRESS, off, target);
+	printk("lookup result=%p, ret=%d", *state, ret);
 	if (ret < 0)
 		return ret;
 	else if (*state)
@@ -442,6 +445,9 @@ static __always_inline int snat_v4_rewrite_ingress(struct __ctx_buff *ctx,
 	int ret, flags = BPF_F_PSEUDO_HDR;
 	struct csum_offset csum = {};
 	__be32 sum_l4 = 0, sum;
+
+	printk("snat_v4_rewrite_ingress: to_daddr=%x, daddr=%x", state->to_daddr, tuple->daddr);
+	printk("snat_v4_rewrite_ingress: to_dport=%x, dport=%x", state->to_dport, tuple->dport);
 
 	if (state->to_daddr == tuple->daddr &&
 	    state->to_dport == tuple->dport)

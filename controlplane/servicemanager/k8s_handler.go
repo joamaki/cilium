@@ -120,7 +120,6 @@ func (k *k8sHandler) processLoop(ctx context.Context) error {
 			ev.Done(nil)
 		}
 	}
-	return nil
 }
 
 func (k *k8sHandler) updateService(key resource.Key, svc *slim_corev1.Service) {
@@ -149,7 +148,11 @@ func (k *k8sHandler) deleteService(key resource.Key, svc *slim_corev1.Service) {
 }
 
 func endpointsToServiceName(eps *k8s.Endpoints) lb.ServiceName {
-	return lb.ServiceName{Authority: lb.AuthoritySVC, Name: eps.ServiceID.Name, Namespace: eps.ServiceID.Namespace}
+	return lb.ServiceName{
+		Authority: lb.AuthoritySVC,
+		Name:      eps.ServiceID.Name,
+		Namespace: eps.ServiceID.Namespace,
+	}
 }
 
 func (k *k8sHandler) updateEndpoints(key resource.Key, eps *k8s.Endpoints) {
@@ -288,7 +291,7 @@ func serviceToFrontends(svc *slim_corev1.Service) []lb.FE {
 		for _, port := range svc.Spec.Ports {
 			fe := &lb.FENodePort{
 				CommonFE:            common,
-				L4Addr:              lb.L4Addr{lb.L4Type(port.Protocol), uint16(port.Port)},
+				L4Addr:              lb.L4Addr{lb.L4Type(port.Protocol), uint16(port.NodePort)},
 				Scope:               lb.ScopeExternal,
 				HealthCheckNodePort: uint16(svc.Spec.HealthCheckNodePort),
 			}

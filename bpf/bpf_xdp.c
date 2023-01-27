@@ -239,8 +239,9 @@ static __always_inline int check_filters(struct __ctx_buff *ctx)
 	int ret = CTX_ACT_OK;
 	__u16 proto;
 
-	if (!validate_ethertype(ctx, &proto))
+	if (!validate_ethertype(ctx, &proto)) {
 		return CTX_ACT_OK;
+	}
 
 	ctx_store_meta(ctx, XFER_MARKER, 0);
 	ctx_skip_nodeport_clear(ctx);
@@ -259,6 +260,7 @@ static __always_inline int check_filters(struct __ctx_buff *ctx)
 	default:
 		break;
 	}
+
 
 	return bpf_xdp_exit(ctx, ret);
 }

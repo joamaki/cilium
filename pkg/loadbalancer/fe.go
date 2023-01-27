@@ -62,7 +62,7 @@ func (fe *FEExternalIPs) Address() *L3n4Addr {
 
 func (fe *FEExternalIPs) ToSVC() *SVC {
 	svc := &SVC{
-		Type:                      SVCTypeClusterIP,
+		Type:                      SVCTypeExternalIPs,
 		ExtTrafficPolicy:          fe.ExtTrafficPolicy,
 		NatPolicy:                 fe.NatPolicy,
 		SessionAffinity:           fe.SessionAffinity,
@@ -86,7 +86,7 @@ func (fe *FELoadBalancer) Address() *L3n4Addr {
 
 func (fe *FELoadBalancer) ToSVC() *SVC {
 	svc := &SVC{
-		Type:                      SVCTypeClusterIP,
+		Type:                      SVCTypeLoadBalancer,
 		ExtTrafficPolicy:          fe.ExtTrafficPolicy,
 		NatPolicy:                 fe.NatPolicy,
 		SessionAffinity:           fe.SessionAffinity,

@@ -53,6 +53,24 @@ func (sm *serviceManager) Stop(hive.HookContext) error {
 	return sm.wp.Close()
 }
 
+func (sm *serviceManager) All() []FrontendAndBackends {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	all := []FrontendAndBackends{}
+	for name, entry := range sm.entries {
+		for _, fe := range entry.frontends {
+			all = append(all,
+				FrontendAndBackends{
+					Name:     name,
+					Frontend: fe,
+					Backends: entry.backends,
+				})
+		}
+	}
+	return all
+}
+
 func (sm *serviceManager) synchronize(ctx context.Context) error {
 	sm.handlesSWG.Stop()
 

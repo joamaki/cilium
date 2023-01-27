@@ -285,7 +285,7 @@ func parseEndpointPortV1Beta1(port slim_discovery_v1beta1.EndpointPort) (string,
 func ParseEndpointSliceV1(ep *slim_discovery_v1.EndpointSlice) (EndpointSliceID, *Endpoints) {
 	endpoints := newEndpoints()
 	endpoints.ObjectMeta = ep.ObjectMeta
-
+	endpoints.EndpointSliceID = ParseEndpointSliceID(ep)
 	for _, sub := range ep.Endpoints {
 		skipEndpoint := false
 		// ready indicates that this endpoint is prepared to receive traffic,
@@ -345,7 +345,7 @@ func ParseEndpointSliceV1(ep *slim_discovery_v1.EndpointSlice) (EndpointSliceID,
 		}
 	}
 
-	return ParseEndpointSliceID(ep), endpoints
+	return endpoints.EndpointSliceID, endpoints
 }
 
 // parseEndpointPortV1 returns the port name and the port parsed as a L4Addr from

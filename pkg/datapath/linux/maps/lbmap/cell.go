@@ -93,7 +93,7 @@ func closeMaps() error {
 	if err := Backend4Map.Close(); err != nil {
 		return err
 	}
-	if err := Backend4MapV2.Close(); err != nil {
+	if err := Backend4MapV3.Close(); err != nil {
 		return err
 	}
 	// FIXME the rest

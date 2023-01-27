@@ -74,6 +74,8 @@ int __send_drop_notify(struct __ctx_buff *ctx)
 		.ifindex        = ctx_get_ifindex(ctx),
 	};
 
+	printk("drop notify\n");
+
 	ctx_event_output(ctx, &EVENTS_MAP,
 			 (cap_len << 32) | BPF_F_CURRENT_CPU,
 			 &msg, sizeof(msg));

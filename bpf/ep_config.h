@@ -33,21 +33,21 @@ DEFINE_U32(POLICY_VERDICT_LOG_FILTER, 0xffff);
 
 #define HOST_EP_ID 0x1092
 
-#define POLICY_MAP test_cilium_policy_65535
+#define POLICY_MAP cilium_policy_65535
 
 #ifndef SKIP_DEBUG
 #define DEBUG
 #endif
 #define DROP_NOTIFY
 #define TRACE_NOTIFY
-#define CT_MAP_TCP6 test_cilium_ct_tcp6_65535
-#define CT_MAP_ANY6 test_cilium_ct_any6_65535
-#define CT_MAP_TCP4 test_cilium_ct_tcp4_65535
-#define CT_MAP_ANY4 test_cilium_ct_any4_65535
+#define CT_MAP_TCP6 cilium_ct_tcp6_65535
+#define CT_MAP_ANY6 cilium_ct_any6_65535
+#define CT_MAP_TCP4 cilium_ct_tcp4_65535
+#define CT_MAP_ANY4 cilium_ct_any4_65535
 #define CT_MAP_SIZE_TCP 4096
 #define CT_MAP_SIZE_ANY 4096
-#define CALLS_MAP test_cilium_calls_65535
-#define CUSTOM_CALLS_MAP test_cilium_calls_custom_65535
+#define CALLS_MAP cilium_calls_65535
+#define CUSTOM_CALLS_MAP cilium_calls_custom_65535
 #define LOCAL_DELIVERY_METRICS
 #define CONNTRACK_ACCOUNTING
 #define DIRECT_ROUTING_DEV_IFINDEX 0

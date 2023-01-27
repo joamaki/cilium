@@ -10,8 +10,16 @@ type Event struct {
 	Backends []*lb.Backend
 }
 
+type FrontendAndBackends struct {
+	Name     lb.ServiceName
+	Frontend lb.FE
+	Backends []*lb.Backend
+}
+
 type ServiceManager interface {
 	NewHandle(name string) ServiceHandle
+
+	All() []FrontendAndBackends
 }
 
 type LocalRedirectConfig struct {
