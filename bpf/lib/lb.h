@@ -1160,14 +1160,10 @@ static __always_inline int lb4_rev_nat(struct __ctx_buff *ctx, int l3_off, int l
 {
 	struct lb4_reverse_nat *nat;
 
-	printk("lb4_rev_nat: enter for sport=%x, dport=%x", tuple->sport, tuple->dport);
-
 	cilium_dbg_lb(ctx, DBG_LB4_REVERSE_NAT_LOOKUP, ct_state->rev_nat_index, 0);
 	nat = map_lookup_elem(&LB4_REVERSE_NAT_MAP, &ct_state->rev_nat_index);
 	if (nat == NULL)
 		return 0;
-
-	printk("lb4_rev_nat: found rev nat entry %d", ct_state->rev_nat_index);
 
 	return __lb4_rev_nat(ctx, l3_off, l4_off, csum_off, tuple, flags, nat,
 			     ct_state, has_l4_header);
@@ -1315,9 +1311,8 @@ lb4_lookup_backend(struct __ctx_buff *ctx __maybe_unused, __u32 backend_id)
 	struct lb4_backend *backend;
 
 	backend = __lb4_lookup_backend(backend_id);
-	if (!backend) {
+	if (!backend)
 		cilium_dbg_lb(ctx, DBG_LB4_LOOKUP_BACKEND_FAIL, backend_id, 0);
-	}
 
 	return backend;
 }
@@ -1355,7 +1350,6 @@ lb4_select_backend_id(struct __ctx_buff *ctx,
 {
 	__u16 slot = (get_prandom_u32() % svc->count) + 1;
 	struct lb4_service *be = lb4_lookup_backend_slot(ctx, key, slot);
-
 
 	return be ? be->backend_id : 0;
 }

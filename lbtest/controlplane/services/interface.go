@@ -1,4 +1,4 @@
-package servicemanager
+package services
 
 import (
 	lb "github.com/cilium/cilium/pkg/loadbalancer"

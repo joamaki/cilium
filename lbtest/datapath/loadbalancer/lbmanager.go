@@ -1,67 +1,90 @@
-package lb
+package loadbalancer
 
 import (
 	"context"
 	"fmt"
 	"sync"
 
-	"github.com/cilium/workerpool"
-	"k8s.io/client-go/util/workqueue"
-
+	"github.com/cilium/cilium/lbtest/datapath/api"
+	"github.com/cilium/cilium/lbtest/datapath/worker"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/container"
 	"github.com/cilium/cilium/pkg/counter"
 	datapathTypes "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/loadbalancer"
+	lb "github.com/cilium/cilium/pkg/loadbalancer"
 )
-
-type LoadBalancer interface {
-	Upsert(svc *loadbalancer.SVC)
-	Delete(addr loadbalancer.L3n4Addr)
-	GarbageCollect()
-
-	// TODO: some way querying the status if we need to report back up
-	// to users via e.g. k8s object's Status. Event channel?
-}
 
 var Cell = cell.Module(
 	"datapath-loadbalancer",
 	"Manages the BPF state for load-balancing",
 
 	cell.Config(DefaultConfig),
-	cell.ProvidePrivate(newLBManager),
-	cell.Provide(newLBWorker),
+	cell.Provide(New),
+
+	// A datapath worker is used to retry and rate-limit load-balancing
+	// requests.
+	worker.NewWorkerCell("loadbalancer_worker"),
 )
 
-func withLifecycledContext(lc hive.Lifecycle, start func(ctx context.Context, wg *sync.WaitGroup)) {
-	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	lc.Append(hive.Hook{
-		OnStart: func(hive.HookContext) error {
-			start(ctx, &wg)
-			return nil
-		},
-		OnStop: func(hive.HookContext) error {
-			cancel()
-			wg.Wait()
-			return nil
-		},
-	})
-}
+func New(lc hive.Lifecycle, config Config, lbmap datapathTypes.LBMap, devs api.Devices,
+	worker worker.Worker) api.LoadBalancer {
+	// The manager applies operations to the BPF maps and maintains
+	// the relevant state. The operations it implements should be idempotent
+	// as they can be retried.
+	m := &lbManager{
+		config:            config,
+		frontends:         make(map[frontendKey]*feState),
+		backendIDs:        make(map[backendKey]lb.BackendID),
+		nodePortFrontends: make(map[frontendKey]nodePortFrontend),
+		backendRefCount:   make(counter.Counter[backendKey]),
+		frontendIDAlloc:   NewIDAllocator(1, 1000), // FIXME
+		backendIDAlloc:    NewIDAllocator(1, 1000), // FIXME
+		lbmap:             lbmap,
+	}
 
-// newLBWorker creates a new load-balancer worker that implements LoadBalancer API.
-// The worker applies requests sequentially and retries failed requests. Requests
-// for the same frontend will be coalesced.
-func newLBWorker(lc hive.Lifecycle, m *lbManager, devs Devices) LoadBalancer {
-	w := (*lbWorker)(newWorker[frontendKey](lc, m))
+	// The front exposes the public API, with each operation executed with
+	// retries and rate-limiting using the worker.
+	//
+	// This relieves the users of the API from error handling and retrying,
+	// and separates the error retrying and rate-limiting logic from the
+	// manager.
+	f := &lbFront{Worker: worker, m: m}
+
+	// Start observing changes to devices in order to recompute NodePort
+	// frontends.
 	withLifecycledContext(lc,
 		func(ctx context.Context, wg *sync.WaitGroup) {
 			wg.Add(1)
-			devs.Observe(ctx, w.UpdateDevices, func(error) { wg.Done() })
+			devs.Observe(ctx, f.updateDevices, func(error) { wg.Done() })
 		})
-	return w
+
+	return f
+}
+
+// lbFront implement LoadBalancer. Each operation is queued to the worker
+// for processing and executed by lbManager.
+type lbFront struct {
+	worker.Worker
+	m *lbManager
+}
+
+func (f *lbFront) Upsert(fe *lb.SVC) {
+	f.Enqueue(fe.Frontend.Hash(), func() error { return f.m.upsertFrontend(fe) })
+}
+
+func (f *lbFront) Delete(frontend lb.L3n4Addr) {
+	key := frontend.Hash()
+	f.Enqueue(key, func() error { return f.m.deleteFrontend(key) })
+}
+
+func (f *lbFront) GarbageCollect() {
+	f.Enqueue("__gc__", f.m.garbageCollect)
+}
+
+func (f *lbFront) updateDevices(newDevices []api.Device) {
+	f.Enqueue("__devices__", func() error { return f.m.updateDevices(newDevices) })
 }
 
 type (
@@ -76,28 +99,22 @@ type (
 // state and on retry only the remaining changes are processed.
 type feState struct {
 	id       uint16 // FIXME overlap with "id" in FrontendID
-	svc      *loadbalancer.SVC
+	svc      *lb.SVC
 	backends container.Set[backendKey]
 	// ... ?
 }
 
-// TODO: What to call this thing? It sequentially processes work
-// coming from the worker and applies it to lbmap. Should probably
-// merge lbmap and this into one thing.
+// TODO: This should probably merge with lbmap, so we'd have one
+// entity that "manages" the load-balancer maps. Didn't do that
+// as I didn't want to touch lbmap too much yet.
 type lbManager struct {
 	config Config
 
-	// states contains the actualized states of the frontends.
-	states map[frontendKey]*feState
+	nodePortFrontends map[frontendKey]nodePortFrontend
 
-	// TODO: a bit too much going on here. consider separating
-	// backend and frontend state and methods into their own things?
+	frontends map[frontendKey]*feState // actualized state of frontends
 
-	nodePortFrontends map[frontendKey]container.Set[frontendKey]
-
-	frontendIDs map[frontendKey]uint16
-
-	backendIDs      map[backendKey]loadbalancer.BackendID
+	backendIDs      map[backendKey]lb.BackendID
 	backendRefCount counter.Counter[backendKey]
 
 	frontendIDAlloc *IDAllocator
@@ -105,27 +122,28 @@ type lbManager struct {
 
 	lbmap datapathTypes.LBMap
 
-	devices []Device
+	devices []api.Device
+
+	worker worker.Worker
 }
 
-func newLBManager(config Config, lbmap datapathTypes.LBMap) *lbManager {
-	return &lbManager{
-		config:            config,
-		states:            make(map[frontendKey]*feState),
-		frontendIDs:       make(map[frontendKey]uint16),
-		backendIDs:        make(map[backendKey]loadbalancer.BackendID),
-		nodePortFrontends: make(map[frontendKey]container.Set[frontendKey]),
-		backendRefCount:   make(counter.Counter[backendKey]),
-		frontendIDAlloc:   NewIDAllocator(1, 1000), // FIXME
-		backendIDAlloc:    NewIDAllocator(1, 1000), // FIXME
-		lbmap:             lbmap,
-	}
-	// TODO: add lifecycle hook which does restoreFromBPF()?
+type nodePortFrontend struct {
+	svc      *lb.SVC
+	expanded container.Set[frontendKey]
 }
 
-func (m *lbManager) updateDevices(devs []Device) error {
+func (m *lbManager) updateDevices(devs []api.Device) error {
 	m.devices = devs
-	// TODO: recompute frontends and reconcile
+
+	// Recompute every NodePort frontend
+	svcs := make([]*lb.SVC, 0, len(m.nodePortFrontends))
+	for _, np := range m.nodePortFrontends {
+		svcs = append(svcs, np.svc)
+	}
+	for _, svc := range svcs {
+		m.upsertFrontend(svc)
+	}
+
 	return nil
 }
 
@@ -157,7 +175,6 @@ func (m *lbManager) restoreFromBPF() {
 		if err != nil {
 			panic("TODO acquireLocalID")
 		}
-		m.frontendIDs[fe.Frontend.L3n4Addr.Hash()] = uint16(fe.Frontend.ID)
 	}
 }
 
@@ -169,29 +186,24 @@ func (m *lbManager) garbageCollect() error {
 	return nil
 }
 
-func (m *lbManager) periodicStateCheck() error {
-	// TODO: should we do a periodic check to make sure BPF state
-	// matches with what we'd expect? We'll need to then hold onto
-	// all the data (e.g. currently missing backend data).
-	return nil
-}
-
 func (m *lbManager) deleteFrontend(key frontendKey) error {
-	if fes := m.nodePortFrontends[key]; len(fes) > 0 {
-		for k := range fes {
+	if fes, ok := m.nodePortFrontends[key]; ok && len(fes.expanded) > 0 {
+		for k := range fes.expanded {
 			if err := m.deleteFrontendSingle(k); err != nil {
 				return err
 			}
 		}
+		delete(m.nodePortFrontends, key)
 		return nil
+	} else {
+		return m.deleteFrontendSingle(key)
 	}
-	return m.deleteFrontendSingle(key)
 }
 
 func (m *lbManager) deleteFrontendSingle(key frontendKey) error {
-	state, ok := m.states[key]
+	state, ok := m.frontends[key]
 	if !ok {
-		fmt.Printf("XXX deleteFrontend state not found for %s\n", key)
+		fmt.Printf("XXX deleteFrontend state not found for %q\n", key)
 		// TODO how to handle a deletion request for missing frontend? can
 		// probably only log a warning and there's no point returning an error since
 		// retrying makes no difference.
@@ -199,7 +211,7 @@ func (m *lbManager) deleteFrontendSingle(key frontendKey) error {
 	}
 
 	err := m.lbmap.DeleteService(
-		loadbalancer.L3n4AddrID{L3n4Addr: state.svc.Frontend.L3n4Addr, ID: loadbalancer.ID(state.id)},
+		lb.L3n4AddrID{L3n4Addr: state.svc.Frontend.L3n4Addr, ID: lb.ID(state.id)},
 		len(state.backends),
 		useMaglev(m.config, state.svc),
 		state.svc.NatPolicy,
@@ -219,19 +231,11 @@ func (m *lbManager) deleteFrontendSingle(key frontendKey) error {
 
 	// Now that deletion completed successfully we can forget the
 	// frontend state.
-	delete(m.states, key)
+	delete(m.frontends, key)
 
 	return nil
 }
 
-// TODO replace by subscribing to device manager. we'd maintain a current set
-// of frontend IPs and use those when frontend is upserted. When they change
-// all node port frontends would be recomputed and datapath updated
-// (e.g. we'd queue request to lbWorker to recompute... from somewhere).
-/*var dummyNodePortFrontendIPs = []string{
-	"0.0.0.0", // surrogate
-	"1.2.3.4",
-}*/
 func (m *lbManager) allFrontendIPs() []cmtypes.AddrCluster {
 	all := []cmtypes.AddrCluster{}
 	for _, dev := range m.devices {
@@ -242,48 +246,44 @@ func (m *lbManager) allFrontendIPs() []cmtypes.AddrCluster {
 			}
 		}
 	}
-
-	all = append(all, cmtypes.MustParseAddrCluster("1.2.3.4")) // XXX for selftest.go.
 	return all
 }
 
-func (m *lbManager) expandNodePortFrontends(frontend *loadbalancer.SVC) []*loadbalancer.SVC {
+func (m *lbManager) expandNodePortFrontends(frontend *lb.SVC) []*lb.SVC {
 	allIPs := m.allFrontendIPs()
-
-	// TODO implement the real thing.
-	fes := make([]*loadbalancer.SVC, len(allIPs))
+	fes := make([]*lb.SVC, len(allIPs))
 	for i, ip := range allIPs {
 		fe := *frontend
 		fe.Frontend.AddrCluster = ip
 		fes[i] = &fe
 	}
-
 	return fes
 }
 
-func (m *lbManager) upsertFrontend(frontend *loadbalancer.SVC) error {
-	if frontend.Type == loadbalancer.SVCTypeNodePort {
+func (m *lbManager) upsertFrontend(frontend *lb.SVC) error {
+	if frontend.Type == lb.SVCTypeNodePort {
 		hash := frontend.Frontend.Hash()
 
-		// FIXME: expand to real frontends based on device IPs and call upsert() on each.
-		// Need to maintain a mapping from "frontend" to the expanded ones.
 		keys := container.NewSet[frontendKey]()
 		for _, fe := range m.expandNodePortFrontends(frontend) {
 			keys.Add(fe.Frontend.Hash())
 			if err := m.upsertSingle(fe); err != nil {
 				// TODO: rewind? we might be leaving orphan frontends.
+				// TODO: In what state do we leave things?
 				return err
 			}
 		}
 
-		/* TODO
-		oldKeys := m.nodePortFrontends[hash]
-		... delete frontends that no longer should exist.
-		... OR can this be fully managed when handling device changes?
-		*/
-
-		m.nodePortFrontends[hash] = keys
-
+		// Delete any orphan frontends.
+		if old, ok := m.nodePortFrontends[hash]; ok {
+			for orphan := range old.expanded.Sub(keys) {
+				if err := m.deleteFrontendSingle(orphan); err != nil {
+					// TODO: In what state do we leave things?
+					return err
+				}
+			}
+		}
+		m.nodePortFrontends[hash] = nodePortFrontend{svc: frontend, expanded: keys}
 		return nil
 	} else {
 		return m.upsertSingle(frontend)
@@ -291,7 +291,7 @@ func (m *lbManager) upsertFrontend(frontend *loadbalancer.SVC) error {
 
 }
 
-func (m *lbManager) addBackend(key backendKey, be *loadbalancer.Backend) error {
+func (m *lbManager) addBackend(key backendKey, be *lb.Backend) error {
 	if _, ok := m.backendIDs[key]; ok {
 		// Existing backend, nothing to do.()_
 		return nil
@@ -300,10 +300,10 @@ func (m *lbManager) addBackend(key backendKey, be *loadbalancer.Backend) error {
 	if err != nil {
 		return err
 	}
-	id := loadbalancer.BackendID(addrId.ID)
+	id := lb.BackendID(addrId.ID)
 
 	// FIXME: change the LBMap types
-	legacyBE := &loadbalancer.Backend{
+	legacyBE := &lb.Backend{
 		ID:         id,
 		FEPortName: be.FEPortName,
 		Weight:     be.Weight,
@@ -316,8 +316,6 @@ func (m *lbManager) addBackend(key backendKey, be *loadbalancer.Backend) error {
 		return fmt.Errorf("adding backend %d (%s) failed: %w", id,
 			be.L3n4Addr.String(), err)
 	}
-
-	//fmt.Printf("LBMANAGER: Created backend %s with id %d\n", be.L3n4Addr.String(), id)
 	m.backendIDs[key] = id
 	return nil
 }
@@ -336,8 +334,9 @@ func (m *lbManager) deleteBackend(key backendKey) error {
 	return nil
 }
 
-func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
+func (m *lbManager) upsertSingle(frontend *lb.SVC) error {
 	backends := frontend.Backends
+
 	// This method is written to be idempotent and thus retryable. The state of the frontend is updated after each
 	// successful step. On early return of an error the upsert request will be retried and this
 	// method continues from where it last failed based on the state. The assumption is that
@@ -345,10 +344,8 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 	// full (ENOSPC) and retrying (with backoff) allows user intervention to make more space and
 	// to eventually recover.
 
-	//fmt.Printf("LBMANAGER: upsert: fe[%s]=%s, nbackends=%d\n", frontend.Type, frontend.Frontend.String(), len(backends))
-
 	frontendKey := frontend.Frontend.Hash()
-	state, ok := m.states[frontendKey]
+	state, ok := m.frontends[frontendKey]
 	if !ok {
 		addrId, err := m.frontendIDAlloc.acquireLocalID(frontend.Frontend.L3n4Addr, 0)
 		if err != nil {
@@ -362,7 +359,7 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 			svc:      frontend,
 			backends: container.NewSet[backendKey](),
 		}
-		m.states[frontendKey] = state
+		m.frontends[frontendKey] = state
 	}
 
 	oldBackends := state.backends
@@ -395,11 +392,11 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 
 	// FIXME: We really only need the backend id and its weight, not all the data.
 	// Perhaps even could update the maglev maps separately.
-	legacyBackends := map[string]*loadbalancer.Backend{}
+	legacyBackends := map[string]*lb.Backend{}
 	for _, be := range backends {
 		key := be.Hash()
-		legacyBE := &loadbalancer.Backend{
-			ID:         loadbalancer.BackendID(m.backendIDs[key]),
+		legacyBE := &lb.Backend{
+			ID:         lb.BackendID(m.backendIDs[key]),
 			FEPortName: be.FEPortName,
 			Weight:     be.Weight,
 			NodeName:   be.NodeName,
@@ -435,8 +432,6 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 		Name:                      frontend.Name,
 		LoopbackHostport:          frontend.LoopbackHostport,
 	}
-	//fmt.Printf("LBMANAGER: Upserting frontend %s (%s:%d) (id %d) with %d backends\n",
-	//	params.Name, params.IP.String(), params.Port, params.ID, len(params.ActiveBackends))
 
 	if err := m.lbmap.UpsertService(&params); err != nil {
 		// FIXME delete the created backends, or leave them around as we keep
@@ -449,18 +444,10 @@ func (m *lbManager) upsertSingle(frontend *loadbalancer.SVC) error {
 		backendAddrs = append(backendAddrs, be.L3n4Addr.String())
 	}
 
-	//fmt.Println("\033[2J\033[H")
-
-	/*fmt.Printf("LBMANAGER: upsert OK: type=%s, name=%s, frontend=%s, backends=%s\n",
-	frontend.Type,
-	frontend.Name, frontend.Frontend.String(), strings.Join(backendAddrs, ", "))*/
-
-	//helpers.WriteLBMapAsTable(os.Stdout, m.lbmap.(*mockmaps.LBMockMap))
-
 	return nil
 }
 
-func useMaglev(config Config, fe *loadbalancer.SVC) bool {
+func useMaglev(config Config, fe *lb.SVC) bool {
 	if config.NodePortAlg != NodePortAlgMaglev {
 		return false
 	}
@@ -468,21 +455,21 @@ func useMaglev(config Config, fe *loadbalancer.SVC) bool {
 	// enabled because ClusterIP can also be accessed from outside with this
 	// setting. We don't do it unconditionally to avoid increasing memory
 	// footprint.
-	if fe.Type == loadbalancer.SVCTypeClusterIP && !config.ExternalClusterIP {
+	if fe.Type == lb.SVCTypeClusterIP && !config.ExternalClusterIP {
 		return false
 	}
 	// Wildcarded frontend is not exposed for external traffic.
-	if fe.Type == loadbalancer.SVCTypeNodePort && isWildcardAddr(fe.Frontend.L3n4Addr) {
+	if fe.Type == lb.SVCTypeNodePort && isWildcardAddr(fe.Frontend.L3n4Addr) {
 		return false
 	}
 	// Only provision the Maglev LUT for service types which are reachable
 	// from outside the node.
 	switch fe.Type {
-	case loadbalancer.SVCTypeClusterIP,
-		loadbalancer.SVCTypeNodePort,
-		loadbalancer.SVCTypeLoadBalancer,
-		loadbalancer.SVCTypeHostPort,
-		loadbalancer.SVCTypeExternalIPs:
+	case lb.SVCTypeClusterIP,
+		lb.SVCTypeNodePort,
+		lb.SVCTypeLoadBalancer,
+		lb.SVCTypeHostPort,
+		lb.SVCTypeExternalIPs:
 		return true
 	}
 	return false
@@ -495,183 +482,25 @@ var (
 
 // isWildcardAddr returns true if given frontend is used for wildcard svc lookups
 // (by bpf_sock).
-func isWildcardAddr(frontend loadbalancer.L3n4Addr) bool {
+func isWildcardAddr(frontend lb.L3n4Addr) bool {
 	if frontend.IsIPv6() {
 		return wildcardIPv6.Equal(frontend.AddrCluster)
 	}
 	return wildcardIPv4.Equal(frontend.AddrCluster)
 }
 
-type lbWorker worker[frontendKey, *lbManager]
-
-// lbWorker implements the LoadBalancer API.
-var _ LoadBalancer = &lbWorker{}
-
-type lbRequest = request[frontendKey, *lbManager]
-
-type upsertRequest struct {
-	*loadbalancer.SVC
-}
-
-func (r *upsertRequest) key() string { return r.Frontend.Hash() }
-
-func (r *upsertRequest) apply(m *lbManager) error {
-	return m.upsertFrontend(r.SVC)
-}
-
-func (w *lbWorker) Upsert(fe *loadbalancer.SVC) {
-	w.requests <- &upsertRequest{fe}
-}
-
-type deleteRequest struct {
-	hash string
-}
-
-func (r *deleteRequest) key() string { return r.hash }
-
-func (r *deleteRequest) apply(m *lbManager) error {
-	return m.deleteFrontend(r.hash)
-}
-
-func (w *lbWorker) Delete(frontend loadbalancer.L3n4Addr) {
-	w.requests <- &deleteRequest{frontend.Hash()}
-}
-
-type gcRequest struct{}
-
-func (r gcRequest) key() string {
-	return "__gc__"
-}
-
-func (r gcRequest) apply(m *lbManager) error {
-	return m.garbageCollect()
-}
-
-func (w *lbWorker) GarbageCollect() {
-	w.requests <- gcRequest{}
-}
-
-type updateDevices struct {
-	newDevices []Device
-}
-
-func (r updateDevices) key() string {
-	return "__devices__"
-}
-
-func (r updateDevices) apply(m *lbManager) error {
-	return m.updateDevices(r.newDevices)
-}
-
-func (w *lbWorker) UpdateDevices(newDevices []Device) {
-	w.requests <- updateDevices{newDevices}
-}
-
-//
-// Generic workqueue driven worker that processes requests sequentially.
-//
-// Implemented this as a generic version as this is a pattern we might want to
-// potentially reuse.
-//
-// TODO:
-// - What to name this?
-// - Should be able to configure error handling behavior and rate limiting
-// - Metrics and status? Or an event channel for success and retries? Or both?
-// - Move to its own package somewhere
-
-type request[Key comparable, Manager any] interface {
-	apply(Manager) error
-	key() Key
-}
-
-type worker[Key comparable, Manager any] struct {
-	mgr      Manager
-	wq       workqueue.RateLimitingInterface
-	requests chan request[Key, Manager]
-	work     chan Key
-}
-
-func newWorker[Key comparable, Manager any](lc hive.Lifecycle, m Manager) *worker[Key, Manager] {
-	w := &worker[Key, Manager]{
-		mgr:      m,
-		wq:       workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
-		requests: make(chan request[Key, Manager]),
-		work:     make(chan Key),
-	}
-
-	wp := workerpool.New(2)
-
+func withLifecycledContext(lc hive.Lifecycle, start func(ctx context.Context, wg *sync.WaitGroup)) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
 	lc.Append(hive.Hook{
 		OnStart: func(hive.HookContext) error {
-			if err := wp.Submit("queueGetter", w.queueGetter); err != nil {
-				wp.Close()
-				return err
-			}
-			if err := wp.Submit("processLoop", w.processLoop); err != nil {
-				wp.Close()
-				return err
-			}
+			start(ctx, &wg)
 			return nil
 		},
 		OnStop: func(hive.HookContext) error {
-			return wp.Close()
+			cancel()
+			wg.Wait()
+			return nil
 		},
 	})
-
-	return w
-}
-
-func (w *worker[Key, Manager]) queueGetter(context.Context) error {
-	defer close(w.work)
-	for {
-		item, shutdown := w.wq.Get()
-		if shutdown {
-			return nil
-		}
-		w.work <- item.(Key)
-	}
-}
-
-func (w *worker[Key, Manager]) processLoop(ctx context.Context) error {
-	retries := container.NewSet[Key]()
-	unrealized := make(map[Key]request[Key, Manager])
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Shut down the queue and drain the work channel.
-			w.wq.ShutDown()
-			for range w.work {
-			}
-			close(w.requests)
-			return nil
-
-		case hash := <-w.work:
-			req, ok := unrealized[hash]
-			if !ok {
-				// Since the entry is gone we've already processed it.
-				continue
-			}
-
-			err := req.apply(w.mgr)
-			if err != nil {
-				// TODO log/incr metrics/update status/emit event etc.
-				// onError callback?
-				fmt.Printf("WORKER: req.apply err: %s\n", err)
-				w.wq.AddRateLimited(hash)
-				retries.Add(hash)
-			} else {
-				w.wq.Forget(hash)
-				delete(unrealized, hash)
-				if len(retries) > 0 {
-					retries.Delete(hash)
-				}
-			}
-			w.wq.Done(hash)
-
-		case req := <-w.requests:
-			unrealized[req.key()] = req
-			w.wq.Add(req.key())
-		}
-	}
 }

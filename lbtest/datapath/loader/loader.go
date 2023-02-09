@@ -1,4 +1,4 @@
-package main
+package loader
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cilium/cilium/lbtest/datapath/api"
 	"github.com/cilium/cilium/pkg/byteorder"
-	"github.com/cilium/cilium/pkg/datapath/lb"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -22,9 +22,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// TODO: Move into datapath/something/loader ???
-
-var loaderCell = cell.Module(
+var Cell = cell.Module(
 	"loader",
 	"A simple BPF loader for lbtest",
 
@@ -52,10 +50,11 @@ var defLoaderConfig = LoaderConfig{
 type loaderParams struct {
 	cell.In
 
-	Lifecycle hive.Lifecycle
-	Log       logrus.FieldLogger
-	Config    LoaderConfig
-	Devices   lb.Devices
+	Lifecycle      hive.Lifecycle
+	Log            logrus.FieldLogger
+	Config         LoaderConfig
+	Devices        api.Devices
+	StatusReporter cell.StatusReporter
 }
 
 func newLoader(p loaderParams) *Loader {
@@ -162,13 +161,16 @@ func (l *Loader) Stop(hive.HookContext) error {
 	return nil
 }
 
-// TODO: Use "lb.worker" and retry on failures?
-func (l *Loader) reload(devs []lb.Device) {
+// TODO: Use worker to retry on failures?
+func (l *Loader) reload(devs []api.Device) {
 	// FIXME incremental
 	for _, link := range l.links {
 		link.Close()
 	}
 	l.links = nil
+
+	attachedTo := []string{}
+	failures := []string{}
 
 	for _, dev := range devs {
 		name := dev.Name
@@ -177,7 +179,8 @@ func (l *Loader) reload(devs []lb.Device) {
 
 		iface, err := net.InterfaceByName(name)
 		if err != nil {
-			log.Errorf("Cannot find device %q: %w", name, err)
+			log.Errorf("Cannot find device %q: %s", name, err)
+			failures = append(failures, fmt.Sprintf("cannot find %q: %s", name, err.Error()))
 			continue
 		}
 		xdpLink, err := link.AttachXDP(link.XDPOptions{
@@ -185,11 +188,19 @@ func (l *Loader) reload(devs []lb.Device) {
 			Interface: iface.Index,
 		})
 		if err != nil {
-			log.Errorf("AttachXDP: %w", err)
+			log.Errorf("AttachXDP: %s", err)
+			failures = append(failures, fmt.Sprintf("AttachXDP to %q failed: %s", name, err.Error()))
 			continue
 		}
 		l.links = append(l.links, xdpLink)
 		log.Info("Attached")
+		attachedTo = append(attachedTo, name)
+	}
+
+	if len(failures) == 0 {
+		l.params.StatusReporter.OK(fmt.Sprintf("Attached to %v", attachedTo))
+	} else {
+		l.params.StatusReporter.Degraded(fmt.Sprintf("Attached to %v, but failed with: %v", attachedTo, failures))
 	}
 }
 

@@ -8,14 +8,13 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/cilium/cilium/api/v1/models"
-	"github.com/cilium/cilium/controlplane/servicemanager"
+	"github.com/cilium/cilium/lbtest/controlplane/services"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/hive"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	k8sUtils "github.com/cilium/cilium/pkg/k8s/utils"
 	lb "github.com/cilium/cilium/pkg/loadbalancer"
-	"github.com/cilium/cilium/pkg/status"
 
 	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/k8s/resource"
@@ -29,26 +28,26 @@ var Cell = cell.Module(
 
 	cell.Provide(
 		newLRPHandler,
-		newGetLRPHandler,
 	),
+	cell.Invoke(func(*lrpHandler) {}),
 )
 
 type lrpHandlerParams struct {
 	cell.In
 
-	ServiceManager   servicemanager.ServiceManager
+	ServiceManager   services.ServiceManager
 	Log              logrus.FieldLogger
 	RedirectPolicies resource.Resource[*cilium_v2.CiliumLocalRedirectPolicy]
 	Services         resource.Resource[*slim_corev1.Service]
 	Pods             resource.Resource[*slim_corev1.Pod]
-	Reporter         status.Reporter
+	Reporter         cell.StatusReporter
 }
 
 // TODO rename to redirectPoliciesManager?
 type lrpHandler struct {
 	params        lrpHandlerParams
 	log           logrus.FieldLogger
-	handle        servicemanager.ServiceHandle
+	handle        services.ServiceHandle
 	podTracker    resource.ObjectTracker[*slim_corev1.Pod]
 	policyConfigs map[resource.Key]*LRPConfig
 	getRequests   chan chan []*models.LRPSpec
@@ -83,6 +82,7 @@ func newLRPHandler(log logrus.FieldLogger, lc hive.Lifecycle, p lrpHandlerParams
 			OnStop: func(hive.HookContext) error {
 				cancel()
 				wg.Wait()
+				handler.handle.Close()
 				return nil
 			},
 		})
@@ -101,7 +101,7 @@ func (h *lrpHandler) processLoop(ctx context.Context) {
 	policies := h.params.RedirectPolicies.Events(ctx)
 	pods := h.podTracker.Events()
 
-	h.params.Reporter.OK()
+	h.params.Reporter.OK("Processing")
 	defer h.params.Reporter.Down("Stopped")
 
 	for {
@@ -151,8 +151,8 @@ func (h *lrpHandler) processLoop(ctx context.Context) {
 	}
 }
 
-func applyLRPConfig(h servicemanager.ServiceHandle, c *LRPConfig) {
-	redirectConfig := servicemanager.LocalRedirectConfig{}
+func applyLRPConfig(h services.ServiceHandle, c *LRPConfig) {
+	redirectConfig := services.LocalRedirectConfig{}
 	for _, feM := range c.frontendMappings {
 		redirectConfig.FrontendPorts = append(
 			redirectConfig.FrontendPorts,

@@ -5,7 +5,10 @@ package k8s
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,15 +51,19 @@ var (
 			endpointsResource,
 			cecResource,
 			ccecResource,
+			lrpResource,
+			podResource,
 		),
+
+		cell.Invoke(periodicStatusReporter),
 	)
 )
 
 type SharedResources struct {
 	cell.In
 
-	LocalNode                     *LocalNodeResource
-	LocalCiliumNode               *LocalCiliumNodeResource
+	LocalNode                     LocalNodeResource
+	LocalCiliumNode               LocalCiliumNodeResource
 	Services                      resource.Resource[*slim_corev1.Service]
 	Namespaces                    resource.Resource[*slim_corev1.Namespace]
 	LBIPPools                     resource.Resource[*cilium_v2alpha1.CiliumLoadBalancerIPPool]
@@ -64,6 +71,83 @@ type SharedResources struct {
 	Endpoints                     resource.Resource[*Endpoints]
 	CiliumEnvoyConfigs            resource.Resource[*cilium_v2.CiliumEnvoyConfig]
 	CiliumClusterwideEnvoyConfigs resource.Resource[*cilium_v2.CiliumClusterwideEnvoyConfig]
+	CiliumLocalRedirectPolicies   resource.Resource[*cilium_v2.CiliumLocalRedirectPolicy]
+	Pods                          resource.Resource[*slim_corev1.Pod]
+}
+
+func periodicStatusReporter(lc hive.Lifecycle, resources SharedResources, reporter cell.StatusReporter) {
+	t := time.NewTicker(10 * time.Second)
+	lc.Append(hive.Hook{
+		OnStart: func(hive.HookContext) error {
+			go func() {
+				lastStatus := ""
+				lastStatus = reportStatus(lastStatus, resources, reporter)
+				for range t.C {
+					lastStatus = reportStatus(lastStatus, resources, reporter)
+				}
+			}()
+			return nil
+		},
+		OnStop: func(hive.HookContext) error {
+			t.Stop()
+			return nil
+		},
+	})
+}
+
+func reportStatus(lastStatus string, resources SharedResources, reporter cell.StatusReporter) string {
+	type statusGetter interface {
+		Status() (string, bool)
+	}
+	nominal := true
+	statuses := []string{}
+
+	appendStatus := func(g statusGetter) {
+		status, ok := g.Status()
+		nominal = nominal && ok
+		// TODO pretty names?
+		if status != "" {
+			name := fmt.Sprintf("%T", g)
+			// TODO fix this hack. maybe give resource a name by hand?
+			name = strings.TrimRight(name, "]")
+			sepIdx := strings.LastIndexAny(name, "/.")
+			if sepIdx >= 0 {
+				name = name[sepIdx+1:]
+			}
+			statuses = append(statuses, fmt.Sprintf("%s: %s", name, status))
+		}
+	}
+
+	v := reflect.ValueOf(resources)
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.IsZero() {
+			continue
+		}
+		g, ok := f.Interface().(statusGetter)
+		if ok {
+			appendStatus(g)
+		}
+	}
+
+	status := ""
+	if len(statuses) == 0 {
+		status = "No resources needed"
+	} else {
+		status = strings.Join(statuses, ", ")
+	}
+
+	if status == lastStatus {
+		return status
+	}
+
+	if nominal {
+		reporter.OK(status)
+	} else {
+		// TODO only report the degraded status?
+		reporter.Degraded(status)
+	}
+	return status
 }
 
 func serviceResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*slim_corev1.Service], error) {
@@ -81,32 +165,28 @@ func serviceResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[
 
 // LocalNodeResource is a resource.Resource[*corev1.Node] but one which will only stream updates for the node object
 // associated with the node we are currently running on.
-type LocalNodeResource struct {
-	resource.Resource[*corev1.Node]
-}
+type LocalNodeResource resource.Resource[*corev1.Node]
 
-func localNodeResource(lc hive.Lifecycle, cs client.Clientset) (*LocalNodeResource, error) {
+func localNodeResource(lc hive.Lifecycle, cs client.Clientset) (LocalNodeResource, error) {
 	if !cs.IsEnabled() {
 		return nil, nil
 	}
 	lw := utils.ListerWatcherFromTyped[*corev1.NodeList](cs.CoreV1().Nodes())
 	lw = utils.ListerWatcherWithFields(lw, fields.ParseSelectorOrDie("metadata.name="+nodeTypes.GetName()))
-	return &LocalNodeResource{Resource: resource.New[*corev1.Node](lc, lw)}, nil
+	return LocalNodeResource(resource.New[*corev1.Node](lc, lw)), nil
 }
 
 // LocalCiliumNodeResource is a resource.Resource[*cilium_v2.Node] but one which will only stream updates for the
 // CiliumNode object associated with the node we are currently running on.
-type LocalCiliumNodeResource struct {
-	resource.Resource[*cilium_v2.CiliumNode]
-}
+type LocalCiliumNodeResource resource.Resource[*cilium_v2.CiliumNode]
 
-func localCiliumNodeResource(lc hive.Lifecycle, cs client.Clientset) (*LocalCiliumNodeResource, error) {
+func localCiliumNodeResource(lc hive.Lifecycle, cs client.Clientset) (LocalCiliumNodeResource, error) {
 	if !cs.IsEnabled() {
 		return nil, nil
 	}
 	lw := utils.ListerWatcherFromTyped[*cilium_v2.CiliumNodeList](cs.CiliumV2().CiliumNodes())
 	lw = utils.ListerWatcherWithFields(lw, fields.ParseSelectorOrDie("metadata.name="+nodeTypes.GetName()))
-	return &LocalCiliumNodeResource{Resource: resource.New[*cilium_v2.CiliumNode](lc, lw)}, nil
+	return LocalCiliumNodeResource(resource.New[*cilium_v2.CiliumNode](lc, lw)), nil
 }
 
 func namespaceResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*slim_corev1.Namespace], error) {
@@ -220,4 +300,20 @@ func ccecResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*ci
 	}
 	lw := utils.ListerWatcherFromTyped[*cilium_v2.CiliumClusterwideEnvoyConfigList](cs.CiliumV2().CiliumClusterwideEnvoyConfigs())
 	return resource.New[*cilium_v2.CiliumClusterwideEnvoyConfig](lc, lw), nil
+}
+
+func lrpResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*cilium_v2.CiliumLocalRedirectPolicy], error) {
+	if !cs.IsEnabled() {
+		return nil, nil
+	}
+	lw := utils.ListerWatcherFromTyped[*cilium_v2.CiliumLocalRedirectPolicyList](cs.CiliumV2().CiliumLocalRedirectPolicies(""))
+	return resource.New[*cilium_v2.CiliumLocalRedirectPolicy](lc, lw), nil
+}
+
+func podResource(lc hive.Lifecycle, cs client.Clientset) (resource.Resource[*slim_corev1.Pod], error) {
+	if !cs.IsEnabled() {
+		return nil, nil
+	}
+	lw := utils.ListerWatcherFromTyped[*slim_corev1.PodList](cs.Slim().CoreV1().Pods(""))
+	return resource.New[*slim_corev1.Pod](lc, lw), nil
 }

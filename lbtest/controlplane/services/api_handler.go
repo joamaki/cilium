@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package servicemanager
+package services
 
 import (
 	"github.com/go-openapi/runtime/middleware"

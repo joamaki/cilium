@@ -1,4 +1,4 @@
-package servicemanager
+package services
 
 import (
 	"context"
@@ -24,21 +24,18 @@ var K8sHandlerCell = cell.Module(
 	"service-k8s-handler",
 	"Manages services from Kubernetes",
 
-	cell.Provide(newK8sHandler),
-
-	// FIXME: Would be nice to include "Invoke"'s in the
-	// module dot graph. Then we don't need to have private objects
-	// in the graph.
-	cell.Invoke(func(*k8sHandler) {}),
+	cell.Invoke(registerK8sHandler),
 )
 
 type k8sHandlerParams struct {
 	cell.In
 
+	Lifecycle      hive.Lifecycle
 	ServiceManager ServiceManager
 	Log            logrus.FieldLogger
 	Services       resource.Resource[*slim_corev1.Service]
 	Endpoints      resource.Resource[*k8s.Endpoints]
+	StatusReporter cell.StatusReporter
 }
 
 type k8sHandler struct {
@@ -50,10 +47,11 @@ type k8sHandler struct {
 	workerpool *workerpool.WorkerPool
 }
 
-func newK8sHandler(log logrus.FieldLogger, lc hive.Lifecycle, p k8sHandlerParams) *k8sHandler {
+func registerK8sHandler(p k8sHandlerParams) {
 	if p.Services == nil {
+		p.StatusReporter.Down("Disabled: Kubernetes not configured")
 		log.Info("K8s Services not available, not starting K8sHandler")
-		return nil
+		return
 	}
 
 	handler := &k8sHandler{
@@ -61,8 +59,7 @@ func newK8sHandler(log logrus.FieldLogger, lc hive.Lifecycle, p k8sHandlerParams
 		handle:     p.ServiceManager.NewHandle("k8s-handler"),
 		workerpool: workerpool.New(1),
 	}
-	lc.Append(handler)
-	return handler
+	p.Lifecycle.Append(handler)
 }
 
 func (k *k8sHandler) Start(hive.HookContext) error {
@@ -70,6 +67,7 @@ func (k *k8sHandler) Start(hive.HookContext) error {
 }
 
 func (k *k8sHandler) Stop(hive.HookContext) error {
+	defer k.params.StatusReporter.Down("Stopped")
 	defer k.handle.Close()
 	return k.workerpool.Close()
 }
@@ -79,6 +77,8 @@ func (k *k8sHandler) processLoop(ctx context.Context) error {
 	servicesSynced := false
 	endpoints := k.params.Endpoints.Events(ctx)
 	endpointsSynced := false
+
+	k.params.StatusReporter.OK("Processing events")
 
 	for {
 		select {

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package lb
+package loadbalancer
 
 import (
 	"fmt"
 
-	"github.com/cilium/cilium/pkg/loadbalancer"
+	lb "github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/lock"
 )
 
@@ -16,7 +16,7 @@ type IDAllocator struct {
 	lock.RWMutex
 
 	// entitiesID is a map of all entities indexed by frontend or backend ID
-	entitiesID map[uint32]*loadbalancer.L3n4AddrID
+	entitiesID map[uint32]*lb.L3n4AddrID
 
 	// entities is a map of all entities indexed by L3n4Addr.StringID()
 	entities map[string]uint32
@@ -42,7 +42,7 @@ var (
 // NewIDAllocator creates a new ID allocator instance.
 func NewIDAllocator(nextID uint32, maxID uint32) *IDAllocator {
 	return &IDAllocator{
-		entitiesID: map[uint32]*loadbalancer.L3n4AddrID{},
+		entitiesID: map[uint32]*lb.L3n4AddrID{},
 		entities:   map[string]uint32{},
 		nextID:     nextID,
 		maxID:      maxID,
@@ -51,7 +51,7 @@ func NewIDAllocator(nextID uint32, maxID uint32) *IDAllocator {
 	}
 }
 
-func (alloc *IDAllocator) addID(fe loadbalancer.L3n4Addr, id uint32) *loadbalancer.L3n4AddrID {
+func (alloc *IDAllocator) addID(fe lb.L3n4Addr, id uint32) *lb.L3n4AddrID {
 	feID := newID(fe, id)
 	alloc.entitiesID[id] = feID
 	alloc.entities[fe.StringID()] = id
@@ -59,7 +59,7 @@ func (alloc *IDAllocator) addID(fe loadbalancer.L3n4Addr, id uint32) *loadbalanc
 	return feID
 }
 
-func (alloc *IDAllocator) acquireLocalID(fe loadbalancer.L3n4Addr, desiredID uint32) (*loadbalancer.L3n4AddrID, error) {
+func (alloc *IDAllocator) acquireLocalID(fe lb.L3n4Addr, desiredID uint32) (*lb.L3n4AddrID, error) {
 	alloc.Lock()
 	defer alloc.Unlock()
 
@@ -106,7 +106,7 @@ func (alloc *IDAllocator) acquireLocalID(fe loadbalancer.L3n4Addr, desiredID uin
 	return nil, fmt.Errorf("no ID available")
 }
 
-func (alloc *IDAllocator) getLocalID(id uint32) (*loadbalancer.L3n4AddrID, error) {
+func (alloc *IDAllocator) getLocalID(id uint32) (*lb.L3n4AddrID, error) {
 	alloc.RLock()
 	defer alloc.RUnlock()
 
@@ -129,7 +129,7 @@ func (alloc *IDAllocator) deleteLocalID(id uint32) error {
 	return nil
 }
 
-func (alloc *IDAllocator) lookupLocalID(fe loadbalancer.L3n4Addr) (uint32, error) {
+func (alloc *IDAllocator) lookupLocalID(fe lb.L3n4Addr) (uint32, error) {
 	alloc.RLock()
 	defer alloc.RUnlock()
 
@@ -157,16 +157,16 @@ func (alloc *IDAllocator) getLocalMaxID() (uint32, error) {
 
 func (alloc *IDAllocator) resetLocalID() {
 	alloc.Lock()
-	alloc.entitiesID = map[uint32]*loadbalancer.L3n4AddrID{}
+	alloc.entitiesID = map[uint32]*lb.L3n4AddrID{}
 	alloc.entities = map[string]uint32{}
 	alloc.nextID = alloc.initNextID
 	alloc.maxID = alloc.initMaxID
 	alloc.Unlock()
 }
 
-func newID(fe loadbalancer.L3n4Addr, id uint32) *loadbalancer.L3n4AddrID {
-	return &loadbalancer.L3n4AddrID{
+func newID(fe lb.L3n4Addr, id uint32) *lb.L3n4AddrID {
+	return &lb.L3n4AddrID{
 		L3n4Addr: fe,
-		ID:       loadbalancer.ID(id),
+		ID:       lb.ID(id),
 	}
 }

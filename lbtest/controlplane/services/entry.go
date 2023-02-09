@@ -1,10 +1,10 @@
-package servicemanager
+package services
 
 import (
 	"golang.org/x/exp/slices"
 
+	datapath "github.com/cilium/cilium/lbtest/datapath/api"
 	"github.com/cilium/cilium/pkg/container"
-	datapathlb "github.com/cilium/cilium/pkg/datapath/lb"
 	lb "github.com/cilium/cilium/pkg/loadbalancer"
 )
 
@@ -39,7 +39,7 @@ func (e *serviceEntry) isZero() bool {
 		len(e.observers) == 0
 }
 
-func (e *serviceEntry) apply(dp datapathlb.LoadBalancer) {
+func (e *serviceEntry) apply(dp datapath.LoadBalancer) {
 	if e.overrideLocalRedirect != nil {
 		e.overrideLocalRedirect.apply(e, dp)
 		return
@@ -86,7 +86,7 @@ type overrideProxyRedirect struct {
 	proxyPort uint16
 }
 
-func (o *overrideProxyRedirect) apply(e *serviceEntry, dp datapathlb.LoadBalancer) {
+func (o *overrideProxyRedirect) apply(e *serviceEntry, dp datapath.LoadBalancer) {
 	for _, fe := range e.frontends {
 		svc := fe.ToSVC()
 		svc.Backends = e.backends
@@ -99,7 +99,7 @@ type overrideLocalRedirect struct {
 	localBackends []*lb.Backend
 }
 
-func (o *overrideLocalRedirect) apply(e *serviceEntry, dp datapathlb.LoadBalancer) {
+func (o *overrideLocalRedirect) apply(e *serviceEntry, dp datapath.LoadBalancer) {
 	// FIXME does local service redirect to apply to all frontends equally?
 	for _, fe := range e.frontends {
 		svc := fe.ToSVC()

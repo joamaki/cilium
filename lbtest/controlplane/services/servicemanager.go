@@ -1,4 +1,4 @@
-package servicemanager
+package services
 
 import (
 	"context"
@@ -8,20 +8,38 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 
-	datapathlb "github.com/cilium/cilium/pkg/datapath/lb"
+	datapath "github.com/cilium/cilium/lbtest/datapath/api"
 	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	lb "github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/lock"
 )
 
-func New(p params) ServiceManager {
+var ServiceManagerCell = cell.Module(
+	"service-manager",
+	"Manages the merging of load-balancing frontends and backends",
+
+	cell.Provide(New),
+)
+
+type serviceManagerParams struct {
+	cell.In
+
+	Lifecycle      hive.Lifecycle
+	StatusReporter cell.StatusReporter
+	DPLB           datapath.LoadBalancer
+}
+
+func New(p serviceManagerParams) ServiceManager {
 	sm := &serviceManager{
 		wp:         workerpool.New(2),
 		datapath:   p.DPLB,
 		handlesSWG: lock.NewStoppableWaitGroup(),
 		entries:    make(map[lb.ServiceName]serviceEntry),
 		handles:    make(map[string]*serviceHandle),
+		reporter:   p.StatusReporter,
 	}
+	p.Lifecycle.Append(sm)
 	return sm
 }
 
@@ -35,18 +53,23 @@ type serviceManager struct {
 
 	wp *workerpool.WorkerPool
 
-	datapath   datapathlb.LoadBalancer
+	datapath   datapath.LoadBalancer
 	handles    map[string]*serviceHandle
 	handlesSWG *lock.StoppableWaitGroup
+
+	reporter cell.StatusReporter
 }
 
 var _ ServiceManager = &serviceManager{}
 
 func (sm *serviceManager) Start(hive.HookContext) error {
+	sm.reporter.OK(fmt.Sprintf("Waiting to synchronize (%d handles)", len(sm.handles)))
 	return sm.wp.Submit("synchronize", sm.synchronize)
 }
 
 func (sm *serviceManager) Stop(hive.HookContext) error {
+	defer sm.reporter.Down("Stopped")
+
 	if len(sm.handles) != 0 {
 		return fmt.Errorf("unclosed handles remain: %v", maps.Keys(sm.handles))
 	}
@@ -82,6 +105,7 @@ func (sm *serviceManager) synchronize(ctx context.Context) error {
 	case <-sm.handlesSWG.WaitChannel():
 		sm.datapath.GarbageCollect()
 	}
+	sm.reporter.OK(fmt.Sprintf("Ready (%d handles)", len(sm.handles)))
 	return nil
 }
 

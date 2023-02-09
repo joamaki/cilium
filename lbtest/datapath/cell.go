@@ -1,7 +1,10 @@
-package main
+package datapath
 
 import (
-	"github.com/cilium/cilium/pkg/datapath/lb"
+	"github.com/cilium/cilium/lbtest/datapath/devices"
+	"github.com/cilium/cilium/lbtest/datapath/loadbalancer"
+	"github.com/cilium/cilium/lbtest/datapath/loader"
+	"github.com/cilium/cilium/lbtest/datapath/monitor"
 	"github.com/cilium/cilium/pkg/datapath/linux/maps/lbmap"
 	datapathTypes "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -38,18 +41,19 @@ func lbmapInitParams(cfg DatapathConfig) lbmap.InitParams {
 	}
 }
 
-var Datapath = cell.Module(
+var Cell = cell.Module(
 	"lbtest-datapath",
 	"Datapath for lbtest",
 
 	cell.Config(defaultDatapathConfig),
 
 	cell.Provide(lbmapInitParams),
-	lb.Cell, lbmap.Cell,
-	lb.DevicesCell,
+	lbmap.Cell,
 
-	monitorCell,
-	loaderCell,
+	loadbalancer.Cell,
+	devices.Cell,
+	monitor.Cell,
+	loader.Cell,
 )
 
 var fakeLBMapCell = cell.Module(

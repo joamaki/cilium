@@ -107,6 +107,7 @@ func (dm *DeviceManager) Detect(k8sEnabled bool) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot retrieve routes for device detection: %w", err)
 		}
+
 		dm.updateDevicesFromRoutes(l3DevOK, routes)
 	} else {
 		for _, dev := range option.Config.GetDevices() {

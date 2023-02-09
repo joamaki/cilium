@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package lb
+package loadbalancer
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/checker"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
-	"github.com/cilium/cilium/pkg/loadbalancer"
+	lb "github.com/cilium/cilium/pkg/loadbalancer"
 )
 
 // Hook up gocheck into the "go test" runner.
@@ -33,66 +33,66 @@ func (e *IDAllocTestSuite) TearDownTest(c *C) {
 }
 
 var (
-	l3n4Addr1 = loadbalancer.L3n4Addr{
+	l3n4Addr1 = lb.L3n4Addr{
 		AddrCluster: cmtypes.MustParseAddrCluster("::1"),
-		L4Addr:      loadbalancer.L4Addr{Port: 0, Protocol: "UDP"},
+		L4Addr:      lb.L4Addr{Port: 0, Protocol: "UDP"},
 	}
-	l3n4Addr2 = loadbalancer.L3n4Addr{
+	l3n4Addr2 = lb.L3n4Addr{
 		AddrCluster: cmtypes.MustParseAddrCluster("::1"),
-		L4Addr:      loadbalancer.L4Addr{Port: 1, Protocol: "TCP"},
+		L4Addr:      lb.L4Addr{Port: 1, Protocol: "TCP"},
 	}
-	l3n4Addr3 = loadbalancer.L3n4Addr{
+	l3n4Addr3 = lb.L3n4Addr{
 		AddrCluster: cmtypes.MustParseAddrCluster("::1"),
-		L4Addr:      loadbalancer.L4Addr{Port: 1, Protocol: "UDP"},
+		L4Addr:      lb.L4Addr{Port: 1, Protocol: "UDP"},
 	}
-	l3n4Addr4 = loadbalancer.L3n4Addr{
+	l3n4Addr4 = lb.L3n4Addr{
 		AddrCluster: cmtypes.MustParseAddrCluster("::1"),
-		L4Addr:      loadbalancer.L4Addr{Port: 2, Protocol: "UDP"},
+		L4Addr:      lb.L4Addr{Port: 2, Protocol: "UDP"},
 	}
-	l3n4Addr5 = loadbalancer.L3n4Addr{
+	l3n4Addr5 = lb.L3n4Addr{
 		AddrCluster: cmtypes.MustParseAddrCluster("::2"),
-		L4Addr:      loadbalancer.L4Addr{Port: 2, Protocol: "UDP"},
+		L4Addr:      lb.L4Addr{Port: 2, Protocol: "UDP"},
 	}
-	l3n4Addr6 = loadbalancer.L3n4Addr{
+	l3n4Addr6 = lb.L3n4Addr{
 		AddrCluster: cmtypes.MustParseAddrCluster("::3"),
-		L4Addr:      loadbalancer.L4Addr{Port: 2, Protocol: "UDP"},
+		L4Addr:      lb.L4Addr{Port: 2, Protocol: "UDP"},
 	}
-	wantL3n4AddrID = &loadbalancer.L3n4AddrID{
+	wantL3n4AddrID = &lb.L3n4AddrID{
 		ID:       123,
 		L3n4Addr: l3n4Addr2,
 	}
 )
 
 func (s *IDAllocTestSuite) TestServices(c *C) {
-	var nilL3n4AddrID *loadbalancer.L3n4AddrID
+	var nilL3n4AddrID *lb.L3n4AddrID
 	// Set up last free ID with zero
 	id, err := getMaxServiceID()
 	c.Assert(err, Equals, nil)
 	c.Assert(id, Equals, FirstFreeServiceID)
 
-	ffsIDu16 := loadbalancer.ServiceID(uint16(FirstFreeServiceID))
+	ffsIDu16 := lb.ServiceID(uint16(FirstFreeServiceID))
 
 	l3n4AddrID, err := AcquireID(l3n4Addr1, 0)
 	c.Assert(err, Equals, nil)
-	c.Assert(l3n4AddrID.ID, Equals, loadbalancer.ID(ffsIDu16))
+	c.Assert(l3n4AddrID.ID, Equals, lb.ID(ffsIDu16))
 
 	l3n4AddrID, err = AcquireID(l3n4Addr1, 0)
 	c.Assert(err, Equals, nil)
-	c.Assert(l3n4AddrID.ID, Equals, loadbalancer.ID(ffsIDu16))
+	c.Assert(l3n4AddrID.ID, Equals, lb.ID(ffsIDu16))
 
 	l3n4AddrID, err = AcquireID(l3n4Addr2, 0)
 	c.Assert(err, Equals, nil)
-	c.Assert(l3n4AddrID.ID, Equals, loadbalancer.ID(ffsIDu16+1))
+	c.Assert(l3n4AddrID.ID, Equals, lb.ID(ffsIDu16+1))
 
 	// l3n4Addr3 should have the same ID as l3n4Addr2 since we are omitting the
 	// protocol type.
 	l3n4AddrID, err = AcquireID(l3n4Addr3, 0)
 	c.Assert(err, Equals, nil)
-	c.Assert(l3n4AddrID.ID, Equals, loadbalancer.ID(ffsIDu16+1))
+	c.Assert(l3n4AddrID.ID, Equals, lb.ID(ffsIDu16+1))
 
 	gotL3n4AddrID, err := GetID(FirstFreeServiceID)
 	c.Assert(err, Equals, nil)
-	wantL3n4AddrID.ID = loadbalancer.ID(ffsIDu16)
+	wantL3n4AddrID.ID = lb.ID(ffsIDu16)
 	wantL3n4AddrID.L3n4Addr = l3n4Addr1
 	c.Assert(gotL3n4AddrID, checker.DeepEquals, wantL3n4AddrID)
 
@@ -104,7 +104,7 @@ func (s *IDAllocTestSuite) TestServices(c *C) {
 
 	gotL3n4AddrID, err = GetID(FirstFreeServiceID + 1)
 	c.Assert(err, Equals, nil)
-	wantL3n4AddrID.ID = loadbalancer.ID(FirstFreeServiceID + 1)
+	wantL3n4AddrID.ID = lb.ID(FirstFreeServiceID + 1)
 	wantL3n4AddrID.L3n4Addr = l3n4Addr2
 	c.Assert(gotL3n4AddrID, checker.DeepEquals, wantL3n4AddrID)
 
@@ -122,7 +122,7 @@ func (s *IDAllocTestSuite) TestServices(c *C) {
 
 	gotL3n4AddrID, err = AcquireID(l3n4Addr2, 0)
 	c.Assert(err, Equals, nil)
-	c.Assert(gotL3n4AddrID.ID, Equals, loadbalancer.ID(FirstFreeServiceID+1))
+	c.Assert(gotL3n4AddrID.ID, Equals, lb.ID(FirstFreeServiceID+1))
 
 	err = DeleteID(uint32(gotL3n4AddrID.ID))
 	c.Assert(err, Equals, nil)
@@ -133,22 +133,22 @@ func (s *IDAllocTestSuite) TestServices(c *C) {
 
 	gotL3n4AddrID, err = AcquireID(l3n4Addr2, 0)
 	c.Assert(err, Equals, nil)
-	c.Assert(gotL3n4AddrID.ID, Equals, loadbalancer.ID(ffsIDu16))
+	c.Assert(gotL3n4AddrID.ID, Equals, lb.ID(ffsIDu16))
 
 	gotL3n4AddrID, err = AcquireID(l3n4Addr1, 0)
 	c.Assert(err, Equals, nil)
-	c.Assert(gotL3n4AddrID.ID, Equals, loadbalancer.ID(FirstFreeServiceID+1))
+	c.Assert(gotL3n4AddrID.ID, Equals, lb.ID(FirstFreeServiceID+1))
 
 	gotL3n4AddrID, err = AcquireID(l3n4Addr1, 99)
 	c.Assert(err, Equals, nil)
-	c.Assert(gotL3n4AddrID.ID, Equals, loadbalancer.ID(FirstFreeServiceID+1))
+	c.Assert(gotL3n4AddrID.ID, Equals, lb.ID(FirstFreeServiceID+1))
 
 	err = DeleteID(uint32(FirstFreeServiceID + 1))
 	c.Assert(err, Equals, nil)
 
 	gotL3n4AddrID, err = AcquireID(l3n4Addr1, 99)
 	c.Assert(err, Equals, nil)
-	c.Assert(gotL3n4AddrID.ID, Equals, loadbalancer.ID(99))
+	c.Assert(gotL3n4AddrID.ID, Equals, lb.ID(99))
 
 	// ID "99" has been already allocated to l3n4Addr1
 	gotL3n4AddrID, err = AcquireID(l3n4Addr4, 99)
@@ -168,7 +168,7 @@ func (s *IDAllocTestSuite) TestGetMaxServiceID(c *C) {
 }
 
 func (s *IDAllocTestSuite) TestBackendID(c *C) {
-	firstBackendID := loadbalancer.BackendID(FirstFreeBackendID)
+	firstBackendID := lb.BackendID(FirstFreeBackendID)
 
 	id1, err := AcquireBackendID(l3n4Addr1)
 	c.Assert(err, Equals, nil)
@@ -196,9 +196,9 @@ func (s *IDAllocTestSuite) TestBackendID(c *C) {
 }
 
 func (s *IDAllocTestSuite) BenchmarkAllocation(c *C) {
-	addr := loadbalancer.L3n4Addr{
+	addr := lb.L3n4Addr{
 		AddrCluster: cmtypes.MustParseAddrCluster("::1"),
-		L4Addr:      loadbalancer.L4Addr{Port: 0, Protocol: "UDP"},
+		L4Addr:      lb.L4Addr{Port: 0, Protocol: "UDP"},
 	}
 
 	c.ResetTimer()

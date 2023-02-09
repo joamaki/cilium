@@ -1,4 +1,4 @@
-package lb
+package loadbalancer
 
 import (
 	"github.com/cilium/cilium/pkg/defaults"

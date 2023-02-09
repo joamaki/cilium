@@ -28,9 +28,19 @@ func (h *Hive) Command() *cobra.Command {
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "dot-graph",
-			Short: "Output the dependencies graph in graphviz dot format",
+			Short: "Output the dependency graph in graphviz dot format",
 			Run: func(cmd *cobra.Command, args []string) {
 				h.PrintDotGraph()
+			},
+			TraverseChildren: false,
+		})
+
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "d2",
+			Short: "Output the dependency graph in d2 format",
+			Run: func(cmd *cobra.Command, args []string) {
+				h.PrintD2()
 			},
 			TraverseChildren: false,
 		})

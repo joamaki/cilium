@@ -91,4 +91,8 @@ func (m *FakeResource[T]) Store(context.Context) (Store[T], error) {
 	panic("FakeResource does not implement Store(). Use a fake client with real resource instead.")
 }
 
+func (m *FakeResource[T]) Status() (string, bool) {
+	return "I'm a fake", true
+}
+
 var _ Resource[*k8sRuntime.Unknown] = &FakeResource[*k8sRuntime.Unknown]{}

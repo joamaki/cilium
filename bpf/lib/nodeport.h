@@ -1718,7 +1718,6 @@ int tail_nodeport_nat_ingress_ipv4(struct __ctx_buff *ctx)
 	};
 	int ret;
 
-
 	/* Unfortunately, the bpf_fib_lookup() is not able to set src IP addr.
 	 * So we need to assume that the direct routing device is going to be
 	 * used to fwd the NodePort request, thus SNAT-ing to its IP addr.
@@ -1762,7 +1761,6 @@ int tail_nodeport_nat_ingress_ipv4(struct __ctx_buff *ctx)
 	ret = DROP_MISSED_TAIL_CALL;
 
  drop_err:
-	printk("tail_nodeport_nat_ingress_ipv4: drop, ret=%d", ret);
 	return send_drop_notify_error(ctx, 0, ret, CTX_ACT_DROP, METRIC_INGRESS);
 }
 
@@ -1911,7 +1909,6 @@ static __always_inline int nodeport_lb4(struct __ctx_buff *ctx,
 
 	l4_off = l3_off + ipv4_hdrlen(ip4);
 
-
 	ret = lb4_extract_key(ctx, ip4, l4_off, &key, &csum_off);
 	if (IS_ERR(ret)) {
 		if (ret == DROP_NO_SERVICE)
@@ -2050,8 +2047,6 @@ redo:
 	}
 
 	/* TX request to remote backend: */
-	printk("going to known backend");
-
 	edt_set_aggregate(ctx, 0);
 	if (nodeport_uses_dsr4(&tuple)) {
 #if DSR_ENCAP_MODE == DSR_ENCAP_IPIP
@@ -2159,27 +2154,21 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, __u32 *ifind
 		return ret;
 	}
 
-	if (!ct_has_nodeport_egress_entry4(get_ct_map4(&tuple), &tuple)) {
-    		printk("no egress entry for sport=%x, dport=%x", tuple.sport, tuple.dport);
+	if (!ct_has_nodeport_egress_entry4(get_ct_map4(&tuple), &tuple))
 		goto out;
-	}
 
 	csum_l4_offset_and_flags(tuple.nexthdr, &csum_off);
 
 	ret = ct_lookup4(get_ct_map4(&tuple), &tuple, ctx, l4_off, CT_INGRESS, &ct_state,
 			 &monitor);
 
-	printk("ct_lookup4: ret=%d, sport=%x, dport=%x", ret, tuple.sport, tuple.dport);
-
 	if (ret == CT_REPLY && ct_state.node_port == 1 && ct_state.rev_nat_index != 0) {
 		reason = TRACE_REASON_CT_REPLY;
 		ret2 = lb4_rev_nat(ctx, l3_off, l4_off, &csum_off,
 				   &ct_state, &tuple,
 				   REV_NAT_F_TUPLE_SADDR, ipv4_has_l4_header(ip4));
-		if (IS_ERR(ret2)) {
-			printk("lb4_rev_nat fail: %d", ret2);
+		if (IS_ERR(ret2))
 			return ret2;
-		}
 
 		if (!revalidate_data(ctx, &data, &data_end, &ip4))
 			return DROP_INVALID;
@@ -2207,7 +2196,7 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, __u32 *ifind
 		fib_params.ipv4_dst = ip4->daddr;
 
 		fib_ret = fib_lookup(ctx, &fib_params, sizeof(fib_params), 0);
-		if (fib_ret == 0) {
+		if (fib_ret == 0)
 			/* If the FIB lookup was successful, use the outgoing
 			 * iface from its result. Otherwise, we will fallback
 			 * to CT's ifindex which was learned when the request
@@ -2216,9 +2205,7 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, __u32 *ifind
 			 * request.
 			 */
 			*ifindex = fib_params.ifindex;
-    			printk("fib_lookup ok, using ifindex=%d, l2 required=%d", *ifindex, l2_hdr_required);
-		}
-	
+
 		ret = maybe_add_l2_hdr(ctx, *ifindex, &l2_hdr_required);
 		if (ret != 0)
 			return ret;
@@ -2229,8 +2216,6 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, __u32 *ifind
 			union macaddr smac =
 				NATIVE_DEV_MAC_BY_IFINDEX(*ifindex);
 			union macaddr *dmac;
-
-    			printk("fib_lookup fail: %d, using NATIVE_DEV_MAC_BY_IFINDEX", fib_ret);
 
 			if (fib_ret != BPF_FIB_LKUP_RET_NO_NEIGH) {
 				*ext_err = fib_ret;
@@ -2261,18 +2246,8 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, __u32 *ifind
 				return DROP_WRITE_ERROR;
 			if (eth_store_saddr(ctx, fib_params.smac, 0) < 0)
 				return DROP_WRITE_ERROR;
-
-			printk("dmac=%x%x%x",
-    			fib_params.dmac[3],
-    			fib_params.dmac[4],
-    			fib_params.dmac[5]);
-
-			printk("smac=%x%x%x",
-    			fib_params.smac[3],
-    			fib_params.smac[4],
-    			fib_params.smac[5]);
 		}
-		printk("redirecting! saddr=%x, daddr=%x", ip4->saddr, ip4->daddr);
+
 		return CTX_ACT_REDIRECT;
 	}
 
@@ -2317,21 +2292,15 @@ int tail_rev_nodeport_lb4(struct __ctx_buff *ctx)
 	ctx_skip_host_fw_set(ctx);
 #endif
 	ret = rev_nodeport_lb4(ctx, &ifindex, &ext_err);
-	if (IS_ERR(ret)) {
-    		printk("rev_nodeport_lb4 error: %d", ret);
+	if (IS_ERR(ret))
 		return send_drop_notify_error_ext(ctx, 0, ret, ext_err,
 						  CTX_ACT_DROP, METRIC_EGRESS);
-	}
 
 	edt_set_aggregate(ctx, 0);
 	cilium_capture_out(ctx);
 
-	//__cilium_capture_out(ctx, 0, 128);
-
-	if (ret == CTX_ACT_REDIRECT) {
-    		printk("redirecting to %d", ifindex);
+	if (ret == CTX_ACT_REDIRECT)
 		return ctx_redirect(ctx, ifindex, 0);
-	}
 
 	ctx_move_xfer(ctx);
 	return ret;

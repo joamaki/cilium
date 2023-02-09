@@ -90,14 +90,16 @@ type Clientset interface {
 
 // compositeClientset implements the Clientset using real clients.
 type compositeClientset struct {
-	started  bool
-	disabled bool
+	started      bool
+	disabled     bool
+	reconnecting bool
 
 	*KubernetesClientset
 	*APIExtClientset
 	*CiliumClientset
 	clientsetGetters
 
+	reporter      cell.StatusReporter
 	controller    *controller.Manager
 	slim          *SlimClientset
 	config        Config
@@ -106,8 +108,9 @@ type compositeClientset struct {
 	restConfig    *rest.Config
 }
 
-func newClientset(lc hive.Lifecycle, log logrus.FieldLogger, cfg Config) (Clientset, error) {
+func newClientset(lc hive.Lifecycle, log logrus.FieldLogger, r cell.StatusReporter, cfg Config) (Clientset, error) {
 	if !cfg.isEnabled() {
+		r.Down("Disabled via config")
 		return &compositeClientset{disabled: true}, nil
 	}
 
@@ -120,6 +123,7 @@ func newClientset(lc hive.Lifecycle, log logrus.FieldLogger, cfg Config) (Client
 		log:        log,
 		controller: controller.NewManager(),
 		config:     cfg,
+		reporter:   r,
 	}
 
 	restConfig, err := createConfig(cfg.K8sAPIServer, cfg.K8sKubeConfigPath, cfg.K8sClientQPS, cfg.K8sClientBurst)
@@ -204,9 +208,11 @@ func (c *compositeClientset) Config() Config {
 
 func (c *compositeClientset) onStart(startCtx hive.HookContext) error {
 	if !c.IsEnabled() {
+		c.reporter.Down("Disabled via Disable()")
 		return nil
 	}
 
+	c.reporter.OK("Waiting to connect...")
 	if err := c.waitForConn(startCtx); err != nil {
 		return err
 	}
@@ -223,6 +229,8 @@ func (c *compositeClientset) onStart(startCtx hive.HookContext) error {
 	}
 
 	c.started = true
+
+	c.reporter.OK("Connected")
 
 	return nil
 }
@@ -257,8 +265,7 @@ func (c *compositeClientset) startHeartbeat() {
 	c.controller.UpdateController("k8s-heartbeat",
 		controller.ControllerParams{
 			DoFunc: func(context.Context) error {
-				runHeartbeat(
-					c.log,
+				c.runHeartbeat(
 					heartBeat,
 					timeout,
 					c.closeAllConns,
@@ -353,7 +360,7 @@ func setDialer(cfg Config, restConfig *rest.Config) func() {
 	return dialer.CloseAll
 }
 
-func runHeartbeat(log logrus.FieldLogger, heartBeat func(context.Context) error, timeout time.Duration, closeAllConns ...func()) {
+func (c *compositeClientset) runHeartbeat(heartBeat func(context.Context) error, timeout time.Duration, closeAllConns ...func()) {
 	expireDate := time.Now().Add(-timeout)
 	// Don't even perform a health check if we have received a successful
 	// k8s event in the last 'timeout' duration
@@ -385,15 +392,24 @@ func runHeartbeat(log logrus.FieldLogger, heartBeat func(context.Context) error,
 	select {
 	case err := <-done:
 		if err != nil {
-			log.WithError(err).Warn("Network status error received, restarting client connections")
+			c.log.WithError(err).Warn("Network status error received, restarting client connections")
+			c.reporter.Degraded("Network error, restarting connections")
+			c.reconnecting = true
 			for _, fn := range closeAllConns {
 				fn()
 			}
 		}
 	case <-ctx.Done():
-		log.Warn("Heartbeat timed out, restarting client connections")
+		c.log.Warn("Heartbeat timed out, restarting client connections")
+		c.reporter.Degraded("Heartbeat timeout, restarting connections")
+		c.reconnecting = true
 		for _, fn := range closeAllConns {
 			fn()
+		}
+	default:
+		if c.reconnecting {
+			c.reporter.OK("Connected")
+			c.reconnecting = false
 		}
 	}
 }
@@ -474,7 +490,7 @@ func NewStandaloneClientset(cfg Config) (Clientset, error) {
 	log := logging.DefaultLogger
 	lc := &standaloneLifecycle{}
 
-	clientset, err := newClientset(lc, log, cfg)
+	clientset, err := newClientset(lc, log, nil, cfg)
 	if err != nil {
 		return nil, err
 	}

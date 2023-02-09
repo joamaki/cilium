@@ -96,3 +96,10 @@ func Provide(ctors ...any) Cell {
 func ProvidePrivate(ctors ...any) Cell {
 	return &provider{ctors: ctors, export: false}
 }
+
+// TODO doesn't look great in inspection
+func Supply[T any](v T) Cell {
+	return Provide(func() T {
+		return v
+	})
+}

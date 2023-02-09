@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package lb
+package loadbalancer
 
 const (
 	// FirstFreeFrontendID is the first ID for which the frontends should be assigned.

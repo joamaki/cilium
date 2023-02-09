@@ -1,10 +1,11 @@
-package lb
+package devices
 
 import (
 	"context"
-	"net"
+	"fmt"
 	"sync"
 
+	"github.com/cilium/cilium/lbtest/datapath/api"
 	linuxDatapath "github.com/cilium/cilium/pkg/datapath/linux"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -16,38 +17,31 @@ import (
 
 // TODO: This is just a quick-and-dirty wrapping of existing DeviceManager. Need to rewrite
 // it to expose this API directly. This is also in the wrong package.
-var DevicesCell = cell.Module(
+var Cell = cell.Module(
 	"datapath-devices",
 	"Provides notifications on changed network devices",
-	cell.Provide(newDevices),
+	cell.Provide(New),
 )
 
-type Device struct {
-	Name string
-	IPs  []net.IP
-}
-
-type Devices interface {
-	stream.Observable[[]Device]
-	Devices(ctx context.Context) <-chan []Device
-}
-
 type devices struct {
-	stream.Observable[[]Device]
+	stream.Observable[[]api.Device]
 	k8sEnabled bool
-	emit       func([]Device)
+	emit       func([]api.Device)
 	complete   func(error)
-	devs       chan []Device
+	devs       chan []api.Device
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
+	reporter   cell.StatusReporter
+
+	testConfig *TestConfig
 }
 
-func (d *devices) Devices(ctx context.Context) <-chan []Device {
+func (d *devices) Devices(ctx context.Context) <-chan []api.Device {
 	return stream.ToChannel(ctx, make(chan error), d.Observable)
 }
 
 func (d *devices) emitDevices(names []string) {
-	devs := make([]Device, len(names))
+	devs := make([]api.Device, len(names))
 	for i, name := range names {
 		devs[i].Name = name
 		link, err := netlink.LinkByName(name)
@@ -61,9 +55,18 @@ func (d *devices) emitDevices(names []string) {
 		}
 	}
 	d.emit(devs)
+	d.reporter.OK(fmt.Sprintf("Detected devices: %v", names))
 }
 
 func (d *devices) Start(hive.HookContext) error {
+	if d.testConfig != nil {
+		// TODO: Not great way of doing this. Perhaps consider allowing decoration
+		// into inside modules, e.g. we could take datapath cell and swap out
+		// devices from it. Though that's not that great either... :(
+		d.emit(d.testConfig.TestDevices)
+		return nil
+	}
+
 	var ctx context.Context
 	ctx, d.cancel = context.WithCancel(context.Background())
 
@@ -100,13 +103,29 @@ func (d *devices) Stop(hive.HookContext) error {
 	return nil
 }
 
-func newDevices(lc hive.Lifecycle, c k8sClient.Clientset) (Devices, error) {
+type TestConfig struct {
+	TestDevices []api.Device
+}
+
+type devicesParams struct {
+	cell.In
+
+	TestConfig     *TestConfig `optional:"true"`
+	Lifecycle      hive.Lifecycle
+	Clientset      k8sClient.Clientset `optional:"true"`
+	StatusReporter cell.StatusReporter
+}
+
+func New(p devicesParams) (api.Devices, error) {
 	// HACK HACK HACK
 	option.Config.EnableNodePort = true
+	option.Config.EnableIPv4 = true
+	option.Config.EnableIPv6 = true
 	// /HACK HACK HACK
 
-	src, emit, complete := stream.Multicast[[]Device](stream.EmitLatest)
-	d := &devices{k8sEnabled: c.IsEnabled(), Observable: src, emit: emit, complete: complete}
-	lc.Append(d)
+	src, emit, complete := stream.Multicast[[]api.Device](stream.EmitLatest)
+	k8sEnabled := p.Clientset != nil && p.Clientset.IsEnabled()
+	d := &devices{k8sEnabled: k8sEnabled, Observable: src, emit: emit, complete: complete, reporter: p.StatusReporter, testConfig: p.TestConfig}
+	p.Lifecycle.Append(d)
 	return d, nil
 }

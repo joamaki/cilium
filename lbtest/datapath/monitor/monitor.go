@@ -1,9 +1,10 @@
-package main
+package monitor
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/cilium/cilium/lbtest/datapath/loader"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -12,7 +13,11 @@ import (
 	"github.com/cilium/cilium/pkg/monitor/format"
 )
 
-var monitorCell = cell.Module(
+type MonitorConfig struct {
+	EnableMonitor bool
+}
+
+var Cell = cell.Module(
 	"monitor-agent",
 	"Monitor displays events from BPF",
 
@@ -47,15 +52,16 @@ func (*monitorConsumer) NotifyPerfEventLost(numLostEvents uint64, cpu int) {
 
 var _ consumer.MonitorConsumer = &monitorConsumer{}
 
-func registerMonitorAgent(lc hive.Lifecycle, cfg rootConfig, _ *Loader /* so that events map is pinned */) {
-	if !cfg.Debug {
-		// TODO: Would be better to have MonitorConfig derived from rootConfig in main.go.
+func registerMonitorAgent(lc hive.Lifecycle, r cell.StatusReporter, cfg MonitorConfig, _ *loader.Loader /* so that events map is pinned first */) {
+	if !cfg.EnableMonitor {
+		r.Down("Monitor disabled")
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	lc.Append(hive.Hook{
 		OnStart: func(hive.HookContext) error {
+			defer r.OK("Monitoring")
 			c := newMonitorConsumer()
 			a := agent.NewAgent(ctx)
 			a.RegisterNewConsumer(c)

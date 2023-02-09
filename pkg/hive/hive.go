@@ -129,21 +129,23 @@ func (h *Hive) Viper() *viper.Viper {
 type defaults struct {
 	dig.Out
 
-	Flags       *pflag.FlagSet
-	Lifecycle   Lifecycle
-	Logger      logrus.FieldLogger
-	Shutdowner  Shutdowner
-	InvokerList cell.InvokerList
+	Flags          *pflag.FlagSet
+	Lifecycle      Lifecycle
+	Logger         logrus.FieldLogger
+	Shutdowner     Shutdowner
+	InvokerList    cell.InvokerList
+	StatusProvider *cell.StatusProvider
 }
 
 func (h *Hive) provideDefaults() error {
 	return h.container.Provide(func() defaults {
 		return defaults{
-			Flags:       h.flags,
-			Lifecycle:   h.lifecycle,
-			Logger:      log,
-			Shutdowner:  h,
-			InvokerList: h,
+			Flags:          h.flags,
+			Lifecycle:      h.lifecycle,
+			Logger:         log,
+			Shutdowner:     h,
+			InvokerList:    h,
+			StatusProvider: cell.NewStatusProvider(),
 		}
 	})
 }
@@ -311,6 +313,13 @@ func (h *Hive) PrintDotGraph() {
 	if err := dig.Visualize(h.container, os.Stdout); err != nil {
 		log.WithError(err).Fatal("Failed to Visualize()")
 	}
+}
+
+func (h *Hive) PrintD2() {
+	if err := h.Populate(); err != nil {
+		log.WithError(err).Fatal("Failed to populate object graph")
+	}
+	fmt.Println(cell.CreateD2(h.cells))
 }
 
 // getEnvName returns the environment variable to be used for the given option name.

@@ -533,13 +533,10 @@ static __always_inline int ipv4_ct_extract_l4_ports(struct __ctx_buff *ctx,
 				    has_l4_header);
 #else
 	/* load sport + dport into tuple */
-	if (ctx_load_bytes(ctx, off, &tuple->dport, 4) < 0) {
-    		printk("load bytes ok");
+	if (ctx_load_bytes(ctx, off, &tuple->dport, 4) < 0)
 		return DROP_CT_INVALID_HDR;
-	}
 #endif
 
-	printk("all ok, ret %d", CTX_ACT_OK);
 	return CTX_ACT_OK;
 }
 

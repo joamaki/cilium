@@ -61,6 +61,11 @@ type Resource[T k8sRuntime.Object] interface {
 	// Tracker returns a new instance of object tracker for subscribing to
 	// events of a changing subset of objects.
 	Tracker(ctx context.Context) ObjectTracker[T]
+
+	// Status returns the current status and boolean indicating whether
+	// the resource is nominal or not.
+	// TODO: Consider "modularizing" Resource instead.
+	Status() (string, bool)
 }
 
 // New creates a new Resource[T]. Use with hive.Provide:
@@ -140,7 +145,8 @@ type resource[T k8sRuntime.Object] struct {
 	wg     sync.WaitGroup
 	opts   options
 
-	needed chan struct{}
+	needed   chan struct{}
+	isNeeded bool
 
 	queues map[uint64]*keyQueue
 	subId  uint64
@@ -173,6 +179,27 @@ func (r *resource[T]) Store(ctx context.Context) (Store[T], error) {
 
 func (r *resource[T]) Tracker(ctx context.Context) ObjectTracker[T] {
 	return newObjectTracker[T](ctx, r)
+}
+
+func (r *resource[T]) Status() (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if !r.isNeeded {
+		return "", true
+	}
+
+	if !r.synchronized {
+		return "Waiting to synchronize", true
+	}
+	s, err := r.storePromise.Await(context.Background())
+	if err != nil {
+		return err.Error(), false
+	}
+	return fmt.Sprintf("OK (%d objects stored)",
+		len(s.CacheStore().ListKeys())), true
+
+	// FIXME: Should report Watch errors!
 }
 
 func (r *resource[T]) pushUpdate(key Key) {
@@ -240,6 +267,10 @@ func (r *resource[T]) startWhenNeeded() {
 		defer r.wg.Done()
 		informer.Run(r.ctx.Done())
 	}()
+
+	r.mu.Lock()
+	r.isNeeded = true
+	r.mu.Unlock()
 
 	// Wait for cache to be synced before emitting the sync events.
 	if cache.WaitForCacheSync(r.ctx.Done(), informer.HasSynced) {
