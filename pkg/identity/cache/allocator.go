@@ -11,7 +11,6 @@ import (
 	"path"
 
 	"github.com/sirupsen/logrus"
-	"k8s.io/client-go/tools/cache"
 
 	"github.com/cilium/cilium/pkg/allocator"
 	"github.com/cilium/cilium/pkg/identity"
@@ -139,7 +138,7 @@ type IdentityAllocator interface {
 // TODO: identity backends are initialized directly in this function, pulling
 // in dependencies on kvstore and k8s. It would be better to decouple this,
 // since the backends are an interface.
-func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interface, identityStore cache.Store) <-chan struct{} {
+func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interface) <-chan struct{} {
 	m.setupMutex.Lock()
 	defer m.setupMutex.Unlock()
 
@@ -179,10 +178,6 @@ func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interf
 
 		case option.IdentityAllocationModeCRD:
 			log.Debug("Identity allocation backed by CRD")
-			if identityStore != nil {
-				// ListAndWatch overwrites the store.
-				log.Warnf("Ignoring provided identityStore")
-			}
 			backend, err = identitybackend.NewCRDBackend(identitybackend.CRDBackendConfiguration{
 				NodeName: owner.GetNodeSuffix(),
 				Store:    nil,
@@ -212,18 +207,6 @@ func (m *CachingIdentityAllocator) InitIdentityAllocator(client clientset.Interf
 
 	return m.globalIdentityAllocatorInitialized
 }
-
-// InitIdentityAllocator creates the the identity allocator. Only the first
-// invocation of this function will have an effect. The Caller must have
-// initialized well known identities before calling this (by calling
-// identity.InitWellKnownIdentities()).
-// client and identityStore are only used by the CRD identity allocator,
-// currently, and identityStore may be nil.
-// Returns a channel which is closed when initialization of the allocator is
-// completed.
-// TODO: identity backends are initialized directly in this function, pulling
-// in dependencies on kvstore and k8s. It would be better to decouple this,
-// since the backends are an interface.
 
 // NewCachingIdentityAllocator creates a new instance of an
 // CachingIdentityAllocator.
