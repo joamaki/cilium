@@ -122,3 +122,19 @@ func ObserveWithWaitGroup[T any](ctx context.Context, wg *sync.WaitGroup, src Ob
 			wg.Done()
 		})
 }
+
+func Trigger[T any](ctx context.Context, src Observable[T]) <-chan struct{} {
+	ch := make(chan struct{}, 1)
+	src.Observe(
+		ctx,
+		func(T) {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		},
+		func(error) {
+			close(ch)
+		})
+	return ch
+}
