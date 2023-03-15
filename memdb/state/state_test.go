@@ -1,16 +1,20 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
+	. "github.com/cilium/cilium/memdb/state/structs"
+	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
-func newMeta(namespace string, name string) Meta {
-	return Meta{
+func newMeta(namespace string, name string) ExtMeta {
+	return ExtMeta{
 		ID:        uuid.New().String(),
 		Name:      name,
 		Namespace: namespace,
@@ -19,12 +23,29 @@ func newMeta(namespace string, name string) Meta {
 }
 
 func TestState(t *testing.T) {
+	hive := hive.New(
+		cell.Provide(func() *testing.T { return t }),
+		Cell,
+		cell.Invoke(runTest),
+	)
+	hive.Start(context.TODO())
+	hive.Stop(context.TODO())
+}
+
+type testParams struct {
+	cell.In
+
+	State *State
+	Nodes Table[*Node]
+}
+
+func testStateInvoke(t *testing.T, p testParams) {
 	state, err := New()
 	assert.NoError(t, err)
 	state.SetReflector(&exampleReflector{})
 
-	assertGetFooBar := func(tx StateTx) {
-		it, err := tx.Nodes().Get(ByName("foo", "bar"))
+	assertGetFooBar := func(tx ReadTransaction) {
+		it, err := p.Nodes.Read(tx).Get(ByName("foo", "bar"))
 		if assert.NoError(t, err) {
 			obj, ok := it.Next()
 			if assert.True(t, ok, "GetByName iterator should return object") {
@@ -36,16 +57,16 @@ func TestState(t *testing.T) {
 
 	// Create the foo/bar and baz/quux nodes.
 	{
-		tx := state.WriteTx()
-		nodes := tx.Nodes()
+		tx := state.Write()
+		nodes := p.Nodes.Modify(tx)
 		err = nodes.Insert(&Node{
-			Meta:     newMeta("foo", "bar"),
+			ExtMeta:  newMeta("foo", "bar"),
 			Identity: 1234,
 		})
 		assert.NoError(t, err)
 
 		err = nodes.Insert(&Node{
-			Meta:     newMeta("baz", "quux"),
+			ExtMeta:  newMeta("baz", "quux"),
 			Identity: 1234,
 		})
 		assert.NoError(t, err)
@@ -54,10 +75,11 @@ func TestState(t *testing.T) {
 		tx.Commit()
 	}
 	// Check that it's been committed.
-	assertGetFooBar(state.ReadTx())
+	assertGetFooBar(state.Read())
 
 	// Check that we can iterate over all nodes.
-	it, err := state.Nodes()
+	rtx := state.Read()
+	it, err := p.Nodes.Read(rtx).Get(All)
 	if assert.NoError(t, err) {
 		n := 0
 		for obj, ok := it.Next(); ok; obj, ok = it.Next() {
@@ -68,7 +90,7 @@ func TestState(t *testing.T) {
 	}
 
 	// Check that we can iterate by namespace
-	it, err = state.ReadTx().Nodes().Get(ByNamespace("baz"))
+	it, err = p.Nodes.Read(rtx).Get(ByNamespace("baz"))
 	if assert.NoError(t, err) {
 		obj, ok := it.Next()
 		if assert.True(t, ok) {
@@ -87,10 +109,10 @@ func TestState(t *testing.T) {
 	default:
 	}
 
-	tx2 := state.WriteTx()
-	err = tx2.Nodes().Insert(
+	tx2 := state.Write()
+	err = p.Nodes.Modify(tx2).Insert(
 		&Node{
-			Meta:     newMeta("baz", "flup"),
+			ExtMeta:  newMeta("baz", "flup"),
 			Identity: 1234,
 		})
 	assert.NoError(t, err)

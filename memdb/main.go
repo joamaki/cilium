@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/cilium/memdb/datasources"
 	"github.com/cilium/cilium/memdb/state"
 	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/k8s/client"
 )
 
@@ -22,6 +23,8 @@ var Hive = hive.New(
 	state.Cell,
 	controllers.Cell,
 	datasources.Cell,
+
+	cell.Invoke(testDummyTable),
 
 	//cell.Invoke(debugState),
 )
@@ -36,6 +39,7 @@ func main() {
 			}
 		},
 	}
+	cmd.AddCommand(Hive.Command())
 	Hive.RegisterFlags(cmd.Flags())
 	cmd.Execute()
 }
@@ -51,5 +55,28 @@ func (d *debugReflector) ProcessChanges(changes memdb.Changes) error {
 
 func debugState(log logrus.FieldLogger, s *state.State) {
 	s.SetReflector(&debugReflector{log})
+
+}
+
+// test the injected tables
+func testDummyTable(s *state.State, dummyTable state.Table[*datasources.Dummy]) {
+	go func() {
+		for {
+			txR := s.Read()
+			dummiesR := dummyTable.Read(txR)
+			it, err := dummiesR.Get(state.All)
+			if err != nil {
+				panic(err)
+			}
+			state.ProcessEach(it,
+				func(d *datasources.Dummy) error {
+					fmt.Printf("dummy: %+v\n", d)
+					return nil
+				})
+
+			// Wait for dummy table to change.
+			<-it.Invalidated()
+		}
+	}()
 
 }

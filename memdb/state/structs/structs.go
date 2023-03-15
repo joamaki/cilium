@@ -1,7 +1,6 @@
-package state
+package structs
 
 import (
-	"encoding/json"
 	"net/netip"
 	"time"
 
@@ -41,26 +40,38 @@ func (m *ExtMeta) GetName() string              { return m.Name }
 func (m *ExtMeta) GetNamespace() string         { return m.Namespace }
 func (m *ExtMeta) GetLabels() map[string]string { return m.Labels }
 
+type IPAddr struct {
+	netip.Addr
+}
+
+func (ip IPAddr) DeepCopy() IPAddr {
+	return ip
+}
+
+func (ip IPAddr) DeepCopyInto(a *IPAddr) {
+	*a = ip
+}
+
 type IPGetter interface {
-	GetIP() netip.Addr
+	GetIP() IPAddr
 }
 
 type IPToIdentity struct {
 	ID       uint32
-	IP       netip.Addr
+	IP       IPAddr
 	LabelKey LabelKey
 	Key      uint8
 	Source   string
 }
 
-func (i *IPToIdentity) GetIP() netip.Addr { return i.IP }
+func (i *IPToIdentity) GetIP() IPAddr { return i.IP }
 
 type Node struct {
 	ExtMeta
 
 	// TODO: Build indexing for sub-structs and then add NodeSpec?
 	Identity uint64
-	Address  netip.Addr
+	Address  IPAddr
 	Status   string
 }
 
@@ -74,10 +85,6 @@ type SelectorPolicy struct {
 
 	L4Policy L4Policy
 	Labels   labels.LabelArray
-}
-
-func (sp *SelectorPolicy) Copy() *SelectorPolicy {
-	return stupidCopy(sp)
 }
 
 type L4Policy struct {
@@ -104,6 +111,7 @@ func (p *L4Policy) RemoveSourceRule(id UUID) {
 
 // Endpoint is the control-plane description of an endpoint, consisting of information from the
 // orchestrator and the compiled policies.
+// +k8s:deepcopy-gen=false
 type Endpoint struct {
 	ID        UUID
 	Namespace string
@@ -124,8 +132,23 @@ type Endpoint struct {
 	SelectorPolicyID UUID
 }
 
-func (ep *Endpoint) Copy() *Endpoint {
-	return stupidCopy(ep)
+func (e *Endpoint) DeepCopy() *Endpoint {
+
+	return &Endpoint{
+		ID:               e.ID,
+		Namespace:        e.Namespace,
+		Name:             e.Name,
+		Revision:         e.Revision,
+		CreatedAt:        e.CreatedAt,
+		ContainerID:      e.ContainerID,
+		IPv4:             e.IPv4,
+		IPv6:             e.IPv6,
+		LabelKey:         e.LabelKey,
+		Labels:           e.Labels,
+		State:            e.State,
+		SelectorPolicyID: e.SelectorPolicyID,
+	}
+
 }
 
 type EndpointState string
@@ -185,24 +208,6 @@ type ExtNetworkPolicy struct {
 	// by the node to reflect its status back to the orchestration
 	// system.
 	Status ExtNetworkPolicyStatus
-}
-
-// TODO: Pick a solution for doing deep copies. Not quite
-// sure if we want to go with code generation or just hand-writing
-// the copying. Could also go with protobuf as it generates
-// Clone()?
-func stupidCopy[Obj any](orig *Obj) *Obj {
-	var o Obj
-	bs, err := json.Marshal(orig)
-	if err != nil {
-		panic(err)
-	}
-	json.Unmarshal(bs, &o)
-	return &o
-}
-
-func (e *ExtNetworkPolicy) Copy() *ExtNetworkPolicy {
-	return stupidCopy(e)
 }
 
 type ExtNetworkPolicyStatus struct {

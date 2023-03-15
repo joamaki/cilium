@@ -382,6 +382,10 @@ generate-k8s-api: ## Generate Cilium k8s API client, deepcopy and deepequal Go s
 	pkg:loadbalancer\
 	pkg:tuple\
 	pkg:recorder")
+	$(call generate_k8s_api_deepcopy_deepequal,github.com/cilium/cilium/memdb,"state:structs")
+
+foo:
+	$(call generate_k8s_api_deepcopy_deepequal,github.com/cilium/cilium/memdb,"state:structs")
 
 check-k8s-clusterrole: ## Ensures there is no diff between preflight's clusterrole and runtime's clusterrole.
 	./contrib/scripts/check-preflight-clusterrole.sh

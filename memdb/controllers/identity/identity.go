@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/cilium/cilium/memdb/state"
+	"github.com/cilium/cilium/memdb/state/structs"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/rate"
@@ -22,19 +23,29 @@ var Cell = cell.Module(
 	cell.Invoke(registerAllocator),
 )
 
-func registerAllocator(lc hive.Lifecycle, log logrus.FieldLogger, s *state.State, shutdowner hive.Shutdowner) {
-	d := &allocator{state: s, log: log, shutdowner: shutdowner}
-	lc.Append(d)
+type allocatorParams struct {
+	cell.In
+
+	Lifecycle  hive.Lifecycle
+	Log        logrus.FieldLogger
+	Shutdowner hive.Shutdowner
+
+	State            *state.State
+	Endpoints        state.Table[*structs.Endpoint]
+	SelectorPolicies state.Table[*structs.SelectorPolicy]
+}
+
+func registerAllocator(p allocatorParams) {
+	d := &allocator{allocatorParams: p}
+	p.Lifecycle.Append(d)
 }
 
 type allocator struct {
+	allocatorParams
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	eg     *errgroup.Group
-
-	shutdowner hive.Shutdowner
-	state      *state.State
-	log        logrus.FieldLogger
 
 	numericalIdentity uint32
 }
@@ -50,7 +61,7 @@ func (d *allocator) Start(hive.HookContext) (err error) {
 	go func() {
 		err := d.eg.Wait()
 		if err != nil {
-			d.shutdowner.Shutdown(hive.ShutdownWithError(err))
+			d.Shutdowner.Shutdown(hive.ShutdownWithError(err))
 		}
 	}()
 
@@ -71,24 +82,26 @@ func (d *allocator) loop() error {
 	// The rules have a revision number corresponding to the import round of the data source.
 	revision := uint64(0)
 
-	d.log.Info("Identity allocator running")
+	d.Log.Info("Identity allocator running")
 
 	// go-memdb doesn't allow watching LowerBound(), so instead we're
 	// triggering on any changes to endpoints table here.
 	endpointsChanged :=
 		stream.Trigger(
 			d.ctx,
-			stream.Filter(d.state.Observable, state.Event.ForEndpointTable))
+			stream.Filter(d.State.Observable, state.Event.ForEndpointTable))
 
 	for {
 		// TODO: Doing this as one large transaction, but this
 		// could also be split up into batches if necessary, e.g.
 		// only process N changed endpoints at a time.
-		tx := d.state.WriteTx()
+		tx := d.State.Write()
+		endpoints := d.Endpoints.Modify(tx)
+		selectorPolicies := d.SelectorPolicies.Modify(tx)
 
 		// Get new and changed rules with revisions higher than the previously processed.
 		// TODO only process endpoints in the EPInit state?
-		epIter, err := tx.Endpoints().LowerBound(state.ByRevision(revision))
+		epIter, err := endpoints.LowerBound(state.ByRevision(revision))
 		if err != nil {
 			// TODO: This can only fail on bad queries, e.g. missing
 			// indices and stuff. We should trigger a shutdown.
@@ -97,14 +110,14 @@ func (d *allocator) loop() error {
 
 		err = state.ProcessEach(
 			epIter,
-			func(ep *state.Endpoint) error {
-				d.log.WithField("name", ep.Name).Info("Processing endpoint")
+			func(ep *structs.Endpoint) error {
+				d.Log.WithField("name", ep.Name).Info("Processing endpoint")
 
 				// Remember the highest seen revision for the next round.
 				if ep.Revision > revision {
 					revision = ep.Revision
 				}
-				return d.processEndpoint(tx, ep)
+				return d.processEndpoint(endpoints, selectorPolicies, ep)
 			},
 		)
 		if err == nil {
@@ -117,36 +130,36 @@ func (d *allocator) loop() error {
 				return fmt.Errorf("state commit failed: %w", err)
 			}
 		} else {
-			d.log.WithError(err).Error("Endpoint processing failed")
+			d.Log.WithError(err).Error("Endpoint processing failed")
 			tx.Abort()
 		}
 
-		d.log.Info("Done, waiting for changes.")
+		d.Log.Info("Done, waiting for changes.")
 
 		select {
 		case <-d.ctx.Done():
-			d.log.Info("Context closed!")
+			d.Log.Info("Context closed!")
 			return nil
 		case <-endpointsChanged:
 			// New changes, wait a bit before the next round.
-			d.log.Info("Rate limiting")
+			d.Log.Info("Rate limiting")
 			lim.Wait(d.ctx)
 		}
 	}
 }
 
-func (d *allocator) processEndpoint(tx *state.StateTx, ep *state.Endpoint) error {
+func (d *allocator) processEndpoint(endpoints state.TableReaderWriter[*structs.Endpoint], selectorPolicies state.TableReaderWriter[*structs.SelectorPolicy], ep *structs.Endpoint) error {
 	switch ep.State {
-	case state.EPInit:
+	case structs.EPInit:
 		// Make a copy so we can update it.
-		ep = ep.Copy()
+		ep = ep.DeepCopy()
 		ep.Revision += 1
-		ep.State = state.EPProcessing
+		ep.State = structs.EPProcessing
 
 		// Find whether a matching SelectorPolicy exists.
-		sp, err := tx.SelectorPolicies().First(state.ByLabelKey(ep.LabelKey))
+		sp, err := selectorPolicies.First(state.ByLabelKey(ep.LabelKey))
 		if err != nil {
-			d.log.WithError(err).Error("SelectorPolicies.First")
+			d.Log.WithError(err).Error("SelectorPolicies.First")
 			return err
 		}
 
@@ -155,24 +168,24 @@ func (d *allocator) processEndpoint(tx *state.StateTx, ep *state.Endpoint) error
 			ep.SelectorPolicyID = sp.ID
 		} else {
 			// New identity!
-			sp = &state.SelectorPolicy{
-				ID:              state.NewUUID(),
+			sp = &structs.SelectorPolicy{
+				ID:              structs.NewUUID(),
 				NumericIdentity: d.numericalIdentity,
 				LabelKey:        ep.LabelKey,
 				Labels:          ep.Labels.IdentityLabels().LabelArray(),
 				Revision:        1, // TODO semantics of SP revision
 			}
-			if err := tx.SelectorPolicies().Insert(sp); err != nil {
-				d.log.WithError(err).Error("SelectorPolicies.Insert")
+			if err := selectorPolicies.Insert(sp); err != nil {
+				d.Log.WithError(err).Error("SelectorPolicies.Insert")
 				return err
 			}
 
-			d.log.Infof("Allocated new identity: %d for labels %s", sp.NumericIdentity, sp.LabelKey)
+			d.Log.Infof("Allocated new identity: %d for labels %s", sp.NumericIdentity, sp.LabelKey)
 			ep.SelectorPolicyID = sp.ID
 			d.numericalIdentity++
 		}
 
-		return tx.Endpoints().Insert(ep)
+		return endpoints.Insert(ep)
 	default:
 		return nil
 	}

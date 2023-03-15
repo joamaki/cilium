@@ -7,4 +7,5 @@ var Cell = cell.Module(
 	"State data sources",
 
 	k8sCell,
+	dummyCell,
 )

@@ -13,3 +13,7 @@ func (e Event) ForEndpointTable() bool {
 func (e Event) ForExtPolicyRules() bool {
 	return e.table == extPolicyRuleTable
 }
+
+func (e Event) ForSelectorPolicies() bool {
+	return e.table == selectorPolicyTable
+}

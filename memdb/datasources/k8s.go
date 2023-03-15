@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/cilium/cilium/memdb/state"
+	"github.com/cilium/cilium/memdb/state/structs"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	cilium_api_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
@@ -59,8 +60,11 @@ type k8sParams struct {
 	NetworkPolicies resource.Resource[*cilium_api_v2.CiliumNetworkPolicy]
 	Pods            resource.Resource[*corev1.Pod]
 
-	Log   logrus.FieldLogger
-	State *state.State
+	Log                logrus.FieldLogger
+	State              *state.State
+	Endpoints          state.Table[*structs.Endpoint]
+	ExtNetworkPolicies state.Table[*structs.ExtNetworkPolicy]
+	ExtPolicyRules     state.Table[*structs.ExtPolicyRule]
 }
 
 func registerK8s(p k8sParams) {
@@ -99,7 +103,8 @@ func k8sDataSourceLoop(p k8sParams, stop chan struct{}) {
 		case ev := <-pods:
 			// Create an Endpoint from the Pod so we can play
 			// with matching up identities and policies to it.
-			tx := p.State.WriteTx()
+			tx := p.State.Write()
+			endpoints := p.Endpoints.Modify(tx)
 
 			switch ev.Kind {
 			case resource.Sync:
@@ -109,8 +114,8 @@ func k8sDataSourceLoop(p k8sParams, stop chan struct{}) {
 				opLabels.ModifyIdentityLabels(
 					labels.Map2Labels(pod.ObjectMeta.Labels, labels.LabelSourceK8s),
 					nil)
-				ep := &state.Endpoint{
-					ID:               state.NewUUID(), // TODO can we use k8s assigned?
+				ep := &structs.Endpoint{
+					ID:               structs.NewUUID(), // TODO can we use k8s assigned?
 					Name:             pod.Name,
 					Namespace:        pod.Namespace,
 					CreatedAt:        pod.CreationTimestamp.Time,
@@ -119,12 +124,12 @@ func k8sDataSourceLoop(p k8sParams, stop chan struct{}) {
 					IPv4:             netip.Addr{},
 					IPv6:             netip.Addr{},
 					Labels:           opLabels,
-					LabelKey:         state.LabelKey(opLabels.IdentityLabels().SortedList()),
-					State:            state.EPInit,
+					LabelKey:         structs.LabelKey(opLabels.IdentityLabels().SortedList()),
+					State:            structs.EPInit,
 					SelectorPolicyID: "", // TODO allocation for identity.
 				}
 
-				err := tx.Endpoints().Insert(ep)
+				err := endpoints.Insert(ep)
 				if err != nil {
 					p.Log.WithError(err).Error("Endpoint creation failed")
 				} else {
@@ -133,9 +138,9 @@ func k8sDataSourceLoop(p k8sParams, stop chan struct{}) {
 
 			case resource.Delete:
 				pod := ev.Object
-				ep, _ := tx.Endpoints().First(state.ByName(pod.Namespace, pod.Name))
+				ep, _ := endpoints.First(state.ByName(pod.Namespace, pod.Name))
 				if ep != nil {
-					tx.Endpoints().Delete(ep)
+					endpoints.Delete(ep)
 					p.Log.WithField("name", pod.Name).Info("Endpoint deleted")
 				}
 			}
@@ -147,17 +152,17 @@ func k8sDataSourceLoop(p k8sParams, stop chan struct{}) {
 		case ev := <-cnps:
 
 			// FIXME batching?
-			tx := p.State.WriteTx()
-			policies := tx.ExtNetworkPolicies()
-			rules := tx.ExtPolicyRules()
+			tx := p.State.Write()
+			policies := p.ExtNetworkPolicies.Modify(tx)
+			rules := p.ExtPolicyRules.Modify(tx)
 
 			var txError error
 			cnp := ev.Object
 			enp, _ := policies.First(state.ByName(ev.Key.Namespace, ev.Key.Name))
 			if enp == nil && cnp != nil {
-				enp = &state.ExtNetworkPolicy{
-					ExtMeta: state.ExtMeta{
-						ID:        state.NewUUID(),
+				enp = &structs.ExtNetworkPolicy{
+					ExtMeta: structs.ExtMeta{
+						ID:        structs.NewUUID(),
 						Name:      cnp.Name,
 						Namespace: cnp.Namespace,
 						Revision:  revision,
@@ -165,16 +170,16 @@ func k8sDataSourceLoop(p k8sParams, stop chan struct{}) {
 					},
 				}
 			} else if ev.Kind != resource.Delete {
-				enp = enp.Copy()
+				enp = enp.DeepCopy()
 			}
 
-			convertRule := func(r *api.Rule) *state.ExtPolicyRule {
-				epr := &state.ExtPolicyRule{
+			convertRule := func(r *api.Rule) *structs.ExtPolicyRule {
+				epr := &structs.ExtPolicyRule{
 					// Rules inherit the metadata of the creating policy.
 					ExtMeta: enp.ExtMeta,
 					Rule:    r,
 				}
-				epr.ID = state.NewUUID()
+				epr.ID = structs.NewUUID()
 				return epr
 			}
 

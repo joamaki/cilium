@@ -29,7 +29,7 @@ func Collect[Obj any](iter Iterator[Obj]) []Obj {
 	return out
 }
 
-func ProcessEach[Obj any](iter Iterator[Obj], fn func(Obj) error) (err error) {
+func ProcessEach[Obj any, It Iterator[Obj]](iter It, fn func(Obj) error) (err error) {
 	for obj, ok := iter.Next(); ok; obj, ok = iter.Next() {
 		err = fn(obj)
 		if err != nil {

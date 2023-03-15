@@ -7,6 +7,8 @@ import (
 	memdb "github.com/hashicorp/go-memdb"
 
 	"github.com/cilium/cilium/pkg/labels"
+
+	. "github.com/cilium/cilium/memdb/state/structs"
 )
 
 type Index string
@@ -73,7 +75,7 @@ var allTables = []func() *memdb.TableSchema{
 	datapathEndpointTableSchema,
 }
 
-func schema() *memdb.DBSchema {
+func schema(extraTables []*memdb.TableSchema) *memdb.DBSchema {
 	dbSchema := &memdb.DBSchema{
 		Tables: make(map[string]*memdb.TableSchema),
 	}
@@ -81,6 +83,13 @@ func schema() *memdb.DBSchema {
 		s := sfn()
 		dbSchema.Tables[s.Name] = s
 	}
+
+	for _, tableSchema := range extraTables {
+		dbSchema.Tables[tableSchema.Name] = tableSchema
+	}
+
+	fmt.Printf("tables: %+v\n", dbSchema.Tables)
+
 	return dbSchema
 }
 
@@ -88,7 +97,7 @@ func extNetworkPolicyTableSchema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: extNetworkPolicyTable,
 		Indexes: map[string]*memdb.IndexSchema{
-			"id":                   idIndexSchema,
+			"id":                   IDIndexSchema,
 			string(NameIndex):      nameIndexSchema,
 			string(NamespaceIndex): namespaceIndexSchema,
 			string(RevisionIndex):  revisionIndexSchema,
@@ -100,7 +109,7 @@ func extPolicyRuleTableSchema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: extPolicyRuleTable,
 		Indexes: map[string]*memdb.IndexSchema{
-			"id":                  idIndexSchema,
+			"id":                  IDIndexSchema,
 			string(NameIndex):     nameIndexSchema,
 			string(RevisionIndex): revisionIndexSchema,
 		},
@@ -132,7 +141,7 @@ func l4PolicyTableSchema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: l4PolicyTable,
 		Indexes: map[string]*memdb.IndexSchema{
-			"id": idIndexSchema,
+			"id": IDIndexSchema,
 			string(RuleIndex): &memdb.IndexSchema{
 				Name:         string(RuleIndex),
 				AllowMissing: true,
@@ -147,7 +156,7 @@ func nodeTableSchema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: nodeTable,
 		Indexes: map[string]*memdb.IndexSchema{
-			string(IDIndex):        idIndexSchema,
+			string(IDIndex):        IDIndexSchema,
 			string(NamespaceIndex): namespaceIndexSchema,
 			string(NameIndex):      nameIndexSchema,
 		},
@@ -158,7 +167,7 @@ func selectorPolicyTableSchema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: selectorPolicyTable,
 		Indexes: map[string]*memdb.IndexSchema{
-			string(IDIndex):       idIndexSchema,
+			string(IDIndex):       IDIndexSchema,
 			string(RevisionIndex): revisionIndexSchema,
 			string(LabelKeyIndex): {
 				Name:         string(LabelKeyIndex),
@@ -175,7 +184,7 @@ func endpointTableSchema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: endpointTable,
 		Indexes: map[string]*memdb.IndexSchema{
-			string(IDIndex): idIndexSchema,
+			string(IDIndex): IDIndexSchema,
 			string(LabelKeyIndex): {
 				Name:         string(LabelKeyIndex),
 				AllowMissing: false,
@@ -192,12 +201,12 @@ func datapathEndpointTableSchema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: datapathEndpointTable,
 		Indexes: map[string]*memdb.IndexSchema{
-			string(IDIndex): idIndexSchema,
+			string(IDIndex): IDIndexSchema,
 		},
 	}
 }
 
-var idIndexSchema = &memdb.IndexSchema{
+var IDIndexSchema = &memdb.IndexSchema{
 	Name:         "id",
 	AllowMissing: false,
 	Unique:       true,
