@@ -11,8 +11,8 @@ import (
 	"github.com/cilium/cilium/memdb/controllers"
 	"github.com/cilium/cilium/memdb/datasources"
 	"github.com/cilium/cilium/memdb/state"
+	"github.com/cilium/cilium/memdb/tables"
 	"github.com/cilium/cilium/pkg/hive"
-	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/k8s/client"
 )
 
@@ -24,7 +24,7 @@ var Hive = hive.New(
 	controllers.Cell,
 	datasources.Cell,
 
-	cell.Invoke(testDummyTable),
+	tables.Cell,
 
 	//cell.Invoke(debugState),
 )
@@ -58,6 +58,7 @@ func debugState(log logrus.FieldLogger, s *state.State) {
 
 }
 
+/*
 // test the injected tables
 func testDummyTable(s *state.State, dummyTable state.Table[*datasources.Dummy]) {
 	go func() {
@@ -79,4 +80,4 @@ func testDummyTable(s *state.State, dummyTable state.Table[*datasources.Dummy]) 
 		}
 	}()
 
-}
+}*/

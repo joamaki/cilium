@@ -16,7 +16,13 @@ type ReadTransaction interface {
 	getTxn() *memdb.Txn
 }
 
-type Table[Obj any] interface {
+// ObjectConstraints specifies the constraints that an object
+// must fulfill for it to be stored in a table.
+type ObjectConstraints[Obj any] interface {
+	DeepCopy() Obj
+}
+
+type Table[Obj ObjectConstraints[Obj]] interface {
 	Read(tx ReadTransaction) TableReader[Obj]
 	Modify(tx WriteTransaction) TableReaderWriter[Obj]
 }
@@ -41,7 +47,7 @@ type table[Obj any] struct {
 	table string
 }
 
-func NewTable[Obj any](tableName string) Table[Obj] {
+func NewTable[Obj ObjectConstraints[Obj]](tableName string) Table[Obj] {
 	return &table[Obj]{table: tableName}
 }
 

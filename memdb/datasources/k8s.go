@@ -2,7 +2,6 @@ package datasources
 
 import (
 	"context"
-	"net/netip"
 
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -118,11 +117,9 @@ func k8sDataSourceLoop(p k8sParams, stop chan struct{}) {
 					ID:               structs.NewUUID(), // TODO can we use k8s assigned?
 					Name:             pod.Name,
 					Namespace:        pod.Namespace,
-					CreatedAt:        pod.CreationTimestamp.Time,
+					CreatedAt:        pod.CreationTimestamp.Time.String(),
 					Revision:         1,
 					ContainerID:      "fake",
-					IPv4:             netip.Addr{},
-					IPv6:             netip.Addr{},
 					Labels:           opLabels,
 					LabelKey:         structs.LabelKey(opLabels.IdentityLabels().SortedList()),
 					State:            structs.EPInit,

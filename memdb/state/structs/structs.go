@@ -2,10 +2,12 @@ package structs
 
 import (
 	"net/netip"
-	"time"
+	"strconv"
 
 	"github.com/google/uuid"
 	"golang.org/x/exp/slices"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/policy/api"
@@ -22,7 +24,10 @@ func NewUUID() UUID {
 type LabelKey = string
 
 type ExtMeta struct {
-	ID        UUID
+	// TODO: likely don't want this at all but rather
+	// should have a multi-index on Name+Namespace
+	ID UUID
+
 	Name      string
 	Namespace string
 
@@ -40,12 +45,37 @@ func (m *ExtMeta) GetName() string              { return m.Name }
 func (m *ExtMeta) GetNamespace() string         { return m.Namespace }
 func (m *ExtMeta) GetLabels() map[string]string { return m.Labels }
 
+func ExtMetaFromK8s(obj runtime.Object) (m ExtMeta) {
+	meta, err := meta.Accessor(obj)
+	if err != nil {
+		return
+	}
+	m.Name = meta.GetName()
+	m.Namespace = meta.GetNamespace()
+
+	// TODO: Should not assume that ResourceVersion is an integer,
+	// though if we can get away with this it'll simplify things.
+	// Alternatively we'd just use string instead of uint64 for
+	// revisions here as well.
+	m.Revision, err = strconv.ParseUint(meta.GetResourceVersion(), 10, 64)
+	if err != nil {
+		panic("A silly assumption violated: ResourceVersion was not an integer")
+	}
+	m.Labels = m.GetLabels()
+
+	return
+}
+
 type IPAddr struct {
 	netip.Addr
 }
 
 func (ip IPAddr) DeepCopy() IPAddr {
 	return ip
+}
+
+func (ip *IPAddr) DeepEqual(other *IPAddr) bool {
+	return *ip == *other
 }
 
 func (ip IPAddr) DeepCopyInto(a *IPAddr) {
@@ -111,16 +141,15 @@ func (p *L4Policy) RemoveSourceRule(id UUID) {
 
 // Endpoint is the control-plane description of an endpoint, consisting of information from the
 // orchestrator and the compiled policies.
-// +k8s:deepcopy-gen=false
 type Endpoint struct {
 	ID        UUID
 	Namespace string
 	Name      string
 	Revision  uint64
 
-	CreatedAt   time.Time
+	CreatedAt   string // time.Time
 	ContainerID string
-	IPv4, IPv6  netip.Addr
+	IPv4, IPv6  IPAddr
 
 	// TODO: Should the "immutable" Endpoint data (above fields) be its separate thing and mutating state
 	// is separate?

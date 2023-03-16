@@ -19,8 +19,9 @@ var dummyCell = cell.Module(
 
 	cell.Provide(
 		dummyTable,
-		dummyTableSchema,
 	),
+
+	cell.Provide(state.TableSchemas(dummyTableSchema)),
 
 	cell.Invoke(feedDummies),
 )
@@ -33,19 +34,20 @@ func dummyTable() state.Table[*Dummy] {
 	return state.NewTable[*Dummy](dummyTableName)
 }
 
-func dummyTableSchema() (out state.TableSchemaOut) {
-	out.Schema = &memdb.TableSchema{
-		Name: dummyTableName,
-		Indexes: map[string]*memdb.IndexSchema{
-			"id": state.IDIndexSchema,
-		},
-	}
-	return
+var dummyTableSchema = &memdb.TableSchema{
+	Name: dummyTableName,
+	Indexes: map[string]*memdb.IndexSchema{
+		"id": state.IDIndexSchema,
+	},
 }
 
 type Dummy struct {
 	ID  structs.UUID
 	Foo string
+}
+
+func (d *Dummy) DeepCopy() *Dummy {
+	return &Dummy{ID: d.ID, Foo: d.Foo}
 }
 
 func feedDummies(lc hive.Lifecycle, s *state.State, dummyTable state.Table[*Dummy]) {

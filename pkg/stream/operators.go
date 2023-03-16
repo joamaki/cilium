@@ -225,14 +225,75 @@ func Debounce[T any](src Observable[T], duration time.Duration) Observable[T] {
 
 // TODO docs
 func Buffer[T any](src Observable[T], bufferSize int, waitTime time.Duration) Observable[[]T] {
-	return FuncObservable[[]T](
-		func(ctx context.Context, next func([]T), complete func(error)) {
+	return BufferBy(
+		src, bufferSize, waitTime,
+		func(buf []T, item T) []T {
+			return append(buf, item)
+		},
+		func(buf []T) []T {
+			return nil
+		},
+	)
+
+	/*
+		return FuncObservable[[]T](
+			func(ctx context.Context, next func([]T), complete func(error)) {
+				subCtx, cancel := context.WithCancel(ctx)
+				bufChan := make(chan T, bufferSize)
+				src.Observe(
+					ctx,
+					func(item T) {
+						bufChan <- item
+					},
+					func(err error) {
+						cancel()
+						complete(err)
+					})
+				go func() {
+					timer := time.NewTimer(waitTime)
+					defer timer.Stop()
+
+					buf := make([]T, 0, bufferSize)
+					for {
+						select {
+						case <-timer.C:
+							if len(buf) > 0 {
+								next(buf)
+								buf = make([]T, 0, bufferSize)
+							}
+						case item := <-bufChan:
+							buf = append(buf, item)
+							if len(buf) >= bufferSize {
+								next(buf)
+								buf = make([]T, 0, bufferSize)
+								if !timer.Stop() {
+									<-timer.C
+								}
+								timer.Reset(waitTime)
+							}
+						case <-subCtx.Done():
+							if len(buf) > 0 {
+								next(buf)
+							}
+							return
+						}
+					}
+				}()
+
+			})*/
+
+}
+
+// TODO docs
+func BufferBy[Buf any, T any](src Observable[T], bufferSize int, waitTime time.Duration, bufferItem func(Buf, T) Buf, resetBuffer func(Buf) Buf) Observable[Buf] {
+	return FuncObservable[Buf](
+		func(ctx context.Context, next func(Buf), complete func(error)) {
 			subCtx, cancel := context.WithCancel(ctx)
-			bufChan := make(chan T, bufferSize)
+			items := make(chan T, bufferSize)
 			src.Observe(
 				ctx,
 				func(item T) {
-					bufChan <- item
+					items <- item
 				},
 				func(err error) {
 					cancel()
@@ -242,27 +303,33 @@ func Buffer[T any](src Observable[T], bufferSize int, waitTime time.Duration) Ob
 				timer := time.NewTimer(waitTime)
 				defer timer.Stop()
 
-				buf := make([]T, 0, bufferSize)
+				var (
+					emptyBuf Buf
+					buf      Buf
+				)
+				n := 0
 				for {
 					select {
 					case <-timer.C:
-						if len(buf) > 0 {
+						if n > 0 {
 							next(buf)
-							buf = make([]T, 0, bufferSize)
+							buf = emptyBuf
+							n = 0
 						}
-						timer.Reset(waitTime)
-					case item := <-bufChan:
-						buf = append(buf, item)
-						if len(buf) >= bufferSize {
+					case item := <-items:
+						buf = bufferItem(buf, item)
+						n++
+						if n >= bufferSize {
 							next(buf)
-							buf = make([]T, 0, bufferSize)
+							buf = emptyBuf
+							n = 0
 							if !timer.Stop() {
 								<-timer.C
 							}
 							timer.Reset(waitTime)
 						}
 					case <-subCtx.Done():
-						if len(buf) > 0 {
+						if n > 0 {
 							next(buf)
 						}
 						return

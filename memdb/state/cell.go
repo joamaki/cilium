@@ -34,8 +34,14 @@ var tables = tablesOut{
 	SelectorPolicies:   &table[*SelectorPolicy]{selectorPolicyTable},
 }
 
-type TableSchemaOut struct {
+type tableSchemasOut struct {
 	cell.Out
 
-	Schema *memdb.TableSchema `group:"state-table-schemas"`
+	Schemas []*memdb.TableSchema `group:"state-table-schemas,flatten"`
+}
+
+func TableSchemas(schemas ...*memdb.TableSchema) func() tableSchemasOut {
+	return func() tableSchemasOut {
+		return tableSchemasOut{Schemas: schemas}
+	}
 }
