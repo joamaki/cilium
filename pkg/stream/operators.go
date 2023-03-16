@@ -90,9 +90,12 @@ func Retry[T any](src Observable[T], shouldRetry RetryFunc) Observable[T] {
 					ctx,
 					next,
 					func(err error) {
-						if err != nil && shouldRetry(err) {
+						if err != nil && shouldRetry(err) && ctx.Err() == nil {
 							observe()
 						} else {
+							if ctx.Err() != nil {
+								err = ctx.Err()
+							}
 							complete(err)
 						}
 					})
@@ -218,4 +221,55 @@ func Debounce[T any](src Observable[T], duration time.Duration) Observable[T] {
 				}
 			}()
 		})
+}
+
+// TODO docs
+func Buffer[T any](src Observable[T], bufferSize int, waitTime time.Duration) Observable[[]T] {
+	return FuncObservable[[]T](
+		func(ctx context.Context, next func([]T), complete func(error)) {
+			subCtx, cancel := context.WithCancel(ctx)
+			bufChan := make(chan T, bufferSize)
+			src.Observe(
+				ctx,
+				func(item T) {
+					bufChan <- item
+				},
+				func(err error) {
+					cancel()
+					complete(err)
+				})
+			go func() {
+				timer := time.NewTimer(waitTime)
+				defer timer.Stop()
+
+				buf := make([]T, 0, bufferSize)
+				for {
+					select {
+					case <-timer.C:
+						if len(buf) > 0 {
+							next(buf)
+							buf = make([]T, 0, bufferSize)
+						}
+						timer.Reset(waitTime)
+					case item := <-bufChan:
+						buf = append(buf, item)
+						if len(buf) >= bufferSize {
+							next(buf)
+							buf = make([]T, 0, bufferSize)
+							if !timer.Stop() {
+								<-timer.C
+							}
+							timer.Reset(waitTime)
+						}
+					case <-subCtx.Done():
+						if len(buf) > 0 {
+							next(buf)
+						}
+						return
+					}
+				}
+			}()
+
+		})
+
 }
