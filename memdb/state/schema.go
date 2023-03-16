@@ -46,7 +46,7 @@ const (
 )
 
 const (
-	NameIndex      = Index("name")
+	NameIndex      = Index("name") // TODO confusing naming as this is <namespace>/<name>
 	NamespaceIndex = Index("namespace")
 	IDIndex        = Index("id")
 	IPIndex        = Index("ip")
@@ -85,10 +85,11 @@ func schema(extraTables []*memdb.TableSchema) *memdb.DBSchema {
 	}
 
 	for _, tableSchema := range extraTables {
+		if _, ok := dbSchema.Tables[tableSchema.Name]; ok {
+			panic(fmt.Sprintf("Table %q already registered", tableSchema.Name))
+		}
 		dbSchema.Tables[tableSchema.Name] = tableSchema
 	}
-
-	fmt.Printf("tables: %+v\n", dbSchema.Tables)
 
 	return dbSchema
 }
@@ -98,9 +99,9 @@ func extNetworkPolicyTableSchema() *memdb.TableSchema {
 		Name: extNetworkPolicyTable,
 		Indexes: map[string]*memdb.IndexSchema{
 			"id":                   IDIndexSchema,
-			string(NameIndex):      nameIndexSchema,
+			string(NameIndex):      NameIndexSchema,
 			string(NamespaceIndex): namespaceIndexSchema,
-			string(RevisionIndex):  revisionIndexSchema,
+			string(RevisionIndex):  RevisionIndexSchema,
 		},
 	}
 }
@@ -110,8 +111,8 @@ func extPolicyRuleTableSchema() *memdb.TableSchema {
 		Name: extPolicyRuleTable,
 		Indexes: map[string]*memdb.IndexSchema{
 			"id":                  IDIndexSchema,
-			string(NameIndex):     nameIndexSchema,
-			string(RevisionIndex): revisionIndexSchema,
+			string(NameIndex):     NameIndexSchema,
+			string(RevisionIndex): RevisionIndexSchema,
 		},
 	}
 }
@@ -158,7 +159,7 @@ func nodeTableSchema() *memdb.TableSchema {
 		Indexes: map[string]*memdb.IndexSchema{
 			string(IDIndex):        IDIndexSchema,
 			string(NamespaceIndex): namespaceIndexSchema,
-			string(NameIndex):      nameIndexSchema,
+			string(NameIndex):      NameIndexSchema,
 		},
 	}
 }
@@ -168,7 +169,7 @@ func selectorPolicyTableSchema() *memdb.TableSchema {
 		Name: selectorPolicyTable,
 		Indexes: map[string]*memdb.IndexSchema{
 			string(IDIndex):       IDIndexSchema,
-			string(RevisionIndex): revisionIndexSchema,
+			string(RevisionIndex): RevisionIndexSchema,
 			string(LabelKeyIndex): {
 				Name:         string(LabelKeyIndex),
 				AllowMissing: false,
@@ -191,7 +192,7 @@ func endpointTableSchema() *memdb.TableSchema {
 				Unique:       true,
 				Indexer:      &memdb.StringFieldIndex{Field: "LabelKey"},
 			},
-			string(RevisionIndex): revisionIndexSchema,
+			string(RevisionIndex): RevisionIndexSchema,
 			// TODO 'State' index?
 		},
 	}
@@ -220,59 +221,23 @@ var namespaceIndexSchema = &memdb.IndexSchema{
 	Indexer:      &memdb.StringFieldIndex{Field: "Namespace"},
 }
 
-var nameIndexSchema = &memdb.IndexSchema{
+var NameIndexSchema = &memdb.IndexSchema{
 	Name:         string(NameIndex),
 	AllowMissing: false,
 	Unique:       true,
-	Indexer:      nameIndexer{},
+	Indexer: &memdb.CompoundIndex{
+		Indexes: []memdb.Indexer{
+			&memdb.StringFieldIndex{Field: "Namespace"},
+			&memdb.StringFieldIndex{Field: "Name"},
+		},
+	},
 }
 
-var revisionIndexSchema = &memdb.IndexSchema{
+var RevisionIndexSchema = &memdb.IndexSchema{
 	Name:         string(RevisionIndex),
 	AllowMissing: false,
 	Unique:       false,
 	Indexer:      &memdb.UintFieldIndex{Field: "Revision"},
-}
-
-// nameIndexer implements <namespace>/<name> indexing for all objects
-// that implement MetaGetter or embed Meta.
-type nameIndexer struct{}
-
-func (nameIndexer) FromObject(obj interface{}) (bool, []byte, error) {
-	meta, ok := obj.(ExtMetaGetter)
-	if !ok {
-		return false, nil,
-			fmt.Errorf("object %T does not implement MetaGetter", obj)
-	}
-
-	idx := meta.GetNamespace() + "/" + meta.GetName() + "\x00"
-	return true, []byte(idx), nil
-}
-
-func (nameIndexer) FromArgs(args ...interface{}) ([]byte, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("must provide only a single argument")
-	}
-	arg, ok := args[0].(string)
-	if !ok {
-		return nil, fmt.Errorf("argument must be a string: %#v", args[0])
-	}
-	arg += "\x00"
-	return []byte(arg), nil
-}
-
-func (m nameIndexer) PrefixFromArgs(args ...interface{}) ([]byte, error) {
-	val, err := m.FromArgs(args...)
-	if err != nil {
-		return nil, err
-	}
-
-	// Strip the null terminator, the rest is a prefix
-	n := len(val)
-	if n > 0 {
-		return val[:n-1], nil
-	}
-	return val, nil
 }
 
 type ipIndexer struct{}

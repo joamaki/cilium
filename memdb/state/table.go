@@ -23,6 +23,7 @@ type ObjectConstraints[Obj any] interface {
 }
 
 type Table[Obj ObjectConstraints[Obj]] interface {
+	Name() string
 	Read(tx ReadTransaction) TableReader[Obj]
 	Modify(tx WriteTransaction) TableReaderWriter[Obj]
 }
@@ -49,6 +50,10 @@ type table[Obj any] struct {
 
 func NewTable[Obj ObjectConstraints[Obj]](tableName string) Table[Obj] {
 	return &table[Obj]{table: tableName}
+}
+
+func (t *table[Obj]) Name() string {
+	return t.table
 }
 
 func (t *table[Obj]) Read(tx ReadTransaction) TableReader[Obj] {

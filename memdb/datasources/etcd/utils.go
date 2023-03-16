@@ -67,11 +67,12 @@ func etcdClient(addr string) *clientv3.Client {
 		fmt.Printf("etcdClient: New failed: %s\n", err)
 		return nil
 	}
-	_, err = cli.Put(context.TODO(), "foo", "bar")
-	if err != nil {
-		fmt.Printf("etcdClient: Put failed %s\n", err)
-		return nil
-	}
+	/*
+		_, err = cli.Put(context.TODO(), "foo", "bar")
+		if err != nil {
+			fmt.Printf("etcdClient: Put failed %s\n", err)
+			return nil
+		}*/
 	//defer cli.Close()
 	return cli
 }

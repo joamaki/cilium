@@ -75,9 +75,11 @@ func syncServices(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLogge
 					svc = &svcs.Service{
 						ExtMeta: structs.ExtMetaFromK8s(k8sSvc),
 						Type:    k8sSvc.Spec.Type,
+						Source:  svcs.ServiceSourceK8s,
 					}
 					svc.ExtMeta.ID = structs.NewUUID() // XXX
 				}
+				svc.Revision = k8sSvc.ObjectMeta.ResourceVersion
 				svc.Ports = servicePorts(k8sSvc)
 				svc.IPs = serviceIPs(k8sSvc)
 				if err := services.Insert(svc); err != nil {

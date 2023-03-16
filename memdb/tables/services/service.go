@@ -17,8 +17,18 @@ var (
 	ServiceTypeExternalName = slim_corev1.ServiceTypeExternalName
 )
 
+type ServiceSource = string
+
+var (
+	ServiceSourceK8s  ServiceSource = "k8s"
+	ServiceSourceEtcd ServiceSource = "etcd"
+)
+
 type Service struct {
 	structs.ExtMeta
+
+	Source   ServiceSource
+	Revision string
 
 	IPs   []structs.IPAddr
 	Ports []uint16
