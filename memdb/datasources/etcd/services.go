@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -82,7 +81,8 @@ func syncServicesFrom(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldL
 				if svc.Source != services.ServiceSourceEtcd {
 					continue
 				}
-				svc.Revision = strconv.FormatUint(tx.Revision(), 10)
+				svc.State = services.ServiceStateNew
+				svc.Revision = tx.Revision()
 				if err := svcs.Insert(&svc); err != nil {
 					// NOTE: Only fails if schema is bad.
 					log.WithError(err).Error("services.Insert")
@@ -116,12 +116,6 @@ func syncServicesFrom(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldL
 	)
 }
 
-func revLess(a, b string) bool {
-	aNum, _ := strconv.ParseUint(a, 10, 64)
-	bNum, _ := strconv.ParseUint(b, 10, 64)
-	return aNum < bNum
-}
-
 func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLogger, st *state.State, serviceTable tables.ServiceTable) {
 	wg.Add(1)
 	defer wg.Done()
@@ -139,7 +133,7 @@ func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLog
 	lim := rate.NewLimiter(time.Second, 20)
 	defer lim.Stop()
 
-	nextRevision := "0"
+	nextRevision := uint64(0)
 	servicesChanged :=
 		stream.Trigger(
 			ctx,
@@ -154,7 +148,7 @@ func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLog
 		svcs := serviceTable.Read(tx)
 
 		// Get all K8s services newer than last successfully processed revision.
-		iter, err := svcs.LowerBound(services.BySourceAndRevision(services.ServiceSourceK8s, nextRevision))
+		iter, err := svcs.LowerBound(state.ByRevision(nextRevision))
 		if err != nil {
 			log.Errorf("Services.LowerBound failed: %w", err)
 			continue
@@ -165,6 +159,10 @@ func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLog
 		err = state.ProcessEach(
 			iter,
 			func(svc *services.Service) error {
+				if svc.Source == services.ServiceSourceEtcd {
+					return nil
+				}
+
 				if err := lim.Wait(ctx); err != nil {
 					return err
 				}
@@ -173,7 +171,7 @@ func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLog
 					WithField("name", svc.Name).Info("Imported service")
 
 				// Remember the highest seen revision for the next round.
-				if revLess(newRevision, svc.Revision) {
+				if newRevision < svc.Revision {
 					newRevision = svc.Revision
 				}
 				bs, err := json.Marshal(svc)

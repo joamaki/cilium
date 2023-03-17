@@ -3,7 +3,6 @@ package k8s
 import (
 	"context"
 	"net/netip"
-	"strconv"
 	"sync"
 	"time"
 
@@ -83,9 +82,10 @@ func syncServices(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLogge
 				} else {
 					svc = &svcs.Service{}
 				}
+				svc.State = svcs.ServiceStateNew
 				svc.Source = svcs.ServiceSourceK8s
 				svc.ExtMeta = structs.ExtMetaFromK8s(k8sSvc)
-				svc.Revision = strconv.FormatUint(tx.Revision(), 10)
+				svc.Revision = tx.Revision()
 				svc.Labels = k8sSvc.Labels
 				svc.Ports = servicePorts(k8sSvc)
 				svc.Type = k8sSvc.Spec.Type

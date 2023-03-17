@@ -24,11 +24,20 @@ var (
 	ServiceSourceEtcd ServiceSource = "etcd"
 )
 
+type ServiceState string
+
+var (
+	ServiceStateNew     ServiceState = "new"
+	ServiceStateApplied ServiceState = "applied"
+	ServiceStateFailure ServiceState = "failure"
+)
+
 type Service struct {
 	structs.ExtMeta
 
 	Source   ServiceSource
-	Revision string
+	State    ServiceState
+	Revision uint64
 
 	IPs   []structs.IPAddr
 	Ports []uint16
