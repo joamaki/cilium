@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,9 +20,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var Cell = cell.Invoke(servicesDataSource)
+var Cell = cell.Module(
+	"datasources-k8s-services",
+	"Synchronizes services from k8s",
+	cell.Invoke(servicesDataSource),
+)
 
 func servicesDataSource(lc hive.Lifecycle, log logrus.FieldLogger, client client.Clientset, st *state.State, services tables.ServiceTable) {
+	if !client.IsEnabled() {
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	lc.Append(hive.Hook{
@@ -72,21 +81,21 @@ func syncServices(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLogge
 				if svc != nil {
 					svc = svc.DeepCopy()
 				} else {
-					svc = &svcs.Service{
-						ExtMeta: structs.ExtMetaFromK8s(k8sSvc),
-						Type:    k8sSvc.Spec.Type,
-						Source:  svcs.ServiceSourceK8s,
-					}
-					svc.ExtMeta.ID = structs.NewUUID() // XXX
+					svc = &svcs.Service{}
 				}
-				svc.Revision = k8sSvc.ObjectMeta.ResourceVersion
+				svc.Source = svcs.ServiceSourceK8s
+				svc.ExtMeta = structs.ExtMetaFromK8s(k8sSvc)
+				svc.Revision = strconv.FormatUint(tx.Revision(), 10)
+				svc.Labels = k8sSvc.Labels
 				svc.Ports = servicePorts(k8sSvc)
+				svc.Type = k8sSvc.Spec.Type
 				svc.IPs = serviceIPs(k8sSvc)
 				if err := services.Insert(svc); err != nil {
 					// NOTE: Only fails if schema is bad.
 					log.WithError(err).Error("services.Insert")
 				} else {
-					log.Infof("Imported service %s/%s", svc.Namespace, svc.Name)
+					log.WithField("namespace", svc.Namespace).
+						WithField("name", svc.Name).Info("Imported service")
 				}
 			} else {
 				services := serviceTable.Modify(tx)
@@ -102,13 +111,16 @@ func syncServices(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLogge
 			}
 		}
 		if err := tx.Commit(); err != nil {
-			// TODO
+			// TODO: Commit may fail if a commit hook decides to reject the changes.
+			// Unclear what we want the semantics to be and whether there's anything
+			// that can be done to recover from it. Depends on the type of commit hooks
+			// we'd want (e.g. exporting "Status" back to k8s would be allowed, but all
+			// other field changes are not allowed etc.).
 			panic(err)
 		}
 	}
 
 	wg.Add(1)
-
 	src.Observe(
 		ctx,
 		onEvents,

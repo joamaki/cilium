@@ -50,6 +50,7 @@ func ExtMetaFromK8s(obj runtime.Object) (m ExtMeta) {
 	if err != nil {
 		return
 	}
+	m.ID = string(meta.GetUID())
 	m.Name = meta.GetName()
 	m.Namespace = meta.GetNamespace()
 

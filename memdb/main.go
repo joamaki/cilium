@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cilium/cilium/memdb/controllers"
+	"github.com/cilium/cilium/memdb/datapath"
 	"github.com/cilium/cilium/memdb/datasources"
 	"github.com/cilium/cilium/memdb/state"
 	"github.com/cilium/cilium/memdb/tables"
@@ -25,6 +26,8 @@ var Hive = hive.New(
 	datasources.Cell,
 
 	tables.Cell,
+
+	datapath.Cell,
 
 	//cell.Invoke(debugState),
 )

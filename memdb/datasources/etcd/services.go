@@ -18,7 +18,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var Cell = cell.Invoke(servicesDataSource)
+var Cell = cell.Module(
+	"datasources-etcd-services",
+	"Synchronizes services to and from etcd",
+	cell.Invoke(servicesDataSource),
+)
 
 func servicesDataSource(lc hive.Lifecycle, log logrus.FieldLogger, st *state.State, services tables.ServiceTable) {
 	var wg sync.WaitGroup
@@ -78,11 +82,7 @@ func syncServicesFrom(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldL
 				if svc.Source != services.ServiceSourceEtcd {
 					continue
 				}
-				if current, _ := svcs.First(state.ByName(svc.Namespace, svc.Name)); current != nil {
-					if svc.Revision <= current.Revision {
-						continue
-					}
-				}
+				svc.Revision = strconv.FormatUint(tx.Revision(), 10)
 				if err := svcs.Insert(&svc); err != nil {
 					// NOTE: Only fails if schema is bad.
 					log.WithError(err).Error("services.Insert")
@@ -135,6 +135,7 @@ func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLog
 		return
 	}
 
+	// Do max 20 queries and/or max 20 etcd operations per second.
 	lim := rate.NewLimiter(time.Second, 20)
 	defer lim.Stop()
 
@@ -168,7 +169,8 @@ func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLog
 					return err
 				}
 
-				log.Infof("Syncing service %s/%s from %s", svc.Namespace, svc.Name, svc.Source)
+				log.WithField("namespace", svc.Namespace).
+					WithField("name", svc.Name).Info("Imported service")
 
 				// Remember the highest seen revision for the next round.
 				if revLess(newRevision, svc.Revision) {
@@ -201,6 +203,7 @@ func syncServicesTo(ctx context.Context, wg *sync.WaitGroup, log logrus.FieldLog
 		case <-ctx.Done():
 			return
 		case <-servicesChanged:
+			lim.Wait(ctx)
 		}
 	}
 }

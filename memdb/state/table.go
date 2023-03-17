@@ -9,6 +9,7 @@ type WriteTransaction interface {
 
 	Abort()
 	Commit() error
+	Revision() uint64
 	Defer(fn func())
 }
 

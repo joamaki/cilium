@@ -11,8 +11,9 @@ import (
 
 type State struct {
 	stream.Observable[Event]
-	db *memdb.MemDB
-	r  Reflector
+	db       *memdb.MemDB
+	r        Reflector
+	revision uint64 // commit revision. protected by write tx lock.
 
 	emit     func(Event)
 	complete func(error)
@@ -55,8 +56,9 @@ func (s *State) ToJson() []byte {
 }
 
 type stateTransaction struct {
-	s   *State
-	txn *memdb.Txn
+	s        *State
+	revision uint64
+	txn      *memdb.Txn
 }
 
 func (s *stateTransaction) getTxn() *memdb.Txn {
@@ -66,7 +68,7 @@ func (s *stateTransaction) getTxn() *memdb.Txn {
 func (s *State) Write() WriteTransaction {
 	txn := s.db.Txn(true)
 	txn.TrackChanges()
-	return &stateTransaction{s: s, txn: txn}
+	return &stateTransaction{s: s, txn: txn, revision: s.revision + 1}
 }
 
 func (s *State) Read() ReadTransaction {
@@ -80,6 +82,7 @@ func (stx *stateTransaction) Commit() error {
 			return err
 		}
 	}
+	stx.s.revision = stx.revision
 	stx.txn.Commit()
 	for _, change := range changes {
 		// TODO how much information to include?
@@ -88,8 +91,9 @@ func (stx *stateTransaction) Commit() error {
 	return nil
 }
 
-func (stx *stateTransaction) Abort()          { stx.txn.Abort() }
-func (stx *stateTransaction) Defer(fn func()) { stx.txn.Defer(fn) }
+func (stx *stateTransaction) Revision() uint64 { return stx.revision }
+func (stx *stateTransaction) Abort()           { stx.txn.Abort() }
+func (stx *stateTransaction) Defer(fn func())  { stx.txn.Defer(fn) }
 
 type WatchableIterator[Obj any] interface {
 	Iterator[Obj]
