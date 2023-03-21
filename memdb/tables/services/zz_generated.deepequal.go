@@ -37,6 +37,15 @@ func (in *Service) DeepEqual(other *Service) bool {
 		return false
 	}
 
+	if in.Source != other.Source {
+		return false
+	}
+	if in.State != other.State {
+		return false
+	}
+	if in.Revision != other.Revision {
+		return false
+	}
 	if ((in.IPs != nil) && (other.IPs != nil)) || ((in.IPs == nil) != (other.IPs == nil)) {
 		in, other := &in.IPs, &other.IPs
 		if other == nil {

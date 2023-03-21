@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -279,6 +280,9 @@ func (h *Hive) fatalOnTimeout(ctx context.Context) chan struct{} {
 // Shutdown implements the Shutdowner interface and is provided
 // for the cells to use for triggering a early shutdown.
 func (h *Hive) Shutdown(opts ...ShutdownOption) {
+	log.Warnf("Shutdown initiated")
+	debug.PrintStack()
+
 	var o shutdownOptions
 	for _, opt := range opts {
 		opt.apply(&o)

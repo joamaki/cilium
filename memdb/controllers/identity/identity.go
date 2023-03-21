@@ -61,6 +61,7 @@ func (d *allocator) Start(hive.HookContext) (err error) {
 	go func() {
 		err := d.eg.Wait()
 		if err != nil {
+			d.Log.WithError(err).Error("identity allocator: eg.Wait fail")
 			d.Shutdowner.Shutdown(hive.ShutdownWithError(err))
 		}
 	}()
