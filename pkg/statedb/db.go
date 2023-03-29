@@ -10,6 +10,7 @@ import (
 
 	memdb "github.com/hashicorp/go-memdb"
 
+	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/stream"
 )
 
@@ -17,11 +18,13 @@ func New(p params) (DB, error) {
 	dbSchema := &memdb.DBSchema{
 		Tables: make(map[string]*memdb.TableSchema),
 	}
+	hooks := map[TableName][]CommitHook{}
 	for _, tableSchema := range p.Schemas {
 		if _, ok := dbSchema.Tables[tableSchema.Name]; ok {
 			panic(fmt.Sprintf("Table %q already registered", tableSchema.Name))
 		}
-		dbSchema.Tables[tableSchema.Name] = tableSchema
+		dbSchema.Tables[tableSchema.Name] = tableSchema.TableSchema
+		hooks[TableName(tableSchema.Name)] = tableSchema.Hooks
 	}
 	memdb, err := memdb.NewMemDB(dbSchema)
 	if err != nil {
@@ -30,8 +33,11 @@ func New(p params) (DB, error) {
 	db := &stateDB{
 		memDB:    memdb,
 		revision: 0,
+		hooks:    hooks,
 	}
 	db.Observable, db.emit, _ = stream.Multicast[Event]()
+
+	p.Lifecycle.Append(db)
 
 	return db, nil
 }
@@ -43,9 +49,37 @@ type stateDB struct {
 
 	memDB    *memdb.MemDB
 	revision uint64 // Commit revision, protected by the write tx lock.
+	hooks    map[TableName][]CommitHook
+}
+
+// Start implements hive.HookInterface
+func (db *stateDB) Start(hive.HookContext) (err error) {
+	// Restore state from hooks.
+	txn := db.memDB.Txn(true)
+loop:
+	for table, hooks := range db.hooks {
+		for _, hook := range hooks {
+			err = hook.Restore(table, txn)
+			if err != nil {
+				break loop
+			}
+		}
+	}
+	if err != nil {
+		txn.Abort()
+	} else {
+		txn.Commit()
+	}
+	return
+}
+
+// Stop implements hive.HookInterface
+func (*stateDB) Stop(hive.HookContext) error {
+	return nil
 }
 
 var _ DB = &stateDB{}
+var _ hive.HookInterface = &stateDB{}
 
 // WriteJSON marshals out the whole database as JSON into the given writer.
 func (db *stateDB) WriteJSON(w io.Writer) error {
@@ -115,9 +149,9 @@ func (t *transaction) Abort()             { t.txn.Abort() }
 func (t *transaction) Defer(fn func())    { t.txn.Defer(fn) }
 
 func (t *transaction) Commit() error {
-	changedTables := map[string]struct{}{}
+	changesPerTable := map[string][]memdb.Change{}
 	for _, change := range t.txn.Changes() {
-		changedTables[change.Table] = struct{}{}
+		changesPerTable[change.Table] = append(changesPerTable[change.Table], change)
 
 		// Verify that a copy of the original object is being
 		// inserted rather than mutated in-place.
@@ -125,12 +159,25 @@ func (t *transaction) Commit() error {
 			panic("statedb: The original object is being modified without being copied first!")
 		}
 	}
+
+	// Call registered commit hooks for each table with the per-table changes.
+	for table, changes := range changesPerTable {
+		for _, hook := range t.db.hooks[TableName(table)] {
+			if err := hook.Commit(changes); err != nil {
+				return err
+			}
+		}
+	}
+
+	// If all the hooks succeeded, commit the transaction to the in-memory state
+	// and release the write lock.
 	t.db.revision = t.revision
 	t.txn.Commit()
 
 	// Notify that these tables have changed. We are not concerned
-	// about the order in which these events are received by subscribers.
-	for table := range changedTables {
+	// about the order in which these events are received by subscribers as
+	// this is only meant to be used as a trigger mechanism.
+	for table := range changesPerTable {
 		t.db.emit(Event{Table: TableName(table)})
 	}
 	return nil

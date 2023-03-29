@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/statedb"
+	"github.com/cilium/cilium/pkg/statedb/hooks"
 	"github.com/cilium/cilium/pkg/stream"
 )
 
@@ -87,30 +88,31 @@ var beeHive = hive.New(
 
 	// Register the bee table with the database. This will provide statedb.Table[*Bee] to the whole hive.
 	// You can also use NewPrivateTableCell to keep the Table[T] private to your module.
-	statedb.NewTableCell[*Bee](beeTableSchema),
+	statedb.NewTableCell[*Bee](beeTableSchema,
+		statedb.WithHook(hooks.NewDummyPersistHook[*Bee](
+			beeTableSchema.Indexes["id"],
+			"/tmp/example")),
+	),
 
-	// Use a wait group and a context to do some synchronization in the little play below.
-	cell.Provide(
-		func() (wg *sync.WaitGroup, ctx context.Context, cancel context.CancelFunc) {
-			wg = &sync.WaitGroup{}
-			ctx, cancel = context.WithCancel(context.Background())
-			return
-		}),
-
-	// Run these functions one by one to play with the database. Note that we're assuming here that
-	// the database does not need to be Start()'ed, which may not be the case when there are e.g. commit
-	// hooks and persistence involved. In general "real work" should only start happening from a Start hook.
+	// Register a start hook to run through the examples.
 	cell.Invoke(
-		observeDatabase,
-		createBees,
-		listBees,
-		observeAndModifyBees,
+		func(lc hive.Lifecycle, s hive.Shutdowner, db statedb.DB, beeTable BeeTable) {
+			lc.Append(hive.Hook{
+				OnStart: func(hive.HookContext) error {
+					wg := &sync.WaitGroup{}
+					ctx, cancel := context.WithCancel(context.Background())
 
-		// Finally stop the hive.
-		func(wg *sync.WaitGroup, cancel context.CancelFunc, s hive.Shutdowner) {
-			cancel()
-			wg.Wait()
-			s.Shutdown()
+					observeDatabase(wg, ctx, db)
+					createBees(db, beeTable)
+					listBees(db, beeTable)
+					observeAndModifyBees(wg, db, beeTable)
+
+					cancel()
+					wg.Wait()
+					s.Shutdown()
+					return nil
+				},
+			})
 		},
 	),
 )
@@ -240,7 +242,9 @@ func modifyBees(db statedb.DB, beeTable BeeTable) {
 		}
 		fmt.Printf("[modifyDees] Deleted drone bee %s\n", aDroneBee.UUID)
 	}
-	txn.Commit()
+	if err := txn.Commit(); err != nil {
+		panic(err)
+	}
 }
 
 func observeAndModifyBees(wg *sync.WaitGroup, db statedb.DB, beeTable BeeTable) {

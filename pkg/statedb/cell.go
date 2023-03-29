@@ -4,8 +4,6 @@
 package statedb
 
 import (
-	memdb "github.com/hashicorp/go-memdb"
-
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
 )
@@ -30,5 +28,5 @@ type params struct {
 	Lifecycle hive.Lifecycle
 
 	// Schemas are the table schemas provided by NewTableCell/NewPrivateTableCell.
-	Schemas []*memdb.TableSchema `group:"statedb-table-schemas"`
+	Schemas []*TableSchema `group:"statedb-table-schemas"`
 }

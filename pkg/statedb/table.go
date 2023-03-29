@@ -26,32 +26,49 @@ import (
 //	  // some nicer accessors to Table[*Bee]
 //	}
 //	func New(bees state.Table[*Bee]) Bee { ... }
-func NewTableCell[Obj ObjectConstraints[Obj]](schema *memdb.TableSchema) cell.Cell {
-	return cell.Provide(
-		func() (Table[Obj], tableSchemaOut) {
-			return &table[Obj]{table: schema.Name},
-				tableSchemaOut{Schema: schema}
-		},
-	)
+func NewTableCell[Obj ObjectConstraints[Obj]](schema *memdb.TableSchema, opts ...tableOption) cell.Cell {
+	var o tableOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	newTable := func() Table[Obj] { return &table[Obj]{table: schema.Name} }
+	newSchema := func() tableSchemaOut { return tableSchemaOut{Schema: &TableSchema{schema, o.hooks}} }
+
+	if o.private {
+		return cell.Group(
+			cell.ProvidePrivate(newTable),
+			cell.Provide(newSchema),
+		)
+	} else {
+		return cell.Provide(newTable, newSchema)
+	}
 }
 
-// NewPrivateTableCell is like NewTableCell, but provides Table[Obj] privately, e.g. only
-// to the module defining it.
-func NewPrivateTableCell[Obj ObjectConstraints[Obj]](schema *memdb.TableSchema) cell.Cell {
-	return cell.Group(
-		cell.ProvidePrivate(
-			func() Table[Obj] { return &table[Obj]{table: schema.Name} },
-		),
-		cell.Provide(
-			func() tableSchemaOut { return tableSchemaOut{Schema: schema} },
-		),
-	)
+type tableOptions struct {
+	private bool
+	hooks   []CommitHook
+}
+
+type tableOption func(*tableOptions)
+
+var Private tableOption = func(o *tableOptions) { o.private = true }
+
+func WithHook(hook CommitHook) tableOption {
+	return func(o *tableOptions) {
+		o.hooks = append(o.hooks, hook)
+	}
 }
 
 type tableSchemaOut struct {
 	cell.Out
 
-	Schema *memdb.TableSchema `group:"statedb-table-schemas"`
+	Schema *TableSchema `group:"statedb-table-schemas"`
+}
+
+type TableSchema struct {
+	*memdb.TableSchema
+	Hooks []CommitHook
 }
 
 type table[Obj ObjectConstraints[Obj]] struct {
