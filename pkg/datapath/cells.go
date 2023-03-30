@@ -10,6 +10,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/iptables"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
+	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/hive"
@@ -34,6 +35,9 @@ var Cell = cell.Module(
 	cell.Provide(func(dp types.Datapath) ipcache.NodeHandler {
 		return dp.Node()
 	}),
+
+	tables.Cell,
+	linuxdatapath.DevicesControllerCell,
 )
 
 func newWireguardAgent(lc hive.Lifecycle) *wg.Agent {
