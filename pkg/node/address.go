@@ -18,6 +18,7 @@ import (
 	"github.com/cilium/cilium/pkg/byteorder"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/common"
+	datapathTables "github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -141,7 +142,7 @@ func InitDefaultPrefix(device string) {
 // InitNodePortAddrs initializes NodePort IPv{4,6} addrs for the given devices.
 // If inheritIPAddrFromDevice is non-empty, then the IP addr for the devices
 // will be derived from it.
-func InitNodePortAddrs(devices []string, inheritIPAddrFromDevice string) error {
+func InitNodePortAddrs(devices []*datapathTables.Device, inheritIPAddrFromDevice string) error {
 	addrsMu.Lock()
 	defer addrsMu.Unlock()
 
@@ -158,13 +159,11 @@ func InitNodePortAddrs(devices []string, inheritIPAddrFromDevice string) error {
 		addrs.ipv4NodePortAddrs = make(map[string]net.IP, len(devices))
 		for _, device := range devices {
 			if inheritIPAddrFromDevice != "" {
-				addrs.ipv4NodePortAddrs[device] = inheritedIP
-			} else {
-				ip, err := firstGlobalV4Addr(device, GetK8sNodeIP(), !preferPublicIP)
-				if err != nil {
-					return fmt.Errorf("failed to determine IPv4 of %s for NodePort", device)
-				}
-				addrs.ipv4NodePortAddrs[device] = ip
+				addrs.ipv4NodePortAddrs[device.Name] = inheritedIP
+			} else if len(device.Addrs) > 0 {
+				// If the device has addresses, then pick its first address. They are
+				// sorted based on scope, with the globally routable addresses on top.
+				addrs.ipv4NodePortAddrs[device.Name] = device.Addrs[0].Addr.AsSlice()
 			}
 		}
 	}
@@ -179,13 +178,13 @@ func InitNodePortAddrs(devices []string, inheritIPAddrFromDevice string) error {
 		addrs.ipv6NodePortAddrs = make(map[string]net.IP, len(devices))
 		for _, device := range devices {
 			if inheritIPAddrFromDevice != "" {
-				addrs.ipv6NodePortAddrs[device] = inheritedIP
+				addrs.ipv6NodePortAddrs[device.Name] = inheritedIP
 			} else {
-				ip, err := firstGlobalV6Addr(device, GetK8sNodeIP(), !preferPublicIP)
+				ip, err := firstGlobalV6Addr(device.Name, GetK8sNodeIP(), !preferPublicIP)
 				if err != nil {
-					return fmt.Errorf("Failed to determine IPv6 of %s for NodePort", device)
+					return fmt.Errorf("Failed to determine IPv6 of %s for NodePort", device.Name)
 				}
-				addrs.ipv6NodePortAddrs[device] = ip
+				addrs.ipv6NodePortAddrs[device.Name] = ip
 			}
 		}
 	}

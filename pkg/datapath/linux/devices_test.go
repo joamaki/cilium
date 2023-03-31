@@ -410,6 +410,14 @@ func createLink(linkTemplate netlink.Link, iface, ipAddr string, flagMulticast b
 	return nil
 }
 
+func deleteLink(name string) error {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		return err
+	}
+	return netlink.LinkDel(link)
+}
+
 func createDummy(iface, ipAddr string, flagMulticast bool) error {
 	return createLink(&netlink.Dummy{}, iface, ipAddr, flagMulticast)
 }

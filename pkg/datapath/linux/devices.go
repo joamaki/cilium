@@ -94,7 +94,7 @@ func (dm *DeviceManager) Detect(k8sEnabled bool) ([]string, error) {
 		l3DevOK = supportL3Dev()
 	}
 
-	if len(option.Config.GetDevices()) == 0 && option.Config.AreDevicesRequired() {
+	if len(option.Config.GetDevices()) == 0 {
 		// Detect the devices from the system routing table by finding the devices
 		// which have global unicast routes.
 		family := netlink.FAMILY_ALL
@@ -236,6 +236,7 @@ func (dm *DeviceManager) isViableDevice(l3DevOK, hasDefaultRoute bool, link netl
 	}
 
 	if link.Attrs().MasterIndex > 0 {
+		fmt.Printf(">> %s has master\n", link.Attrs().Name)
 		if master, err := dm.handle.LinkByIndex(link.Attrs().MasterIndex); err == nil {
 			switch master.Type() {
 			case "bridge", "openvswitch":

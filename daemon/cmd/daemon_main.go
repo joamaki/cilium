@@ -41,6 +41,7 @@ import (
 	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/maps"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
+	datapathTables "github.com/cilium/cilium/pkg/datapath/tables"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/egressgateway"
@@ -81,6 +82,7 @@ import (
 	"github.com/cilium/cilium/pkg/pidfile"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/statedb"
 	"github.com/cilium/cilium/pkg/sysctl"
 	"github.com/cilium/cilium/pkg/version"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -1586,6 +1588,8 @@ type daemonParams struct {
 	Policy               *policy.Repository
 	PolicyUpdater        *policy.Updater
 	IPCache              *ipcache.IPCache
+	StateDB              statedb.DB
+	DevicesTable         statedb.Table[*datapathTables.Device]
 	EgressGatewayManager *egressgateway.Manager
 	CNIConfigManager     cni.CNIConfigManager
 }
@@ -1609,26 +1613,7 @@ func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
 
 	params.Lifecycle.Append(hive.Hook{
 		OnStart: func(hive.HookContext) error {
-			d, restoredEndpoints, err := newDaemon(
-				daemonCtx, cleaner,
-				params.EndpointManager,
-				params.NodeManager,
-				params.Datapath,
-				params.WGAgent,
-				params.Clientset,
-				params.SharedResources,
-				params.CertManager,
-				params.SecretManager,
-				params.LocalNodeStore,
-				params.AuthManager,
-				params.CacheStatus,
-				params.IPCache,
-				params.IdentityAllocator,
-				params.Policy,
-				params.PolicyUpdater,
-				params.EgressGatewayManager,
-				params.CNIConfigManager,
-			)
+			d, restoredEndpoints, err := newDaemon(daemonCtx, cleaner, params)
 			if err != nil {
 				return fmt.Errorf("daemon creation failed: %w", err)
 			}

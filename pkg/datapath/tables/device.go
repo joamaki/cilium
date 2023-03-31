@@ -10,16 +10,21 @@ import (
 )
 
 type Device struct {
-	Index int // Interface index (primary key)
-	Name  string
-	IPs   []netip.Addr // IP addresses
+	Index  int // Interface index (primary key)
+	Name   string
+	Addrs  []DeviceAddress
+	Viable bool // If true, this device can be used by Cilium
+}
+
+type DeviceAddress struct {
+	Addr  netip.Addr
+	Scope int // Routing table scope
 }
 
 func (d *Device) DeepCopy() *Device {
-	return &Device{
-		Name: d.Name,
-		IPs:  slices.Clone(d.IPs),
-	}
+	copy := *d
+	copy.Addrs = slices.Clone(d.Addrs)
+	return &copy
 }
 
 var deviceTableSchema = &memdb.TableSchema{
@@ -34,9 +39,34 @@ var deviceTableSchema = &memdb.TableSchema{
 	},
 }
 
-func ByIndex(index int) statedb.Query {
+func ByDeviceIndex(index int) statedb.Query {
 	return statedb.Query{
 		Index: "id",
 		Args:  []any{index},
 	}
+}
+
+func ByDeviceName(name string) statedb.Query {
+	return statedb.Query{
+		Index: "name",
+		Args:  []any{name},
+	}
+}
+
+// GetDevices returns all current viable network devices.
+// The invalidated channel is closed when devices have changed and
+// should be requeried.
+func GetDevices(r statedb.TableReader[*Device]) (devs []*Device, invalidated <-chan struct{}) {
+	iter, err := r.Get(statedb.All)
+	if err != nil {
+		// Devices table schema is malformed.
+		panic(err)
+	}
+	for dev, ok := iter.Next(); ok; dev, ok = iter.Next() {
+		if !dev.Viable {
+			continue
+		}
+		devs = append(devs, dev)
+	}
+	return devs, iter.Invalidated()
 }

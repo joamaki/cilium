@@ -20,6 +20,7 @@ import (
 	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/statedb"
 )
 
 var (
@@ -56,6 +57,11 @@ var (
 
 		// Provide option.Config via hive so cells can depend on the agent config.
 		cell.Provide(func() *option.DaemonConfig { return option.Config }),
+
+		// StateDB provides an in-memory database to which cells can register
+		// their tables and perform atomic transactions over the whole state of the
+		// agent.
+		statedb.Cell,
 	)
 
 	// ControlPlane implement the per-node control functions. These are pure
