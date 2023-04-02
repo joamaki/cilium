@@ -105,7 +105,7 @@ func TestDevicesController(t *testing.T) {
 						assert.False(t, devs[2].Viable)
 					}
 					if assert.Equal(t, "veth0", devs[3].Name) {
-						assert.False(t, devs[3].Viable)
+						assert.False(t, devs[3].Viable, "veth0 without default gateway should not be viable")
 					}
 				}
 			},
@@ -148,21 +148,6 @@ func TestDevicesController(t *testing.T) {
 			},
 		},
 		{
-			// TODO: Does this limitation make any sense?
-			"skip-bridge-devices",
-			func(t *testing.T) {
-				assert.NoError(t, createBridge("br0", "192.168.5.1/24", false))
-				assert.NoError(t, setMaster("dummy1", "br0"))
-			},
-			func(t *testing.T, devs []*tables.Device) {
-				if assert.Len(t, devs, 1) {
-					assert.Equal(t, "dummy1", devs[0].Name)
-					assert.False(t, devs[0].Viable, "bridged dummy1 should not be viable")
-				}
-				assert.NoError(t, deleteLink("br0"))
-			},
-		},
-		{
 			"bond-is-viable",
 			func(t *testing.T) {
 				assert.NoError(t, createBond("bond0", "192.168.6.1/24", false))
@@ -175,6 +160,21 @@ func TestDevicesController(t *testing.T) {
 					assert.Equal(t, "bond0", devs[1].Name)
 					assert.True(t, devs[1].Viable, "bond device should be viable")
 				}
+				assert.NoError(t, deleteLink("bond0"))
+			},
+		},
+		{
+			"skip-bridge-devices",
+			func(t *testing.T) {
+				assert.NoError(t, createBridge("br0", "192.168.5.1/24", false))
+				assert.NoError(t, setMaster("dummy1", "br0"))
+			},
+			func(t *testing.T, devs []*tables.Device) {
+				if assert.Len(t, devs, 1) {
+					assert.Equal(t, "dummy1", devs[0].Name)
+					assert.False(t, devs[0].Viable, "bridged dummy1 should not be viable")
+				}
+				assert.NoError(t, deleteLink("br0"))
 			},
 		},
 	}

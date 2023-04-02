@@ -457,8 +457,8 @@ func setBondMaster(iface string, master string) error {
 	if err != nil {
 		return err
 	}
-
 	netlink.LinkSetDown(link)
+	defer netlink.LinkSetUp(link)
 	return netlink.LinkSetBondSlave(link, masterLink.(*netlink.Bond))
 }
 

@@ -1,9 +1,12 @@
 package tables
 
 import (
+	"fmt"
+	"net"
 	"net/netip"
 
 	"github.com/hashicorp/go-memdb"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/exp/slices"
 
 	"github.com/cilium/cilium/pkg/statedb"
@@ -13,7 +16,18 @@ type Device struct {
 	Index  int // Interface index (primary key)
 	Name   string
 	Addrs  []DeviceAddress
+	Link   netlink.Link
 	Viable bool // If true, this device can be used by Cilium
+}
+
+func (d *Device) String() string {
+	return fmt.Sprintf("Device{Index:%d, Name:%s, len(Addrs):%d}", d.Index, d.Name, len(d.Addrs))
+}
+
+func (d *Device) DeepCopy() *Device {
+	copy := *d
+	copy.Addrs = slices.Clone(d.Addrs)
+	return &copy
 }
 
 type DeviceAddress struct {
@@ -21,10 +35,8 @@ type DeviceAddress struct {
 	Scope int // Routing table scope
 }
 
-func (d *Device) DeepCopy() *Device {
-	copy := *d
-	copy.Addrs = slices.Clone(d.Addrs)
-	return &copy
+func (d *DeviceAddress) AsIP() net.IP {
+	return d.Addr.AsSlice()
 }
 
 var deviceTableSchema = &memdb.TableSchema{

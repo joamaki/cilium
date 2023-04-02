@@ -31,16 +31,18 @@ import (
 //
 // Requires [DevicesConfig] to be provided from outside.
 // FIXME: Move relevant configuration flags from DaemonConfig to here.
+// FIXME: Since this also manages the route table, perhaps this should be called something
+// like NetlinkController?
 var DevicesControllerCell = cell.Module(
 	"datapath-devices-controller",
-	"Populates the devices table from netlink",
+	"Populates the device and route tables from netlink",
 
 	cell.Invoke(registerDevicesController),
 )
 
-// addrUpdateBatchingDuration is the amount of time to wait for more
-// netlink.AddrUpdate messages before processing the batch.
-var addrUpdateBatchingDuration = 100 * time.Millisecond
+// batchingDuration is the amount of time to wait for more
+// addr/route/link updates before processing the batch.
+var batchingDuration = 100 * time.Millisecond
 
 type DevicesConfig struct {
 	Devices []string
@@ -53,16 +55,20 @@ type DevicesConfig struct {
 type devicesControllerParams struct {
 	cell.In
 
-	Log          logrus.FieldLogger
-	DB           statedb.DB
-	DevicesTable statedb.Table[*tables.Device]
-	Config       DevicesConfig
+	Log         logrus.FieldLogger
+	DB          statedb.DB
+	DeviceTable statedb.Table[*tables.Device]
+	RouteTable  statedb.Table[*tables.Route]
+	Config      DevicesConfig
 }
 
 func registerDevicesController(lc hive.Lifecycle, p devicesControllerParams) {
-	dc := &devicesController{devicesControllerParams: p}
+	dc := &devicesController{
+		devicesControllerParams: p,
+		links:                   map[int]netlink.Link{},
+		filter:                  deviceFilter(p.Config.Devices),
+	}
 	dc.ctx, dc.cancel = context.WithCancel(context.Background())
-	dc.filter = deviceFilter(p.Config.Devices)
 	lc.Append(dc)
 }
 
@@ -73,6 +79,7 @@ type devicesController struct {
 	handle         *netlink.Handle
 	ctx            context.Context
 	cancel         context.CancelFunc
+	links          map[int]netlink.Link
 }
 
 func (dc *devicesController) Start(hive.HookContext) error {
@@ -90,12 +97,12 @@ func (dc *devicesController) Start(hive.HookContext) error {
 	}
 
 	// Subscribe to address updates to find out about link address changes.
-	updates := make(chan netlink.AddrUpdate, 16)
+	addrUpdates := make(chan netlink.AddrUpdate, 16)
 	opts := netlink.AddrSubscribeOptions{
 		Namespace:    dc.Config.NetNS,
 		ListExisting: false,
 	}
-	if err := netlink.AddrSubscribeWithOptions(updates, dc.ctx.Done(), opts); err != nil {
+	if err := netlink.AddrSubscribeWithOptions(addrUpdates, dc.ctx.Done(), opts); err != nil {
 		return fmt.Errorf("AddrSubscribeWithOptions failed: %w", err)
 	}
 
@@ -122,21 +129,18 @@ func (dc *devicesController) Start(hive.HookContext) error {
 		return fmt.Errorf("LinkSubscribeWithOptions failed: %w", err)
 	}
 
-	// Dump all addresses to initially populate the table.
-	addrs, err := dc.handle.AddrList(nil, netlink.FAMILY_ALL)
-	if err != nil {
-		return fmt.Errorf("AddrList failed: %w", err)
-	}
-	buf := map[int][]update{}
-	for _, addr := range addrs {
-		buf[addr.LinkIndex] = append(buf[addr.LinkIndex], updateFromAddr(addr))
-	}
-	dc.processBatch(buf, nil /* FIXME */)
-	// TODO maybe better to wait for loop to signal that it's done with
-	// committing the first batch of updates?
+	initDone := make(chan struct{})
 
 	// Start processing the updates in the background.
-	go dc.loop(updates, routeUpdates, linkUpdates)
+	go dc.loop(initDone, addrUpdates, routeUpdates, linkUpdates)
+
+	// Block until initial population of the devices table has completed.
+	// FIXME this is currently completely broken and just relies on the initial
+	// batch. vishvananda/netlink does not provide a mechanism to know when the
+	// initial listing is done. the netlink protocol does provide with the NLMSG_DONE
+	// flag. Fork vishvananda/netlink and implement this or do this here on top of
+	// nl.Subscribe&Receive?
+	<-initDone
 
 	return nil
 }
@@ -154,122 +158,119 @@ func (dc *devicesController) Stop(hive.HookContext) error {
 	return nil
 }
 
-func (dc *devicesController) loop(updates chan netlink.AddrUpdate, routeUpdates chan netlink.RouteUpdate, linkUpdates chan netlink.LinkUpdate) {
-	timer := time.NewTimer(addrUpdateBatchingDuration)
+func (dc *devicesController) loop(
+	initDone chan struct{},
+	addrUpdates chan netlink.AddrUpdate,
+	routeUpdates chan netlink.RouteUpdate,
+	linkUpdates chan netlink.LinkUpdate,
+) {
+	timer := time.NewTimer(batchingDuration)
 	if !timer.Stop() {
 		<-timer.C
 	}
 	timerStopped := true
 
-	buf := map[int][]update{}
-	hasDefaultRoute := map[int]bool{}
+	batch := map[int][]any{}
+	appendUpdate := func(index int, u any) {
+		batch[index] = append(batch[index], u)
+		if timerStopped {
+			timer.Reset(batchingDuration)
+			timerStopped = false
+		}
 
-	// FIXME drain the channels when done
+	}
+
+	initialized := false
+
 	for {
 		select {
-		case u, ok := <-updates:
-			if !ok {
-				return
+		case <-dc.ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
 			}
-			buf[u.LinkIndex] = append(buf[u.LinkIndex], updateFromAddrUpdate(u))
-			if timerStopped {
-				timer.Reset(addrUpdateBatchingDuration)
-				timerStopped = false
+			for range addrUpdates {
 			}
+			for range routeUpdates {
+			}
+			for range linkUpdates {
+			}
+			return
 
-		case r, ok := <-routeUpdates:
-			if !ok {
-				return
-			}
-			if r.Dst == nil {
-				if r.Type == unix.RTM_NEWROUTE {
-					hasDefaultRoute[r.LinkIndex] = true
-				} else {
-					delete(hasDefaultRoute, r.LinkIndex)
-				}
+		case u := <-addrUpdates:
+			appendUpdate(u.LinkIndex, u)
 
-				// Mark this device for processing and start the timer.
-				if _, ok := buf[r.LinkIndex]; !ok {
-					buf[r.LinkIndex] = []update{}
-					if timerStopped {
-						timer.Reset(addrUpdateBatchingDuration)
-						timerStopped = false
-					}
-				}
-			}
+		case r := <-routeUpdates:
+			appendUpdate(r.LinkIndex, r)
 
-		case l, ok := <-linkUpdates:
-			if !ok {
-				return
-			}
-			// Mark this device for processing and start the timer.
-			if _, ok := buf[int(l.Index)]; !ok {
-				buf[int(l.Index)] = []update{}
-				if timerStopped {
-					timer.Reset(addrUpdateBatchingDuration)
-					timerStopped = false
-				}
-			}
+		case l := <-linkUpdates:
+			appendUpdate(int(l.Index), l)
 
 		case <-timer.C:
 			timerStopped = true
-			if dc.processBatch(buf, hasDefaultRoute) {
-				buf = map[int][]update{}
+			if dc.processBatch(batch) {
+				batch = map[int][]any{}
+				if !initialized {
+					close(initDone)
+					initialized = true
+				}
 			}
 		}
 	}
 }
 
-type update struct {
-	Addr    tables.DeviceAddress
-	Deleted bool
-}
-
-func updateFromAddr(addr netlink.Addr) update {
-	return update{
-		Addr: tables.DeviceAddress{
-			Addr:  ip.MustAddrFromIP(addr.IP),
-			Scope: addr.Scope,
-		},
-		Deleted: false,
+func deviceAddressFromAddrUpdate(upd netlink.AddrUpdate) tables.DeviceAddress {
+	return tables.DeviceAddress{
+		Addr:  ip.MustAddrFromIP(upd.LinkAddress.IP),
+		Scope: upd.Scope,
 	}
 }
 
-func updateFromAddrUpdate(upd netlink.AddrUpdate) update {
-	return update{
-		Addr: tables.DeviceAddress{
-			Addr:  ip.MustAddrFromIP(upd.LinkAddress.IP),
-			Scope: upd.Scope,
-		},
-		Deleted: !upd.NewAddr,
-	}
-}
-
-func (dc *devicesController) processBatch(updatesByLink map[int][]update, hasDefaultRoute map[int]bool) (ok bool) {
-	// Gather the links first as we don't want to be doing syscalls within a write transaction.
-	// If getting the link fails we assume it has been deleted.
-	links := map[int]netlink.Link{}
-	for index := range updatesByLink {
-		links[index], _ = dc.handle.LinkByIndex(index)
-	}
-
+// processBatch processes a batch of link, route and address updates. If it successfully
+// commits it to the state it returns true, if the batch is incomplete (e.g. route updates
+// for non-existing link), it returns false and the batch should be expanded with newer
+// updates and tried again.
+func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 	txn := dc.DB.WriteTxn()
-	w := dc.DevicesTable.Writer(txn)
+	devices := dc.DeviceTable.Writer(txn)
+	routes := dc.RouteTable.Writer(txn)
+
+	// Process link updates first so we can access the link metadata when processing
+	// addresses and routes.
+	for index, updates := range batch {
+		for _, u := range updates {
+			if l, ok := u.(netlink.LinkUpdate); ok {
+				if dc.shouldSkipDevice(l) {
+					delete(batch, index)
+					continue
+				}
+
+				if l.Header.Type == unix.RTM_DELLINK {
+					delete(dc.links, index)
+					devices.Delete(&tables.Device{Index: index})
+					routes.DeleteAll(tables.ByRouteLinkIndex(index))
+					delete(batch, index)
+					break
+				} else {
+					dc.links[index] = l.Link
+				}
+			}
+		}
+	}
 
 	var err error
-	for index, updates := range updatesByLink {
-		link := links[index]
+	for index, updates := range batch {
+		link := dc.links[index]
 		if link == nil {
-			w.Delete(&tables.Device{Index: index})
-			continue
-		}
-		if dc.shouldSkipDevice(link) {
-			continue
+			// Update for a link we have not yet observed, abort and try again
+			// later.
+			dc.Log.Errorf("link %d not found, aborting", index)
+			txn.Abort()
+			return false
 		}
 
 		name := link.Attrs().Name
 
-		d, _ := w.First(tables.ByDeviceIndex(index))
+		d, _ := devices.First(tables.ByDeviceIndex(index))
 		if d == nil {
 			d = &tables.Device{
 				Index: index,
@@ -279,21 +280,41 @@ func (dc *devicesController) processBatch(updatesByLink map[int][]update, hasDef
 			d = d.DeepCopy()
 		}
 
-		d.Viable = dc.isViableDevice(link, hasDefaultRoute)
-
 		for _, u := range updates {
-			if u.Addr.Scope == unix.RT_SCOPE_LINK {
-				// Ignore link local addresses.
-				continue
-			}
-
-			if u.Deleted {
-				i := slices.Index(d.Addrs, u.Addr)
-				if i >= 0 {
-					d.Addrs = slices.Delete(d.Addrs, i, i+1)
+			switch u := u.(type) {
+			case netlink.AddrUpdate:
+				if u.Scope == unix.RT_SCOPE_LINK {
+					// Ignore link local addresses.
+					continue
 				}
-			} else {
-				d.Addrs = append(d.Addrs, u.Addr)
+				addr := deviceAddressFromAddrUpdate(u)
+				if u.NewAddr {
+					d.Addrs = append(d.Addrs, addr)
+				} else {
+					i := slices.Index(d.Addrs, addr)
+					if i >= 0 {
+						d.Addrs = slices.Delete(d.Addrs, i, i+1)
+					}
+				}
+			case netlink.RouteUpdate:
+				r := tables.Route{
+					Table:     u.Table,
+					LinkName:  name,
+					LinkIndex: index,
+					Scope:     uint8(u.Scope),
+					Dst:       u.Dst,
+					Src:       u.Src,
+					Gw:        u.Gw,
+				}
+				if u.Type == unix.RTM_NEWROUTE {
+					if err := routes.Insert(&r); err != nil {
+						// TODO malformed index, panic?
+						log.WithError(err).Error("Insert into routes table failed")
+					}
+				} else {
+					routes.Delete(&r)
+				}
+			case netlink.LinkUpdate:
 			}
 		}
 		// Sort the addresses by scope, with universe on top.
@@ -302,17 +323,19 @@ func (dc *devicesController) processBatch(updatesByLink map[int][]update, hasDef
 			return d.Addrs[i].Scope < d.Addrs[j].Scope
 		})
 
-		err = w.Insert(d)
-		if err != nil {
+		// Revalidate if the device is still valid.
+		d.Viable = dc.isViableDevice(link, routes)
+
+		if err := devices.Insert(d); err != nil {
+			// TODO malformed index, panic?
 			log.WithError(err).Error("Insert into devices table failed")
-			break
 		}
 	}
 	if err != nil {
 		txn.Abort()
 		return false
 	} else if err = txn.Commit(); err != nil {
-		log.WithError(err).Error("Committing to devices table failed")
+		log.WithError(err).Error("Committing devices and routes failed")
 		return false
 	}
 	return true
@@ -363,7 +386,7 @@ func (dc *devicesController) shouldSkipDevice(link netlink.Link) bool {
 
 // isViableDevice checks if the device is viable or not. We still maintain its state in
 // case it later becomes viable.
-func (dc *devicesController) isViableDevice(link netlink.Link, hasDefaultRoute map[int]bool) bool {
+func (dc *devicesController) isViableDevice(link netlink.Link, routes statedb.TableReader[*tables.Route]) bool {
 	// isViableDevice returns true if the given link is usable and Cilium should attach
 	// programs to it.
 	name := link.Attrs().Name
@@ -372,13 +395,21 @@ func (dc *devicesController) isViableDevice(link netlink.Link, hasDefaultRoute m
 	operState := link.Attrs().OperState
 	if operState == netlink.OperDown {
 		dc.Log.WithField(logfields.Device, name).
-			Debug("Skipping device as it's operational state is down")
+			Debug("Skipping device as its operational state is down")
 		return false
 	}
 
 	// Skip devices that have an excluded interface flag set.
 	if link.Attrs().RawFlags&excludedIfFlagsMask != 0 {
-		dc.Log.WithField(logfields.Device, name).Debugf("Skipping device as it has excluded flag (%x)", link.Attrs().RawFlags)
+		dc.Log.WithField(logfields.Device, name).
+			Debugf("Skipping device as it has excluded flag (%x)", link.Attrs().RawFlags)
+		return false
+	}
+
+	// Ignore devices that are bonded or bridged.
+	if link.Attrs().MasterIndex > 0 {
+		dc.Log.WithField(logfields.Device, name).
+			Debug("Ignoring bonded or bridged device")
 		return false
 	}
 
@@ -387,26 +418,10 @@ func (dc *devicesController) isViableDevice(link netlink.Link, hasDefaultRoute m
 		// Skip veth devices that don't have a default route.
 		// This is a workaround for kubernetes-in-docker. We want to avoid
 		// veth devices in general as they may be leftovers from another CNI.
-		if !hasDefaultRoute[link.Attrs().Index] {
+		if !tables.HasDefaultRoute(routes, link.Attrs().Index) {
 			dc.Log.WithField(logfields.Device, name).
 				Debug("Ignoring veth device as it has no default route")
 			return false
-		}
-	}
-
-	// TODO. Any reason why we need to look at the type?
-	if link.Attrs().MasterIndex > 0 {
-		if master, err := dc.handle.LinkByIndex(link.Attrs().MasterIndex); err == nil {
-			switch master.Type() {
-			case "bridge", "openvswitch":
-				dc.Log.WithField(logfields.Device, name).Debug("Ignoring device attached to bridge")
-				return false
-
-			case "bond", "team":
-				dc.Log.WithField(logfields.Device, name).Debug("Ignoring bonded device")
-				return false
-			}
-
 		}
 	}
 

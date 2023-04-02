@@ -31,18 +31,18 @@ type linuxDatapath struct {
 }
 
 // NewDatapath creates a new Linux datapath
-func NewDatapath(cfg DatapathConfiguration, ruleManager datapath.IptablesManager, wgAgent datapath.WireguardAgent) datapath.Datapath {
+func NewDatapath(cfg DatapathConfiguration, ruleManager datapath.IptablesManager, wgAgent datapath.WireguardAgent, nodeAddressing datapath.NodeAddressing) datapath.Datapath {
 	dp := &linuxDatapath{
 		ConfigWriter:    &config.HeaderfileWriter{},
 		IptablesManager: ruleManager,
-		nodeAddressing:  NewNodeAddressing(),
+		nodeAddressing:  nodeAddressing,
 		config:          cfg,
 		loader:          loader.NewLoader(),
 		wgAgent:         wgAgent,
 		lbmap:           lbmap.New(),
 	}
 
-	dp.node = NewNodeHandler(cfg, dp.nodeAddressing, wgAgent)
+	dp.node = NewNodeHandler(cfg, nodeAddressing, wgAgent)
 	return dp
 }
 

@@ -30,6 +30,7 @@ var Cell = cell.Module(
 	cell.Provide(
 		newWireguardAgent,
 		newDatapath,
+		linuxdatapath.NewNodeAddressing,
 	),
 
 	cell.Provide(func(dp types.Datapath) ipcache.NodeHandler {
@@ -68,7 +69,7 @@ func newWireguardAgent(lc hive.Lifecycle) *wg.Agent {
 	return wgAgent
 }
 
-func newDatapath(lc hive.Lifecycle, wgAgent *wg.Agent) types.Datapath {
+func newDatapath(lc hive.Lifecycle, wgAgent *wg.Agent, nodeAddressing types.NodeAddressing) types.Datapath {
 	datapathConfig := linuxdatapath.DatapathConfiguration{
 		HostDevice: defaults.HostDevice,
 		ProcFs:     option.Config.ProcFs,
@@ -87,5 +88,5 @@ func newDatapath(lc hive.Lifecycle, wgAgent *wg.Agent) types.Datapath {
 			return nil
 		}})
 
-	return linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent)
+	return linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent, nodeAddressing)
 }

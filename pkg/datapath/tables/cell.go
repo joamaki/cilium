@@ -10,4 +10,5 @@ var Cell = cell.Module(
 	"Datapath state tables",
 
 	statedb.NewTableCell[*Device](deviceTableSchema),
+	statedb.NewTableCell[*Route](routeTableSchema),
 )
