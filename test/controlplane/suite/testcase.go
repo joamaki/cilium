@@ -42,6 +42,7 @@ import (
 	"github.com/cilium/cilium/pkg/node/types"
 	agentOption "github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/proxy"
+	"github.com/cilium/cilium/pkg/statedb"
 )
 
 const (
@@ -61,6 +62,7 @@ type ControlPlaneTest struct {
 	agentHandle    *agentHandle
 	operatorHandle *operatorHandle
 	Datapath       *fakeDatapath.FakeDatapath
+	DB             statedb.DB
 }
 
 func NewControlPlaneTest(t *testing.T, nodeName string, k8sVersion string) *ControlPlaneTest {
@@ -144,6 +146,7 @@ func (cpt *ControlPlaneTest) StartAgent() *ControlPlaneTest {
 	}
 	cpt.agentHandle = &agentHandle
 	cpt.Datapath = datapath
+	cpt.DB = agentHandle.db
 	return cpt
 }
 

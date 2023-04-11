@@ -7,6 +7,7 @@ import (
 	"github.com/cilium/cilium/daemon/cmd/cni"
 	"github.com/cilium/cilium/pkg/auth"
 	"github.com/cilium/cilium/pkg/bgpv1"
+	"github.com/cilium/cilium/pkg/controlplane"
 	"github.com/cilium/cilium/pkg/crypto/certificatemanager"
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -20,6 +21,7 @@ import (
 	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/pprof"
+	"github.com/cilium/cilium/pkg/statedb"
 )
 
 var (
@@ -70,6 +72,8 @@ var (
 		// observing changes to it.
 		node.LocalNodeStoreCell,
 
+		statedb.Cell,
+
 		// Shared resources provide access to k8s resources as event streams or as
 		// read-only stores.
 		k8s.SharedResourcesCell,
@@ -97,5 +101,7 @@ var (
 
 		// Egress Gateway allows originating traffic from specific IPv4 addresses.
 		egressgateway.Cell,
+
+		controlplane.Cell,
 	)
 )

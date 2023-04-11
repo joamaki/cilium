@@ -21,14 +21,15 @@ import (
 	"github.com/cilium/cilium/pkg/option"
 	agentOption "github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/statedb"
 )
 
 type agentHandle struct {
 	t       *testing.T
 	d       *cmd.Daemon
 	tempDir string
-
-	hive *hive.Hive
+	db      statedb.DB
+	hive    *hive.Hive
 }
 
 func (h *agentHandle) tearDown() {
@@ -71,8 +72,9 @@ func startCiliumAgent(t *testing.T, nodeName string, clientset k8sClient.Clients
 			func() cnicell.CNIConfigManager { return &fakecni.FakeCNIConfigManager{} },
 		),
 		cmd.ControlPlane,
-		cell.Invoke(func(p promise.Promise[*cmd.Daemon]) {
+		cell.Invoke(func(p promise.Promise[*cmd.Daemon], db statedb.DB) {
 			daemonPromise = p
+			handle.db = db
 		}),
 	)
 

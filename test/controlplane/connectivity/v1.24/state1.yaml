@@ -1,0 +1,899 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    labels:
+      kind: echo
+    name: echo-other-node
+    namespace: cilium-test
+    resourceVersion: "759"
+    uid: 282fa446-7285-496a-b814-d5d0c42d1758
+  spec:
+    clusterIP: 10.96.36.184
+    clusterIPs:
+    - 10.96.36.184
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      nodePort: 32230
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      name: echo-other-node
+    sessionAffinity: None
+    type: NodePort
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    labels:
+      kind: echo
+    name: echo-same-node
+    namespace: cilium-test
+    resourceVersion: "731"
+    uid: 7e341100-a6ba-4a7c-a64f-36fccd17d83d
+  spec:
+    clusterIP: 10.96.148.87
+    clusterIPs:
+    - 10.96.148.87
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      nodePort: 30836
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      name: echo-same-node
+    sessionAffinity: None
+    type: NodePort
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Endpoints
+  metadata:
+    annotations:
+      endpoints.kubernetes.io/last-change-trigger-time: "2023-04-11T11:43:06Z"
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    labels:
+      kind: echo
+    name: echo-other-node
+    namespace: cilium-test
+    resourceVersion: "849"
+    uid: b2c8c63c-ef33-4c0e-a5e1-c24ef23736d3
+  subsets:
+  - addresses:
+    - ip: 10.244.1.45
+      nodeName: connectivity-worker
+      targetRef:
+        kind: Pod
+        name: echo-other-node-6cd597cddc-prpml
+        namespace: cilium-test
+        uid: 64710ea8-2e43-40f8-937e-f289021af4a9
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+- apiVersion: v1
+  kind: Endpoints
+  metadata:
+    annotations:
+      endpoints.kubernetes.io/last-change-trigger-time: "2023-04-11T11:43:08Z"
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    labels:
+      kind: echo
+    name: echo-same-node
+    namespace: cilium-test
+    resourceVersion: "862"
+    uid: 65db3a0f-4c25-4fb1-9177-188b67545b53
+  subsets:
+  - addresses:
+    - ip: 10.244.2.76
+      nodeName: connectivity-worker2
+      targetRef:
+        kind: Pod
+        name: echo-same-node-6f4976ddbd-4tq2k
+        namespace: cilium-test
+        uid: 295917ab-ba1d-45cd-9cca-d3fc10b062f3
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+- addressType: IPv4
+  apiVersion: discovery.k8s.io/v1
+  endpoints:
+  - addresses:
+    - 10.244.1.45
+    conditions:
+      ready: true
+      serving: true
+      terminating: false
+    nodeName: connectivity-worker
+    targetRef:
+      kind: Pod
+      name: echo-other-node-6cd597cddc-prpml
+      namespace: cilium-test
+      uid: 64710ea8-2e43-40f8-937e-f289021af4a9
+  kind: EndpointSlice
+  metadata:
+    annotations:
+      endpoints.kubernetes.io/last-change-trigger-time: "2023-04-11T11:43:06Z"
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generateName: echo-other-node-
+    generation: 3
+    labels:
+      endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
+      kind: echo
+      kubernetes.io/service-name: echo-other-node
+    name: echo-other-node-gxp8d
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: Service
+      name: echo-other-node
+      uid: 282fa446-7285-496a-b814-d5d0c42d1758
+    resourceVersion: "847"
+    uid: f2302202-7f43-489b-b09b-b550eec3e6fb
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+- addressType: IPv4
+  apiVersion: discovery.k8s.io/v1
+  endpoints:
+  - addresses:
+    - 10.244.2.76
+    conditions:
+      ready: true
+      serving: true
+      terminating: false
+    nodeName: connectivity-worker2
+    targetRef:
+      kind: Pod
+      name: echo-same-node-6f4976ddbd-4tq2k
+      namespace: cilium-test
+      uid: 295917ab-ba1d-45cd-9cca-d3fc10b062f3
+  kind: EndpointSlice
+  metadata:
+    annotations:
+      endpoints.kubernetes.io/last-change-trigger-time: "2023-04-11T11:43:08Z"
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generateName: echo-same-node-
+    generation: 3
+    labels:
+      endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
+      kind: echo
+      kubernetes.io/service-name: echo-same-node
+    name: echo-same-node-mfbb5
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: Service
+      name: echo-same-node
+      uid: 7e341100-a6ba-4a7c-a64f-36fccd17d83d
+    resourceVersion: "863"
+    uid: 87882ac9-fe57-412a-81ae-3e7aa9a55df3
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generateName: client-7df6cfbf7b-
+    labels:
+      kind: client
+      name: client
+      pod-template-hash: 7df6cfbf7b
+    name: client-7df6cfbf7b-ck45p
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: ReplicaSet
+      name: client-7df6cfbf7b
+      uid: 1614e387-f95b-4147-b850-349d19e14f7d
+    resourceVersion: "824"
+    uid: fc2f8f74-c59a-4cc5-aa62-3558c736644f
+  spec:
+    containers:
+    - command:
+      - /bin/ash
+      - -c
+      - sleep 10000000
+      env:
+      - name: PORT
+        value: "8080"
+      image: quay.io/cilium/alpine-curl:v1.4.0@sha256:2550c747831ff575f2147149b088ea981c06f9b6bcd188756d1b82cc10997956
+      imagePullPolicy: IfNotPresent
+      name: client
+      ports:
+      - containerPort: 8080
+        protocol: TCP
+      resources: {}
+      securityContext:
+        capabilities:
+          add:
+          - NET_RAW
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-vr4pb
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    nodeName: connectivity-worker2
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: default-scheduler
+    securityContext: {}
+    serviceAccount: default
+    serviceAccountName: default
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: kube-api-access-vr4pb
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:55Z"
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:00Z"
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:00Z"
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:55Z"
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - containerID: containerd://cb2b377e6c88adc309a361c4d175078b544f551a810b1cbccb2d0557864fda81
+      image: sha256:8ea6332164c633c7cdff28cddf3daa4d72dca55dc321087d366ca940784b1dcc
+      imageID: quay.io/cilium/alpine-curl@sha256:2550c747831ff575f2147149b088ea981c06f9b6bcd188756d1b82cc10997956
+      lastState: {}
+      name: client
+      ready: true
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2023-04-11T11:42:59Z"
+    hostIP: 172.18.0.5
+    phase: Running
+    podIP: 10.244.2.254
+    podIPs:
+    - ip: 10.244.2.254
+    qosClass: BestEffort
+    startTime: "2023-04-11T11:42:55Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generateName: client2-547996d7d8-
+    labels:
+      kind: client
+      name: client2
+      other: client
+      pod-template-hash: 547996d7d8
+    name: client2-547996d7d8-sj2mj
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: ReplicaSet
+      name: client2-547996d7d8
+      uid: 4bda0379-1be1-423a-8154-a82450a39d4e
+    resourceVersion: "823"
+    uid: e20d6ce4-9dee-4c9d-9a17-efa2ba25e0fb
+  spec:
+    affinity:
+      podAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: name
+              operator: In
+              values:
+              - client
+          topologyKey: kubernetes.io/hostname
+    containers:
+    - command:
+      - /bin/ash
+      - -c
+      - sleep 10000000
+      env:
+      - name: PORT
+        value: "8080"
+      image: quay.io/cilium/alpine-curl:v1.4.0@sha256:2550c747831ff575f2147149b088ea981c06f9b6bcd188756d1b82cc10997956
+      imagePullPolicy: IfNotPresent
+      name: client2
+      ports:
+      - containerPort: 8080
+        protocol: TCP
+      resources: {}
+      securityContext:
+        capabilities:
+          add:
+          - NET_RAW
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-xpd7h
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    nodeName: connectivity-worker2
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: default-scheduler
+    securityContext: {}
+    serviceAccount: default
+    serviceAccountName: default
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: kube-api-access-xpd7h
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:55Z"
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:00Z"
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:00Z"
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:55Z"
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - containerID: containerd://b0a2ec073c363fe320adbc92b3f8a63c4dd05ad2510a5e3210db8174125cf614
+      image: sha256:8ea6332164c633c7cdff28cddf3daa4d72dca55dc321087d366ca940784b1dcc
+      imageID: quay.io/cilium/alpine-curl@sha256:2550c747831ff575f2147149b088ea981c06f9b6bcd188756d1b82cc10997956
+      lastState: {}
+      name: client2
+      ready: true
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2023-04-11T11:42:59Z"
+    hostIP: 172.18.0.5
+    phase: Running
+    podIP: 10.244.2.179
+    podIPs:
+    - ip: 10.244.2.179
+    qosClass: BestEffort
+    startTime: "2023-04-11T11:42:55Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generateName: echo-other-node-6cd597cddc-
+    labels:
+      kind: echo
+      name: echo-other-node
+      pod-template-hash: 6cd597cddc
+    name: echo-other-node-6cd597cddc-prpml
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: ReplicaSet
+      name: echo-other-node-6cd597cddc
+      uid: 415e695a-8b16-4602-bbde-58d3f462f09a
+    resourceVersion: "846"
+    uid: 64710ea8-2e43-40f8-937e-f289021af4a9
+  spec:
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: name
+              operator: In
+              values:
+              - client
+          topologyKey: kubernetes.io/hostname
+    containers:
+    - env:
+      - name: PORT
+        value: "8080"
+      image: quay.io/cilium/json-mock:v1.3.0@sha256:2729064827fa9dbfface8d3df424feb6c792a0ba07117b844349635c93c06d2b
+      imagePullPolicy: IfNotPresent
+      name: echo-other-node
+      ports:
+      - containerPort: 8080
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /
+          port: 8080
+          scheme: HTTP
+        initialDelaySeconds: 1
+        periodSeconds: 1
+        successThreshold: 1
+        timeoutSeconds: 2
+      resources: {}
+      securityContext:
+        capabilities:
+          add:
+          - NET_RAW
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-qg2gg
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    nodeName: connectivity-worker
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: default-scheduler
+    securityContext: {}
+    serviceAccount: default
+    serviceAccountName: default
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: kube-api-access-qg2gg
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:55Z"
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:06Z"
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:06Z"
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:55Z"
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - containerID: containerd://33d93cc98a4d9e8f4bf8ea57fa5c2ba8806c709d4a7e27e1bcdf455a183e5b26
+      image: sha256:9e2b7a3a596756b118a2b3dae433eae28ec8d8a5fd5eaa75eedc33d2e7ef6a0a
+      imageID: quay.io/cilium/json-mock@sha256:2729064827fa9dbfface8d3df424feb6c792a0ba07117b844349635c93c06d2b
+      lastState: {}
+      name: echo-other-node
+      ready: true
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2023-04-11T11:43:05Z"
+    hostIP: 172.18.0.6
+    phase: Running
+    podIP: 10.244.1.45
+    podIPs:
+    - ip: 10.244.1.45
+    qosClass: BestEffort
+    startTime: "2023-04-11T11:42:55Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generateName: echo-same-node-6f4976ddbd-
+    labels:
+      kind: echo
+      name: echo-same-node
+      other: echo
+      pod-template-hash: 6f4976ddbd
+    name: echo-same-node-6f4976ddbd-4tq2k
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: ReplicaSet
+      name: echo-same-node-6f4976ddbd
+      uid: e7f64003-bac7-4568-84e7-5d05b71bd34b
+    resourceVersion: "861"
+    uid: 295917ab-ba1d-45cd-9cca-d3fc10b062f3
+  spec:
+    affinity:
+      podAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: name
+              operator: In
+              values:
+              - client
+          topologyKey: kubernetes.io/hostname
+    containers:
+    - env:
+      - name: PORT
+        value: "8080"
+      image: quay.io/cilium/json-mock:v1.3.0@sha256:2729064827fa9dbfface8d3df424feb6c792a0ba07117b844349635c93c06d2b
+      imagePullPolicy: IfNotPresent
+      name: echo-same-node
+      ports:
+      - containerPort: 8080
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /
+          port: 8080
+          scheme: HTTP
+        initialDelaySeconds: 1
+        periodSeconds: 1
+        successThreshold: 1
+        timeoutSeconds: 2
+      resources: {}
+      securityContext:
+        capabilities:
+          add:
+          - NET_RAW
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-cx442
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    nodeName: connectivity-worker2
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: default-scheduler
+    securityContext: {}
+    serviceAccount: default
+    serviceAccountName: default
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: kube-api-access-cx442
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:56Z"
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:08Z"
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:43:08Z"
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2023-04-11T11:42:56Z"
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - containerID: containerd://f3b5985f89a125c0a74da1d6cdd9a024abf64fbcc7ddd41edd279e3f1d89d615
+      image: sha256:9e2b7a3a596756b118a2b3dae433eae28ec8d8a5fd5eaa75eedc33d2e7ef6a0a
+      imageID: quay.io/cilium/json-mock@sha256:2729064827fa9dbfface8d3df424feb6c792a0ba07117b844349635c93c06d2b
+      lastState: {}
+      name: echo-same-node
+      ready: true
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2023-04-11T11:43:07Z"
+    hostIP: 172.18.0.5
+    phase: Running
+    podIP: 10.244.2.76
+    podIPs:
+    - ip: 10.244.2.76
+    qosClass: BestEffort
+    startTime: "2023-04-11T11:42:56Z"
+- apiVersion: cilium.io/v2
+  kind: CiliumEndpoint
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generation: 1
+    labels:
+      kind: client
+      name: client
+      pod-template-hash: 7df6cfbf7b
+    name: client-7df6cfbf7b-ck45p
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: v1
+      blockOwnerDeletion: true
+      kind: Pod
+      name: client-7df6cfbf7b-ck45p
+      uid: fc2f8f74-c59a-4cc5-aa62-3558c736644f
+    resourceVersion: "797"
+    uid: 6f8c5443-e180-4f11-8c52-1d3a241246c7
+  status:
+    encryption: {}
+    external-identifiers:
+      container-id: b1b08d43e066c164d3a4e6d9e48aebb94b66bbd8b9f8fe13ecd5221023ab625b
+      k8s-namespace: cilium-test
+      k8s-pod-name: client-7df6cfbf7b-ck45p
+      pod-name: cilium-test/client-7df6cfbf7b-ck45p
+    id: 253
+    identity:
+      id: 42414
+      labels:
+      - k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cilium-test
+      - k8s:io.cilium.k8s.policy.cluster=kind-connectivity
+      - k8s:io.cilium.k8s.policy.serviceaccount=default
+      - k8s:io.kubernetes.pod.namespace=cilium-test
+      - k8s:kind=client
+      - k8s:name=client
+    networking:
+      addressing:
+      - ipv4: 10.244.2.254
+      node: 172.18.0.5
+    state: ready
+- apiVersion: cilium.io/v2
+  kind: CiliumEndpoint
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generation: 1
+    labels:
+      kind: client
+      name: client2
+      other: client
+      pod-template-hash: 547996d7d8
+    name: client2-547996d7d8-sj2mj
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: v1
+      blockOwnerDeletion: true
+      kind: Pod
+      name: client2-547996d7d8-sj2mj
+      uid: e20d6ce4-9dee-4c9d-9a17-efa2ba25e0fb
+    resourceVersion: "798"
+    uid: 303c6bdc-c897-4d72-af7c-82308982ac2b
+  status:
+    encryption: {}
+    external-identifiers:
+      container-id: 26cf5293ca57a26de342af9f75b13a7419d0041fdd4a94452f8dc2acccff6fbf
+      k8s-namespace: cilium-test
+      k8s-pod-name: client2-547996d7d8-sj2mj
+      pod-name: cilium-test/client2-547996d7d8-sj2mj
+    id: 196
+    identity:
+      id: 4102
+      labels:
+      - k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cilium-test
+      - k8s:io.cilium.k8s.policy.cluster=kind-connectivity
+      - k8s:io.cilium.k8s.policy.serviceaccount=default
+      - k8s:io.kubernetes.pod.namespace=cilium-test
+      - k8s:kind=client
+      - k8s:name=client2
+      - k8s:other=client
+    networking:
+      addressing:
+      - ipv4: 10.244.2.179
+      node: 172.18.0.5
+    state: ready
+- apiVersion: cilium.io/v2
+  kind: CiliumEndpoint
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:55Z"
+    generation: 1
+    labels:
+      kind: echo
+      name: echo-other-node
+      pod-template-hash: 6cd597cddc
+    name: echo-other-node-6cd597cddc-prpml
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: v1
+      blockOwnerDeletion: true
+      kind: Pod
+      name: echo-other-node-6cd597cddc-prpml
+      uid: 64710ea8-2e43-40f8-937e-f289021af4a9
+    resourceVersion: "799"
+    uid: 4425e5c6-80a0-4805-b53c-b9a33ad4981f
+  status:
+    encryption: {}
+    external-identifiers:
+      container-id: fa8dfcf11b8cee17e36510901214bdb8bf4aa8da42c9183b4270bf7132b47934
+      k8s-namespace: cilium-test
+      k8s-pod-name: echo-other-node-6cd597cddc-prpml
+      pod-name: cilium-test/echo-other-node-6cd597cddc-prpml
+    id: 432
+    identity:
+      id: 5256
+      labels:
+      - k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cilium-test
+      - k8s:io.cilium.k8s.policy.cluster=kind-connectivity
+      - k8s:io.cilium.k8s.policy.serviceaccount=default
+      - k8s:io.kubernetes.pod.namespace=cilium-test
+      - k8s:kind=echo
+      - k8s:name=echo-other-node
+    networking:
+      addressing:
+      - ipv4: 10.244.1.45
+      node: 172.18.0.6
+    state: ready
+- apiVersion: cilium.io/v2
+  kind: CiliumEndpoint
+  metadata:
+    creationTimestamp: "2023-04-11T11:42:56Z"
+    generation: 1
+    labels:
+      kind: echo
+      name: echo-same-node
+      other: echo
+      pod-template-hash: 6f4976ddbd
+    name: echo-same-node-6f4976ddbd-4tq2k
+    namespace: cilium-test
+    ownerReferences:
+    - apiVersion: v1
+      blockOwnerDeletion: true
+      kind: Pod
+      name: echo-same-node-6f4976ddbd-4tq2k
+      uid: 295917ab-ba1d-45cd-9cca-d3fc10b062f3
+    resourceVersion: "809"
+    uid: bbe2781a-e9ef-43d9-b72f-4c988f627322
+  status:
+    encryption: {}
+    external-identifiers:
+      container-id: 4768a6c907fc8b50846be72fe56f257e20b8442b459b39d424f30da791c0a2ff
+      k8s-namespace: cilium-test
+      k8s-pod-name: echo-same-node-6f4976ddbd-4tq2k
+      pod-name: cilium-test/echo-same-node-6f4976ddbd-4tq2k
+    id: 1616
+    identity:
+      id: 45853
+      labels:
+      - k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cilium-test
+      - k8s:io.cilium.k8s.policy.cluster=kind-connectivity
+      - k8s:io.cilium.k8s.policy.serviceaccount=default
+      - k8s:io.kubernetes.pod.namespace=cilium-test
+      - k8s:kind=echo
+      - k8s:name=echo-same-node
+      - k8s:other=echo
+    networking:
+      addressing:
+      - ipv4: 10.244.2.76
+      node: 172.18.0.5
+    state: ready
+kind: List
+metadata:
+  resourceVersion: ""
