@@ -649,3 +649,7 @@ func setupRouteToVtepCidr() error {
 func (d *Daemon) Datapath() datapath.Datapath {
 	return d.datapath
 }
+
+func (d *Daemon) Node() datapath.NodeHandler {
+	return d.nodeHandler
+}

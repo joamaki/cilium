@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/exp/slices"
@@ -23,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/mac"
+	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/statedb"
 )
 
@@ -38,18 +40,43 @@ var DevicesControllerCell = cell.Module(
 	"Populates the device and route tables from netlink",
 
 	cell.Invoke(registerDevicesController),
+	cell.Config(defaultDevicesConfig),
 )
 
-// batchingDuration is the amount of time to wait for more
-// addr/route/link updates before processing the batch.
-var batchingDuration = 100 * time.Millisecond
+var (
+	// batchingDuration is the amount of time to wait for more
+	// addr/route/link updates before processing the batch.
+	batchingDuration = 100 * time.Millisecond
+
+	excludedDevicePrefixes = []string{
+		"cilium_",
+		"lo",
+		"lxc",
+		"cni",
+		"docker",
+	}
+
+	// Route filter to look at all routing tables.
+	routeFilter = netlink.Route{
+		Table: unix.RT_TABLE_UNSPEC,
+	}
+	routeFilterMask = netlink.RT_FILTER_TABLE
+
+	defaultDevicesConfig = DevicesConfig{}
+)
 
 type DevicesConfig struct {
 	Devices []string
+}
 
-	// NetNS is an optional network namespace handle. Used by tests to restrict the detection
-	// to specific namespace.
-	NetNS *netns.NsHandle
+func (def DevicesConfig) Flags(flags *pflag.FlagSet) {
+	flags.StringSlice(
+		option.Devices,
+		[]string{},
+		"List of devices facing cluster/external network "+
+			"(used for BPF NodePort, BPF masquerading and host firewall); "+
+			"supports '+' as wildcard in device name, e.g. 'eth+'",
+	)
 }
 
 type devicesControllerParams struct {
@@ -60,6 +87,10 @@ type devicesControllerParams struct {
 	DeviceTable statedb.Table[*tables.Device]
 	RouteTable  statedb.Table[*tables.Route]
 	Config      DevicesConfig
+
+	// NetNS is an optional network namespace handle. Used by tests to restrict the detection
+	// to specific namespace.
+	NetNS *netns.NsHandle `optional:"true"`
 }
 
 func registerDevicesController(lc hive.Lifecycle, p devicesControllerParams) {
@@ -87,8 +118,8 @@ func (dc *devicesController) Start(hive.HookContext) error {
 
 	// Construct a handle that uses the configured network namespace.
 	netns := netns.None()
-	if dc.Config.NetNS != nil {
-		netns = *dc.Config.NetNS
+	if dc.NetNS != nil {
+		netns = *dc.NetNS
 	}
 	var err error
 	dc.handle, err = netlink.NewHandleAt(netns)
@@ -99,7 +130,7 @@ func (dc *devicesController) Start(hive.HookContext) error {
 	// Subscribe to address updates to find out about link address changes.
 	addrUpdates := make(chan netlink.AddrUpdate, 16)
 	opts := netlink.AddrSubscribeOptions{
-		Namespace:    dc.Config.NetNS,
+		Namespace:    dc.NetNS,
 		ListExisting: false,
 	}
 	if err := netlink.AddrSubscribeWithOptions(addrUpdates, dc.ctx.Done(), opts); err != nil {
@@ -112,7 +143,7 @@ func (dc *devicesController) Start(hive.HookContext) error {
 	err = netlink.RouteSubscribeWithOptions(routeUpdates, dc.ctx.Done(),
 		netlink.RouteSubscribeOptions{
 			ListExisting: true,
-			Namespace:    dc.Config.NetNS,
+			Namespace:    dc.NetNS,
 		})
 	if err != nil {
 		return fmt.Errorf("RouteSubscribeWithOptions failed: %w", err)
@@ -123,7 +154,7 @@ func (dc *devicesController) Start(hive.HookContext) error {
 	err = netlink.LinkSubscribeWithOptions(linkUpdates, dc.ctx.Done(),
 		netlink.LinkSubscribeOptions{
 			ListExisting: true,
-			Namespace:    dc.Config.NetNS,
+			Namespace:    dc.NetNS,
 		})
 	if err != nil {
 		return fmt.Errorf("LinkSubscribeWithOptions failed: %w", err)
@@ -221,6 +252,7 @@ func (dc *devicesController) loop(
 func deviceAddressFromAddrUpdate(upd netlink.AddrUpdate) tables.DeviceAddress {
 	return tables.DeviceAddress{
 		Addr:  ip.MustAddrFromIP(upd.LinkAddress.IP),
+		Flags: upd.Flags,
 		Scope: upd.Scope,
 	}
 }
@@ -270,7 +302,7 @@ func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 
 		name := link.Attrs().Name
 
-		d, _ := devices.First(tables.ByDeviceIndex(index))
+		d, _ := devices.First(tables.DeviceByIndex(index))
 		if d == nil {
 			d = &tables.Device{
 				Index: index,
@@ -317,10 +349,11 @@ func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 			case netlink.LinkUpdate:
 			}
 		}
-		// Sort the addresses by scope, with universe on top.
-		// TODO secondary addresses?
+		// Sort the addresses so that secondary addresses are at bottom and then
+		// sorted by scope.
 		sort.SliceStable(d.Addrs, func(i, j int) bool {
-			return d.Addrs[i].Scope < d.Addrs[j].Scope
+			return (d.Addrs[i].Flags&unix.IFA_F_SECONDARY < d.Addrs[j].Flags&unix.IFA_F_SECONDARY) &&
+				(d.Addrs[i].Scope < d.Addrs[j].Scope)
 		})
 
 		// Revalidate if the device is still valid.
@@ -427,3 +460,65 @@ func (dc *devicesController) isViableDevice(link netlink.Link, routes statedb.Ta
 
 	return true
 }
+
+// supportL3Dev returns true if the kernel is new enough to support BPF host routing of
+// packets coming from L3 devices using bpf_skb_redirect_peer.
+func supportL3Dev() bool {
+	return probes.HaveProgramHelper(ebpf.SchedCLS, asm.FnSkbChangeHead) == nil
+}
+
+// Exclude devices that have one or more of these flags set.
+var excludedIfFlagsMask uint32 = unix.IFF_SLAVE | unix.IFF_LOOPBACK
+
+type deviceFilter []string
+
+func (lst deviceFilter) match(dev string) bool {
+	if len(lst) == 0 {
+		return true
+	}
+	for _, entry := range lst {
+		if strings.HasSuffix(entry, "+") {
+			prefix := strings.TrimRight(entry, "+")
+			return strings.HasPrefix(dev, prefix)
+		} else if dev == entry {
+			return true
+		}
+	}
+	return false
+}
+
+/* TODO
+func (dm *DeviceManager) expandDeviceWildcards(devices []string, option string) ([]string, error) {
+	allLinks, err := dm.handle.LinkList()
+	if err != nil {
+		return nil, fmt.Errorf("device wildcard expansion failed to fetch devices: %w", err)
+	}
+	expandedDevicesMap := make(map[string]struct{})
+	for _, iface := range devices {
+		if strings.HasSuffix(iface, "+") {
+			prefix := strings.TrimRight(iface, "+")
+			for _, link := range allLinks {
+				attrs := link.Attrs()
+				if strings.HasPrefix(attrs.Name, prefix) {
+					expandedDevicesMap[attrs.Name] = struct{}{}
+				}
+			}
+		} else {
+			expandedDevicesMap[iface] = struct{}{}
+		}
+	}
+	if len(devices) > 0 && len(expandedDevicesMap) == 0 {
+		// User defined devices, but expansion yielded no devices. Fail here to not
+		// surprise with auto-detection.
+		return nil, fmt.Errorf("device wildcard expansion failed to detect devices. Please verify --%s option.",
+			option)
+	}
+
+	expandedDevices := make([]string, 0, len(expandedDevicesMap))
+	for dev := range expandedDevicesMap {
+		expandedDevices = append(expandedDevices, dev)
+	}
+	sort.Strings(expandedDevices)
+	return expandedDevices, nil
+}
+*/

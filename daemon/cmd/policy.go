@@ -73,7 +73,7 @@ type policyParams struct {
 	EndpointManager endpointmanager.EndpointManager
 	CertManager     certificatemanager.CertificateManager
 	SecretManager   certificatemanager.SecretManager
-	Datapath        datapath.Datapath
+	NodeHandler     datapath.NodeHandler
 	CacheStatus     k8s.CacheStatus
 }
 
@@ -119,7 +119,7 @@ func newPolicyTrifecta(params policyParams) (policyOut, error) {
 		IdentityAllocator: idAlloc,
 		PolicyHandler:     iao.policy.GetSelectorCache(),
 		DatapathHandler:   params.EndpointManager,
-		NodeHandler:       params.Datapath.Node(),
+		NodeHandler:       params.NodeHandler,
 		CacheStatus:       params.CacheStatus,
 	})
 	idAlloc.ipcache = ipc

@@ -189,12 +189,7 @@ func TestDevicesController(t *testing.T) {
 			statedb.Cell,
 			tables.Cell,
 			DevicesControllerCell,
-			cell.Provide(func() DevicesConfig {
-				return DevicesConfig{
-					Devices: nil, // No user-specified devices
-					NetNS:   &ns, // Detect in the test network namespace
-				}
-			}),
+			cell.Provide(func() *netns.NsHandle { return &ns }),
 
 			cell.Invoke(func(db_ statedb.DB, devicesTable_ statedb.Table[*tables.Device]) {
 				db = db_
@@ -252,13 +247,7 @@ func TestDevicesController_Wildcards(t *testing.T) {
 			statedb.Cell,
 			tables.Cell,
 			DevicesControllerCell,
-			cell.Provide(func() DevicesConfig {
-				return DevicesConfig{
-					Devices: []string{"dummy+"},
-					NetNS:   &ns, // Detect in the test network namespace
-				}
-			}),
-
+			cell.Provide(func() *netns.NsHandle { return &ns }),
 			cell.Invoke(func(db_ statedb.DB, devicesTable_ statedb.Table[*tables.Device]) {
 				db = db_
 				devicesTable = devicesTable_

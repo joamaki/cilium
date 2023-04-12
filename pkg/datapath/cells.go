@@ -10,6 +10,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/iptables"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
+	"github.com/cilium/cilium/pkg/datapath/loader"
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -29,15 +30,22 @@ var Cell = cell.Module(
 
 	cell.Provide(
 		newWireguardAgent,
-		newDatapath,
+		newDatapathConfig,
+		newIptablesManager,
 		linuxdatapath.NewNodeAddressing,
+		linuxdatapath.NewNodeHandler,
+		linuxdatapath.NewDatapath,
+		loader.NewLoader,
 	),
 
-	cell.Provide(func(dp types.Datapath) ipcache.NodeHandler {
-		return dp.Node()
+	cell.Provide(func(h types.NodeHandler) ipcache.NodeHandler {
+		return h
 	}),
 
+	cell.Invoke(registerSysctlStartHook),
+
 	tables.Cell,
+	devices.Cell,
 	linuxdatapath.DevicesControllerCell,
 )
 
@@ -69,24 +77,29 @@ func newWireguardAgent(lc hive.Lifecycle) *wg.Agent {
 	return wgAgent
 }
 
-func newDatapath(lc hive.Lifecycle, wgAgent *wg.Agent, nodeAddressing types.NodeAddressing) types.Datapath {
-	datapathConfig := linuxdatapath.DatapathConfiguration{
+func newDatapathConfig(cfg *option.DaemonConfig) linuxdatapath.DatapathConfiguration {
+	return linuxdatapath.DatapathConfiguration{
 		HostDevice: defaults.HostDevice,
-		ProcFs:     option.Config.ProcFs,
+		ProcFs:     cfg.ProcFs,
 	}
+}
 
-	iptablesManager := &iptables.IptablesManager{}
-
+func newIptablesManager(lc hive.Lifecycle) *iptables.IptablesManager {
+	iptMgr := &iptables.IptablesManager{}
 	lc.Append(hive.Hook{
 		OnStart: func(hive.HookContext) error {
-			// FIXME enableIPForwarding should not live here
+			iptMgr.Init()
+			return nil
+		}})
+	return iptMgr
+}
+
+func registerSysctlStartHook(lc hive.Lifecycle) {
+	lc.Append(hive.Hook{
+		OnStart: func(hive.HookContext) error {
 			if err := enableIPForwarding(); err != nil {
 				log.Fatalf("enabling IP forwarding via sysctl failed: %s", err)
 			}
-
-			iptablesManager.Init()
 			return nil
 		}})
-
-	return linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent, nodeAddressing)
 }

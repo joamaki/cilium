@@ -20,7 +20,9 @@ import (
 
 	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/byteorder"
+	"github.com/cilium/cilium/pkg/datapath/devices"
 	"github.com/cilium/cilium/pkg/datapath/link"
+	"github.com/cilium/cilium/pkg/datapath/tables"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/identity"
@@ -62,7 +64,9 @@ var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "datapath-linux-c
 
 // HeaderfileWriter is a wrapper type which implements datapath.ConfigWriter.
 // It manages writing of configuration of datapath program headerfiles.
-type HeaderfileWriter struct{}
+type HeaderfileWriter struct {
+	Resolver devices.DeviceResolver
+}
 
 func writeIncludes(w io.Writer) (int, error) {
 	return fmt.Fprintf(w, "#include \"lib/utils.h\"\n\n")
@@ -70,6 +74,8 @@ func writeIncludes(w io.Writer) (int, error) {
 
 // WriteNodeConfig writes the local node configuration to the specified writer.
 func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeConfiguration) error {
+	devices := h.Resolver.Devices()
+
 	extraMacrosMap := make(map[string]string)
 	cDefinesMap := make(map[string]string)
 
@@ -84,12 +90,10 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 	if option.Config.EnableIPv6 {
 		fmt.Fprintf(fw, " cilium.v6.external.str %s\n", node.GetIPv6().String())
 		fmt.Fprintf(fw, " cilium.v6.internal.str %s\n", node.GetIPv6Router().String())
-		fmt.Fprintf(fw, " cilium.v6.nodeport.str %s\n", node.GetNodePortIPv6Addrs())
 		fmt.Fprintf(fw, "\n")
 	}
 	fmt.Fprintf(fw, " cilium.v4.external.str %s\n", node.GetIPv4().String())
 	fmt.Fprintf(fw, " cilium.v4.internal.str %s\n", node.GetInternalIPv4Router().String())
-	fmt.Fprintf(fw, " cilium.v4.nodeport.str %s\n", node.GetNodePortIPv4Addrs())
 	fmt.Fprintf(fw, "\n")
 	if option.Config.EnableIPv6 {
 		fw.WriteString(dumpRaw(defaults.RestoreV6Addr, node.GetIPv6Router()))
@@ -451,7 +455,7 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 		cDefinesMap["NODEPORT_PORT_MAX_NAT"] = "65535"
 	}
 
-	macByIfIndexMacro, isL3DevMacro, err := devMacros()
+	macByIfIndexMacro, isL3DevMacro, err := devMacros(devices)
 	if err != nil {
 		return err
 	}
@@ -479,35 +483,29 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 	cDefinesMap["HASH_INIT4_SEED"] = fmt.Sprintf("%d", maglev.SeedJhash0)
 	cDefinesMap["HASH_INIT6_SEED"] = fmt.Sprintf("%d", maglev.SeedJhash1)
 
-	if option.Config.DirectRoutingDeviceRequired() {
-		directRoutingIface := option.Config.DirectRoutingDevice
-		directRoutingIfIndex, err := link.GetIfIndex(directRoutingIface)
-		if err != nil {
-			return err
-		}
-		cDefinesMap["DIRECT_ROUTING_DEV_IFINDEX"] = fmt.Sprintf("%d", directRoutingIfIndex)
+	if dev := h.Resolver.DirectRoutingDevice(); dev != nil {
+		addr := dev.NodePortAddr()
+
+		cDefinesMap["DIRECT_ROUTING_DEV_IFINDEX"] = fmt.Sprintf("%d", dev.Index)
 		if option.Config.EnableIPv4 {
-			ip, ok := node.GetNodePortIPv4AddrsWithDevices()[directRoutingIface]
-			if !ok {
+			if addr.IPv4 == nil {
 				log.WithFields(logrus.Fields{
-					"directRoutingIface": directRoutingIface,
+					"directRoutingIface": dev.Name,
 				}).Fatal("Direct routing device's IPv4 address not found")
 			}
-
-			ipv4 := byteorder.NetIPv4ToHost32(ip)
+			ipv4 := byteorder.NetIPv4ToHost32(addr.IPv4)
 			cDefinesMap["IPV4_DIRECT_ROUTING"] = fmt.Sprintf("%d", ipv4)
 		}
 
 		if option.Config.EnableIPv6 {
-			directRoutingIPv6, ok := node.GetNodePortIPv6AddrsWithDevices()[directRoutingIface]
-			if !ok {
+			if addr.IPv6 == nil {
 				log.WithFields(logrus.Fields{
-					"directRoutingIface": directRoutingIface,
+					"directRoutingIface": dev.Name,
 				}).Fatal("Direct routing device's IPv6 address not found")
 			}
 
-			extraMacrosMap["IPV6_DIRECT_ROUTING"] = directRoutingIPv6.String()
-			fw.WriteString(FmtDefineAddress("IPV6_DIRECT_ROUTING", directRoutingIPv6))
+			extraMacrosMap["IPV6_DIRECT_ROUTING"] = addr.IPv6.String()
+			fw.WriteString(FmtDefineAddress("IPV6_DIRECT_ROUTING", addr.IPv6))
 		}
 	} else {
 		var directRoutingIPv6 net.IP
@@ -604,7 +602,7 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 
 	}
 
-	vlanFilter, err := vlanFilterMacros()
+	vlanFilter, err := vlanFilterMacros(devices)
 	if err != nil {
 		return err
 	}
@@ -653,14 +651,10 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 
 // vlanFilterMacros generates VLAN_FILTER macros which
 // are written to node_config.h
-func vlanFilterMacros() (string, error) {
-	devices := make(map[int]bool)
-	for _, device := range option.Config.GetDevices() {
-		ifindex, err := link.GetIfIndex(device)
-		if err != nil {
-			return "", err
-		}
-		devices[int(ifindex)] = true
+func vlanFilterMacros(devices []*tables.Device) (string, error) {
+	deviceIndexes := make(map[int]bool)
+	for _, device := range devices {
+		deviceIndexes[device.Index] = true
 	}
 
 	allowedVlans := make(map[int]bool)
@@ -684,7 +678,7 @@ func vlanFilterMacros() (string, error) {
 		vlan, ok := l.(*netlink.Vlan)
 		// if it's vlan device and we're controlling vlan main device
 		// and either all vlans are allowed, or we're controlling vlan device or vlan is explicitly allowed
-		if ok && devices[vlan.ParentIndex] && (devices[vlan.Index] || allowedVlans[vlan.VlanId]) {
+		if ok && deviceIndexes[vlan.ParentIndex] && (deviceIndexes[vlan.Index] || allowedVlans[vlan.VlanId]) {
 			vlansByIfIndex[vlan.ParentIndex] = append(vlansByIfIndex[vlan.ParentIndex], vlan.VlanId)
 		}
 	}
@@ -722,7 +716,7 @@ return false;`))
 
 // devMacros generates NATIVE_DEV_MAC_BY_IFINDEX and IS_L3_DEV macros which
 // are written to node_config.h.
-func devMacros() (string, string, error) {
+func devMacros(devices []*tables.Device) (string, string, error) {
 	var (
 		macByIfIndexMacro, isL3DevMacroBuf bytes.Buffer
 		isL3DevMacro                       string
@@ -730,11 +724,8 @@ func devMacros() (string, string, error) {
 	macByIfIndex := make(map[int]string)
 	l3DevIfIndices := make([]int, 0)
 
-	for _, iface := range option.Config.GetDevices() {
-		link, err := netlink.LinkByName(iface)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to retrieve link %s by name: %q", iface, err)
-		}
+	for _, device := range devices {
+		link := device.Link
 		idx := link.Attrs().Index
 		m := link.Attrs().HardwareAddr
 		if m == nil || len(m) != 6 {
@@ -814,8 +805,11 @@ func (h *HeaderfileWriter) writeStaticData(fw io.Writer, e datapath.EndpointConf
 		// Dummy value to avoid being optimized when 0
 		fmt.Fprint(fw, defineUint32("SECCTX_FROM_IPCACHE", 1))
 
+		// FIXME rewrite HaveMacAddrs to work with []*tables.Device.
+		deviceNames := tables.DeviceNames(h.Resolver.Devices())
+
 		// Use templating for ETH_HLEN only if there is any L2-less device
-		if !mac.HaveMACAddrs(option.Config.GetDevices()) {
+		if !mac.HaveMACAddrs(deviceNames) {
 			// L2 hdr len (for L2-less devices it will be replaced with "0")
 			fmt.Fprint(fw, defineUint32("ETH_HLEN", mac.EthHdrLen))
 		}
@@ -873,6 +867,8 @@ func (h *HeaderfileWriter) WriteEndpointConfig(w io.Writer, e datapath.EndpointC
 }
 
 func (h *HeaderfileWriter) writeTemplateConfig(fw *bufio.Writer, e datapath.EndpointConfiguration) error {
+	devices := h.Resolver.Devices()
+
 	if e.RequireEgressProg() {
 		fmt.Fprintf(fw, "#define USE_BPF_PROG_FOR_INGRESS_POLICY 1\n")
 	}
@@ -889,15 +885,12 @@ func (h *HeaderfileWriter) writeTemplateConfig(fw *bufio.Writer, e datapath.Endp
 		fmt.Fprintf(fw, "#define ENABLE_SIP_VERIFICATION 1\n")
 	}
 
-	if !option.Config.EnableHostLegacyRouting && option.Config.DirectRoutingDevice != "" {
-		directRoutingIface := option.Config.DirectRoutingDevice
-		directRoutingIfIndex, err := link.GetIfIndex(directRoutingIface)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(fw, "#define DIRECT_ROUTING_DEV_IFINDEX %d\n", directRoutingIfIndex)
-		if len(option.Config.GetDevices()) == 1 {
-			fmt.Fprintf(fw, "#define ENABLE_SKIP_FIB 1\n")
+	if !option.Config.EnableHostLegacyRouting {
+		if dev := h.Resolver.DirectRoutingDevice(); dev != nil {
+			fmt.Fprintf(fw, "#define DIRECT_ROUTING_DEV_IFINDEX %d\n", dev.Index)
+			if len(devices) == 1 {
+				fmt.Fprintf(fw, "#define ENABLE_SKIP_FIB 1\n")
+			}
 		}
 	}
 

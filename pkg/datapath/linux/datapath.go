@@ -4,9 +4,11 @@
 package linux
 
 import (
+	"github.com/cilium/cilium/pkg/datapath/devices"
 	"github.com/cilium/cilium/pkg/datapath/linux/config"
 	"github.com/cilium/cilium/pkg/datapath/loader"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/maps/lbmap"
 )
 
@@ -22,7 +24,6 @@ type DatapathConfiguration struct {
 type linuxDatapath struct {
 	datapath.ConfigWriter
 	datapath.IptablesManager
-	node           datapath.NodeHandler
 	nodeAddressing datapath.NodeAddressing
 	config         DatapathConfiguration
 	loader         *loader.Loader
@@ -30,25 +31,29 @@ type linuxDatapath struct {
 	lbmap          datapath.LBMap
 }
 
-// NewDatapath creates a new Linux datapath
-func NewDatapath(cfg DatapathConfiguration, ruleManager datapath.IptablesManager, wgAgent datapath.WireguardAgent, nodeAddressing datapath.NodeAddressing) datapath.Datapath {
-	dp := &linuxDatapath{
-		ConfigWriter:    &config.HeaderfileWriter{},
-		IptablesManager: ruleManager,
-		nodeAddressing:  nodeAddressing,
-		config:          cfg,
-		loader:          loader.NewLoader(),
-		wgAgent:         wgAgent,
-		lbmap:           lbmap.New(),
-	}
+type linuxDatapathParams struct {
+	cell.In
 
-	dp.node = NewNodeHandler(cfg, nodeAddressing, wgAgent)
-	return dp
+	Config         DatapathConfiguration
+	RuleManager    datapath.IptablesManager
+	WGAgent        datapath.WireguardAgent
+	NodeAddressing datapath.NodeAddressing
+	Loader         *loader.Loader
+	DeviceResolver devices.DeviceResolver
 }
 
-// Node returns the handler for node events
-func (l *linuxDatapath) Node() datapath.NodeHandler {
-	return l.node
+// NewDatapath creates a new Linux datapath
+func NewDatapath(p linuxDatapathParams) datapath.Datapath {
+	dp := &linuxDatapath{
+		ConfigWriter:    &config.HeaderfileWriter{p.DeviceResolver},
+		IptablesManager: p.RuleManager,
+		nodeAddressing:  p.NodeAddressing,
+		config:          p.Config,
+		loader:          p.Loader,
+		wgAgent:         p.WGAgent,
+		lbmap:           lbmap.New(),
+	}
+	return dp
 }
 
 // LocalNodeAddressing returns the node addressing implementation of the local

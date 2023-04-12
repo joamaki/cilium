@@ -87,7 +87,6 @@ import (
 	"github.com/cilium/cilium/pkg/service"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
 	"github.com/cilium/cilium/pkg/source"
-	"github.com/cilium/cilium/pkg/statedb"
 	"github.com/cilium/cilium/pkg/status"
 	"github.com/cilium/cilium/pkg/trigger"
 	cnitypes "github.com/cilium/cilium/plugins/cilium-cni/types"
@@ -148,7 +147,8 @@ type Daemon struct {
 
 	// datapath is the underlying datapath implementation to use to
 	// implement all aspects of an agent
-	datapath datapath.Datapath
+	datapath    datapath.Datapath
+	nodeHandler datapath.NodeHandler
 
 	// nodeDiscovery defines the node discovery logic of the agent
 	nodeDiscovery  *nodediscovery.NodeDiscovery
@@ -205,6 +205,8 @@ type Daemon struct {
 
 	// just used to tie together some status reporting
 	cniConfigManager cni.CNIConfigManager
+
+	getDevices func() []*datapathTables.Device
 }
 
 func (d *Daemon) initDNSProxyContext(size int) {
@@ -267,7 +269,7 @@ func (d *Daemon) init() error {
 	}
 
 	if !option.Config.DryMode {
-		bandwidth.InitBandwidthManager()
+		bandwidth.InitBandwidthManager(datapathTables.DeviceNames(d.getDevices()))
 
 		if err := d.createNodeConfigHeaderfile(); err != nil {
 			return fmt.Errorf("failed while creating node config header file: %w", err)
@@ -484,7 +486,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 		externalIP,
 	)
 
-	params.NodeManager.Subscribe(params.Datapath.Node())
+	params.NodeManager.Subscribe(params.NodeHandler)
 
 	identity.IterateReservedIdentities(func(_ identity.NumericIdentity, _ *identity.Identity) {
 		metrics.Identity.WithLabelValues(identity.ReservedIdentityType).Inc()
@@ -506,6 +508,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 		netConf:           netConf,
 		mtuConfig:         mtuConfig,
 		datapath:          params.Datapath,
+		nodeHandler:       params.NodeHandler,
 		nodeDiscovery:     nd,
 		nodeLocalStore:    params.LocalNodeStore,
 		endpointCreations: newEndpointCreationManager(params.Clientset),
@@ -520,6 +523,12 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 		policyUpdater:     params.PolicyUpdater,
 		endpointManager:   params.EndpointManager,
 		cniConfigManager:  params.CNIConfigManager,
+	}
+
+	// As transitionary measure, provide a function to retrive the current set of devices.
+	d.getDevices = func() []*datapathTables.Device {
+		devs, _ := datapathTables.ViableDevices(params.DevicesTable.Reader(params.StateDB.ReadTxn()))
+		return devs
 	}
 
 	if option.Config.RunMonitorAgent {
@@ -733,7 +742,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 
 	// Now that BPF maps are opened, we can restore node IDs to the node
 	// manager.
-	d.datapath.Node().RestoreNodeIDs()
+	d.nodeHandler.RestoreNodeIDs()
 
 	// Read the service IDs of existing services from the BPF map and
 	// reserve them. This must be done *before* connecting to the
@@ -919,25 +928,14 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 		}*/
 
 	// Get the initial set of datapath devices.
-	{
-		txn := params.StateDB.ReadTxn()
-		devIter, err := params.DevicesTable.Reader(txn).Get(statedb.All)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read devices: %w", err)
-		}
-		devices := statedb.Collect[*datapathTables.Device](devIter)
-		deviceNames := make([]string, len(devices))
-		for i := range devices {
-			deviceNames[i] = devices[i].Name
-		}
-		option.Config.SetDevices(deviceNames)
-
-		if err := node.InitNodePortAddrs(devices, option.Config.LBDevInheritIPAddr); err != nil {
-			return nil, nil, fmt.Errorf("InitNodePortAddrs failed: %w", err)
-		}
+	txn := params.StateDB.ReadTxn()
+	devices, _ := datapathTables.ViableDevices(params.DevicesTable.Reader(txn))
+	deviceNames := make([]string, len(devices))
+	for i := range devices {
+		deviceNames[i] = devices[i].Name
 	}
 
-	if err := finishKubeProxyReplacementInit(); err != nil {
+	if err := finishKubeProxyReplacementInit(devices); err != nil {
 		log.WithError(err).Error("failed to finalise LB initialization")
 		return nil, nil, fmt.Errorf("failed to finalise LB initialization: %w", err)
 	}
@@ -992,9 +990,10 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 					"if the same endpoint is selected both by an egress gateway and a L7 policy, endpoint traffic will not go through egress gateway.", option.EnableL7Proxy)
 		}
 	}
+
 	if option.Config.EnableIPv4Masquerade && option.Config.EnableBPFMasquerade {
 		// TODO(brb) nodeport constraints will be lifted once the SNAT BPF code has been refactored
-		if err := node.InitBPFMasqueradeAddrs(option.Config.GetDevices()); err != nil {
+		if err := node.InitBPFMasqueradeAddrs(datapathTables.DeviceNames(d.getDevices())); err != nil {
 			log.WithError(err).Error("failed to determine BPF masquerade IPv4 addrs")
 			return nil, nil, fmt.Errorf("failed to determine BPF masquerade IPv4 addrs: %w", err)
 		}
@@ -1020,7 +1019,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 			return nil, nil, fmt.Errorf("BPF ip-masq-agent needs kernel 4.16 or newer")
 		}
 	}
-	if option.Config.EnableHostFirewall && len(option.Config.GetDevices()) == 0 {
+	if option.Config.EnableHostFirewall && len(d.getDevices()) == 0 {
 		msg := "host firewall's external facing device could not be determined. Use --%s to specify."
 		log.WithError(err).Errorf(msg, option.Devices)
 		return nil, nil, fmt.Errorf(msg, option.Devices)
@@ -1032,7 +1031,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 		}
 	}
 
-	bigtcp.InitBIGTCP(&d.bigTCPConfig)
+	bigtcp.InitBIGTCP(&d.bigTCPConfig, deviceNames)
 
 	// Some of the k8s watchers rely on option flags set above (specifically
 	// EnableBPFMasquerade), so we should only start them once the flag values
@@ -1254,7 +1253,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 	if option.Config.EnableRuntimeDeviceDetection {
 		go func() {
 			for {
-				devices, invalidated := datapathTables.GetDevices(params.DevicesTable.Reader(params.StateDB.ReadTxn()))
+				devices, invalidated := datapathTables.ViableDevices(params.DevicesTable.Reader(params.StateDB.ReadTxn()))
 				d.ReloadOnDeviceChange(devices)
 
 				// Wait until devices change again.
@@ -1264,7 +1263,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params daemonParams)
 	}
 
 	if option.Config.EnableIPSec {
-		if err := ipsec.StartKeyfileWatcher(ctx, option.Config.IPSecKeyFile, nd, d.Datapath().Node()); err != nil {
+		if err := ipsec.StartKeyfileWatcher(ctx, option.Config.IPSecKeyFile, nd, d.nodeHandler); err != nil {
 			log.WithError(err).Error("Unable to start IPSec keyfile watcher")
 		}
 
@@ -1309,8 +1308,6 @@ func (d *Daemon) ReloadOnDeviceChange(devices []*datapathTables.Device) {
 		deviceNames[i] = devices[i].Name
 	}
 
-	option.Config.SetDevices(deviceNames)
-
 	if option.Config.EnableIPv4Masquerade && option.Config.EnableBPFMasquerade {
 		if err := node.InitBPFMasqueradeAddrs(deviceNames); err != nil {
 			log.Warnf("InitBPFMasqueradeAddrs failed: %s", err)
@@ -1318,13 +1315,9 @@ func (d *Daemon) ReloadOnDeviceChange(devices []*datapathTables.Device) {
 	}
 
 	if option.Config.EnableNodePort {
-		if err := node.InitNodePortAddrs(devices, option.Config.LBDevInheritIPAddr); err != nil {
-			log.WithError(err).Warn("Failed to initialize NodePort addresses")
-		} else {
-			// Synchronize services and endpoints to reflect new addresses onto lbmap.
-			d.svc.SyncServicesOnDeviceChange(d.Datapath().LocalNodeAddressing())
-			d.controllers.TriggerController(syncHostIPsController)
-		}
+		// Synchronize services and endpoints to reflect new addresses onto lbmap.
+		d.svc.SyncServicesOnDeviceChange(d.Datapath().LocalNodeAddressing())
+		d.controllers.TriggerController(syncHostIPsController)
 	}
 
 	// Recreate node_config.h to reflect the mac addresses of the new devices.

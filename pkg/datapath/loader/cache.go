@@ -16,6 +16,7 @@ import (
 	"github.com/cilium/cilium/pkg/common"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/datapath/loader/metrics"
+	"github.com/cilium/cilium/pkg/datapath/tables"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/lock"
@@ -124,9 +125,11 @@ type objectCache struct {
 	// compileQueue maps a hash to a queue which ensures that only one
 	// attempt is made concurrently to compile the corresponding template.
 	compileQueue map[string]*serializer.FunctionQueue
+
+	getDevices func() []*tables.Device
 }
 
-func newObjectCache(c datapath.ConfigWriter, nodeCfg *datapath.LocalNodeConfiguration, workingDir string) *objectCache {
+func newObjectCache(c datapath.ConfigWriter, nodeCfg *datapath.LocalNodeConfiguration, workingDir string, getDevices func() []*tables.Device) *objectCache {
 	oc := &objectCache{
 		ConfigWriter:        c,
 		workingDirectory:    workingDir,
@@ -147,8 +150,8 @@ func newObjectCache(c datapath.ConfigWriter, nodeCfg *datapath.LocalNodeConfigur
 
 // NewObjectCache creates a new cache for datapath objects, basing the hash
 // upon the configuration of the datapath and the specified node configuration.
-func NewObjectCache(c datapath.ConfigWriter, nodeCfg *datapath.LocalNodeConfiguration) *objectCache {
-	return newObjectCache(c, nodeCfg, option.Config.StateDir)
+func NewObjectCache(c datapath.ConfigWriter, nodeCfg *datapath.LocalNodeConfiguration, getDevices func() []*tables.Device) *objectCache {
+	return newObjectCache(c, nodeCfg, option.Config.StateDir, getDevices)
 }
 
 // Update may be called to update the base hash for configuration of datapath

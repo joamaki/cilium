@@ -215,12 +215,6 @@ func initializeFlags() {
 	flags.StringSlice(option.DebugVerbose, []string{}, "List of enabled verbose debug groups")
 	option.BindEnv(Vp, option.DebugVerbose)
 
-	flags.StringSlice(option.Devices, []string{}, "List of devices facing cluster/external network (used for BPF NodePort, BPF masquerading and host firewall); supports '+' as wildcard in device name, e.g. 'eth+'")
-	option.BindEnv(Vp, option.Devices)
-
-	flags.String(option.DirectRoutingDevice, "", "Device name used to connect nodes in direct routing mode (used by BPF NodePort, BPF host routing; if empty, automatically set to a device with k8s InternalIP/ExternalIP or with a default route)")
-	option.BindEnv(Vp, option.DirectRoutingDevice)
-
 	flags.Bool(option.EnableRuntimeDeviceDetection, false, "Enable runtime device detection and datapath reconfiguration (experimental)")
 	option.BindEnv(Vp, option.EnableRuntimeDeviceDetection)
 
@@ -271,9 +265,6 @@ func initializeFlags() {
 
 	flags.Bool(option.EnableSCTPName, defaults.EnableSCTP, "Enable SCTP support (beta)")
 	option.BindEnv(Vp, option.EnableSCTPName)
-
-	flags.String(option.IPv6MCastDevice, "", "Device that joins a Solicited-Node multicast group for IPv6")
-	option.BindEnv(Vp, option.IPv6MCastDevice)
 
 	flags.Bool(option.EnableRemoteNodeIdentity, defaults.EnableRemoteNodeIdentity, "Enable use of remote node identity")
 	option.BindEnv(Vp, option.EnableRemoteNodeIdentity)
@@ -1573,6 +1564,7 @@ type daemonParams struct {
 	Lifecycle            hive.Lifecycle
 	Clientset            k8sClient.Clientset
 	Datapath             datapath.Datapath
+	NodeHandler          datapath.NodeHandler
 	WGAgent              *wireguard.Agent `optional:"true"`
 	LocalNodeStore       node.LocalNodeStore
 	BGPController        *bgpv1.Controller
@@ -1822,16 +1814,16 @@ func runDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *daem
 	}
 
 	if option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
-		if !d.datapath.Node().NodeNeighDiscoveryEnabled() {
+		if !d.nodeHandler.NodeNeighDiscoveryEnabled() {
 			// Remove all non-GC'ed neighbor entries that might have previously set
 			// by a Cilium instance.
-			d.datapath.Node().NodeCleanNeighbors(false)
+			d.nodeHandler.NodeCleanNeighbors(false)
 		} else {
 			// If we came from an agent upgrade, migrate entries.
-			d.datapath.Node().NodeCleanNeighbors(true)
+			d.nodeHandler.NodeCleanNeighbors(true)
 			// Start periodical refresh of the neighbor table from the agent if needed.
 			if option.Config.ARPPingRefreshPeriod != 0 && !option.Config.ARPPingKernelManaged {
-				d.nodeDiscovery.Manager.StartNeighborRefresh(d.datapath.Node())
+				d.nodeDiscovery.Manager.StartNeighborRefresh(d.nodeHandler)
 			}
 		}
 	}
@@ -1979,7 +1971,7 @@ func (d *Daemon) instantiateAPI() *restapi.CiliumAPIAPI {
 	restAPI.PolicyGetIPHandler = NewGetIPHandler(d)
 
 	// /node/ids
-	restAPI.DaemonGetNodeIdsHandler = NewGetNodeIDsHandler(d.datapath.Node())
+	restAPI.DaemonGetNodeIdsHandler = NewGetNodeIDsHandler(d.nodeHandler)
 
 	// /bgp/peers
 	restAPI.BgpGetBgpPeersHandler = NewGetBGPHandler(d.bgpControlPlaneController)

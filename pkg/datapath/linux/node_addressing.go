@@ -69,7 +69,7 @@ func (a *addressFamilyIPv4) AllocationCIDR() *cidr.CIDR {
 }
 
 func (a *addressFamilyIPv4) LocalAddresses() (addrs []net.IP, err error) {
-	devs, _ := tables.GetDevices(a.devicesTable.Reader(a.db.ReadTxn()))
+	devs, _ := tables.ViableDevices(a.devicesTable.Reader(a.db.ReadTxn()))
 	for _, dev := range devs {
 		for _, addr := range dev.Addrs {
 			if addr.Addr.Is4() {
@@ -109,7 +109,7 @@ func (a *addressFamilyIPv6) AllocationCIDR() *cidr.CIDR {
 }
 
 func (a *addressFamilyIPv6) LocalAddresses() (addrs []net.IP, err error) {
-	devs, _ := tables.GetDevices(a.devicesTable.Reader(a.db.ReadTxn()))
+	devs, _ := tables.ViableDevices(a.devicesTable.Reader(a.db.ReadTxn()))
 	for _, dev := range devs {
 		for _, addr := range dev.Addrs {
 			if addr.Addr.Is6() {
@@ -131,7 +131,7 @@ func (a *addressFamilyIPv6) LocalAddresses() (addrs []net.IP, err error) {
 // LoadBalancerNodeAddresses returns all IPv6 node addresses on which the
 // loadbalancer should implement HostPort and NodePort services.
 func (a *addressFamilyIPv6) LoadBalancerNodeAddresses() (addrs []net.IP) {
-	devs, _ := tables.GetDevices(a.devicesTable.Reader(a.db.ReadTxn()))
+	devs, _ := tables.ViableDevices(a.devicesTable.Reader(a.db.ReadTxn()))
 	for _, dev := range devs {
 		for _, addr := range dev.Addrs {
 			if addr.Addr.Is6() {

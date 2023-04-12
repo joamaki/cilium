@@ -76,14 +76,14 @@ func setGROGSOMaxSize(device string, GROMaxSize, GSOMaxSize int) error {
 	return netlink.LinkSetGSOMaxSize(link, GSOMaxSize)
 }
 
-func InitBIGTCP(bigTCPConfig *Configuration) {
+func InitBIGTCP(bigTCPConfig *Configuration, devices []string) {
 	var err error
 
 	if option.Config.DryMode {
 		return
 	}
 
-	if len(option.Config.GetDevices()) == 0 {
+	if len(devices) == 0 {
 		if option.Config.EnableIPv6BIGTCP {
 			log.Warn("IPv6 BIG TCP could not detect host devices. Disabling the feature.")
 		}
@@ -124,7 +124,7 @@ func InitBIGTCP(bigTCPConfig *Configuration) {
 	}
 
 	modifiedDevices := []string{}
-	for _, device := range option.Config.GetDevices() {
+	for _, device := range devices {
 		// we always add the device because we might do only a partial
 		// modification and end up with an error, so best to be conservative
 		// and always reset all on error

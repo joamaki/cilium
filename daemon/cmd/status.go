@@ -20,6 +20,7 @@ import (
 	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/controller"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
+	datapathTables "github.com/cilium/cilium/pkg/datapath/tables"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/identity"
 	k8smetrics "github.com/cilium/cilium/pkg/k8s/metrics"
@@ -34,7 +35,6 @@ import (
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
 	"github.com/cilium/cilium/pkg/maps/signalmap"
 	tunnelmap "github.com/cilium/cilium/pkg/maps/tunnel"
-	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/rand"
@@ -167,7 +167,7 @@ func (d *Daemon) getBandwidthManagerStatus() *models.BandwidthManager {
 		s.CongestionControl = models.BandwidthManagerCongestionControlBbr
 	}
 
-	s.Devices = option.Config.GetDevices()
+	s.Devices = datapathTables.DeviceNames(d.getDevices())
 	return s
 }
 
@@ -186,7 +186,7 @@ func (d *Daemon) getHostFirewallStatus() *models.HostFirewall {
 	}
 	return &models.HostFirewall{
 		Mode:    mode,
-		Devices: option.Config.GetDevices(),
+		Devices: datapathTables.DeviceNames(d.getDevices()),
 	}
 }
 
@@ -220,22 +220,18 @@ func (d *Daemon) getKubeProxyReplacementStatus() *models.KubeProxyReplacement {
 		mode = models.KubeProxyReplacementModeDisabled
 	}
 
-	devicesLegacy := option.Config.GetDevices()
-	devices := make([]*models.KubeProxyReplacementDeviceListItems0, len(devicesLegacy))
-	v4Addrs := node.GetNodePortIPv4AddrsWithDevices()
-	v6Addrs := node.GetNodePortIPv6AddrsWithDevices()
-	for i, iface := range devicesLegacy {
+	devices := d.getDevices()
+	deviceNames := datapathTables.DeviceNames(devices)
+	deviceList := []*models.KubeProxyReplacementDeviceListItems0{}
+	for _, dev := range devices {
 		info := &models.KubeProxyReplacementDeviceListItems0{
-			Name: iface,
+			Name: dev.Name,
 			IP:   make([]string, 0),
 		}
-		if addr, ok := v4Addrs[iface]; ok {
-			info.IP = append(info.IP, addr.String())
+		for _, addr := range dev.Addrs {
+			info.IP = append(info.IP, addr.Addr.String())
 		}
-		if addr, ok := v6Addrs[iface]; ok {
-			info.IP = append(info.IP, addr.String())
-		}
-		devices[i] = info
+		deviceList = append(deviceList, info)
 	}
 
 	features := &models.KubeProxyReplacementFeatures{
@@ -303,8 +299,8 @@ func (d *Daemon) getKubeProxyReplacementStatus() *models.KubeProxyReplacement {
 
 	return &models.KubeProxyReplacement{
 		Mode:                mode,
-		Devices:             devicesLegacy,
-		DeviceList:          devices,
+		Devices:             deviceNames,
+		DeviceList:          deviceList,
 		DirectRoutingDevice: option.Config.DirectRoutingDevice,
 		Features:            features,
 	}

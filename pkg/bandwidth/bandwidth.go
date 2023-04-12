@@ -152,12 +152,12 @@ func setBaselineSysctls() error {
 	return nil
 }
 
-func InitBandwidthManager() {
+func InitBandwidthManager(devices []string) {
 	if option.Config.DryMode || !option.Config.EnableBandwidthManager {
 		return
 	}
 
-	if len(option.Config.GetDevices()) == 0 {
+	if len(devices) == 0 {
 		log.Warn("BPF bandwidth manager could not detect host devices. Disabling the feature.")
 		option.Config.EnableBandwidthManager = false
 		return
@@ -178,7 +178,7 @@ func InitBandwidthManager() {
 		log.WithError(err).Fatal("Failed to set sysctl needed by BPF bandwidth manager.")
 	}
 
-	for _, device := range option.Config.GetDevices() {
+	for _, device := range devices {
 		link, err := netlink.LinkByName(device)
 		if err != nil {
 			log.WithError(err).WithField("device", device).Warn("Link does not exist")

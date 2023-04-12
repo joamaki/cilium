@@ -13,11 +13,11 @@ import (
 )
 
 type Device struct {
-	Index  int // Interface index (primary key)
-	Name   string
-	Addrs  []DeviceAddress
-	Link   netlink.Link
-	Viable bool // If true, this device can be used by Cilium
+	Index  int             // Interface index (primary key)
+	Name   string          // Interface name (e.g. eth0)
+	Viable bool            // If true this device can be used by Cilium
+	Addrs  []DeviceAddress // Addresses assigned to the device
+	Link   netlink.Link    // The underlying link device
 }
 
 func (d *Device) String() string {
@@ -33,6 +33,7 @@ func (d *Device) DeepCopy() *Device {
 type DeviceAddress struct {
 	Addr  netip.Addr
 	Scope int // Routing table scope
+	Flags int // Address flags
 }
 
 func (d *DeviceAddress) AsIP() net.IP {
@@ -48,27 +49,33 @@ var deviceTableSchema = &memdb.TableSchema{
 			Unique:       true,
 			Indexer:      &memdb.IntFieldIndex{Field: "Index"},
 		},
+		"name": {
+			Name:         "name",
+			AllowMissing: false,
+			Unique:       true,
+			Indexer:      &memdb.StringFieldIndex{Field: "Name"},
+		},
 	},
 }
 
-func ByDeviceIndex(index int) statedb.Query {
+func DeviceByIndex(index int) statedb.Query {
 	return statedb.Query{
 		Index: "id",
 		Args:  []any{index},
 	}
 }
 
-func ByDeviceName(name string) statedb.Query {
+func DeviceByName(name string) statedb.Query {
 	return statedb.Query{
 		Index: "name",
 		Args:  []any{name},
 	}
 }
 
-// GetDevices returns all current viable network devices.
+// ViableDevices returns all current viable network devices.
 // The invalidated channel is closed when devices have changed and
-// should be requeried.
-func GetDevices(r statedb.TableReader[*Device]) (devs []*Device, invalidated <-chan struct{}) {
+// should be requeried with a new transaction.
+func ViableDevices(r statedb.TableReader[*Device]) (devs []*Device, invalidated <-chan struct{}) {
 	iter, err := r.Get(statedb.All)
 	if err != nil {
 		// Devices table schema is malformed.
@@ -81,4 +88,39 @@ func GetDevices(r statedb.TableReader[*Device]) (devs []*Device, invalidated <-c
 		devs = append(devs, dev)
 	}
 	return devs, iter.Invalidated()
+}
+
+func DeviceNames(devs []*Device) (names []string) {
+	names = make([]string, len(devs))
+	for i := range devs {
+		names[i] = devs[i].Name
+	}
+	return
+}
+
+type NodePortAddr struct {
+	IPv4 net.IP
+	IPv6 net.IP
+}
+
+func (dev *Device) NodePortAddr() NodePortAddr {
+	// FIXME compare the logic to node.firstGlobalAddr and make sure
+	// we pick the same addresses. The Device.Addrs is sorted so that
+	// it has the primary addresses with smallest scope on top so it
+	// should be enough to just pick the top most address.
+
+	// FIXME support option.Config.LBDevInheritIPAddr
+	//
+	// FIXME support multiple node port addresses per device.
+
+	var a NodePortAddr
+	for _, addr := range dev.Addrs {
+		if a.IPv4 == nil && addr.Addr.Is4() {
+			a.IPv4 = addr.AsIP()
+		}
+		if a.IPv6 == nil && addr.Addr.Is6() {
+			a.IPv6 = addr.AsIP()
+		}
+	}
+	return a
 }

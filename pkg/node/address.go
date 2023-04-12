@@ -18,7 +18,6 @@ import (
 	"github.com/cilium/cilium/pkg/byteorder"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/common"
-	datapathTables "github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -44,11 +43,9 @@ var (
 )
 
 type addresses struct {
-	ipv4Loopback      net.IP
-	ipv4NodePortAddrs map[string]net.IP // iface name => ip addr
-	ipv4MasqAddrs     map[string]net.IP // iface name => ip addr
-	ipv6NodePortAddrs map[string]net.IP // iface name => ip addr
-	routerInfo        RouterInfo
+	ipv4Loopback  net.IP
+	ipv4MasqAddrs map[string]net.IP // iface name => ip addr
+	routerInfo    RouterInfo
 }
 
 type RouterInfo interface {
@@ -139,6 +136,7 @@ func InitDefaultPrefix(device string) {
 	}
 }
 
+/* FIXME drop
 // InitNodePortAddrs initializes NodePort IPv{4,6} addrs for the given devices.
 // If inheritIPAddrFromDevice is non-empty, then the IP addr for the devices
 // will be derived from it.
@@ -190,7 +188,7 @@ func InitNodePortAddrs(devices []*datapathTables.Device, inheritIPAddrFromDevice
 	}
 
 	return nil
-}
+}*/
 
 // InitBPFMasqueradeAddrs initializes BPF masquerade addrs for the given devices.
 func InitBPFMasqueradeAddrs(devices []string) error {
@@ -360,42 +358,6 @@ func Uninitialize() {
 	addrs = addresses{}
 	localNode = defaultLocalNodeStore()
 	addrsMu.Unlock()
-}
-
-// GetNodePortIPv4Addrs returns the node-port IPv4 address for NAT
-func GetNodePortIPv4Addrs() []net.IP {
-	addrsMu.RLock()
-	defer addrsMu.RUnlock()
-	addrs4 := make([]net.IP, 0, len(addrs.ipv4NodePortAddrs))
-	for _, addr := range addrs.ipv4NodePortAddrs {
-		addrs4 = append(addrs4, clone(addr))
-	}
-	return addrs4
-}
-
-// GetNodePortIPv4AddrsWithDevices returns the map iface => NodePort IPv4.
-func GetNodePortIPv4AddrsWithDevices() map[string]net.IP {
-	addrsMu.RLock()
-	defer addrsMu.RUnlock()
-	return copyStringToNetIPMap(addrs.ipv4NodePortAddrs)
-}
-
-// GetNodePortIPv6Addrs returns the node-port IPv6 address for NAT
-func GetNodePortIPv6Addrs() []net.IP {
-	addrsMu.RLock()
-	defer addrsMu.RUnlock()
-	addrs6 := make([]net.IP, 0, len(addrs.ipv6NodePortAddrs))
-	for _, addr := range addrs.ipv6NodePortAddrs {
-		addrs6 = append(addrs6, clone(addr))
-	}
-	return addrs6
-}
-
-// GetNodePortIPv6AddrsWithDevices returns the map iface => NodePort IPv6.
-func GetNodePortIPv6AddrsWithDevices() map[string]net.IP {
-	addrsMu.RLock()
-	defer addrsMu.RUnlock()
-	return copyStringToNetIPMap(addrs.ipv6NodePortAddrs)
 }
 
 // GetMasqIPv4AddrsWithDevices returns the map iface => BPF masquerade IPv4.

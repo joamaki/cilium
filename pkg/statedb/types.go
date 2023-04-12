@@ -65,7 +65,7 @@ type Iterator[Obj any] interface {
 // WriteTransaction can be used with one more 'Table's to make a set of atomic
 // changes to them.
 type WriteTransaction interface {
-	getTxn() *memdb.Txn
+	ReadTransaction
 
 	// Abort the transaction and throw away the changes.
 	Abort()

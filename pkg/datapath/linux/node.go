@@ -22,11 +22,14 @@ import (
 	"github.com/cilium/cilium/pkg/cidr"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/counter"
+	"github.com/cilium/cilium/pkg/datapath/devices"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	"github.com/cilium/cilium/pkg/datapath/linux/ipsec"
 	"github.com/cilium/cilium/pkg/datapath/linux/linux_defaults"
 	"github.com/cilium/cilium/pkg/datapath/linux/route"
+	"github.com/cilium/cilium/pkg/datapath/tables"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/idpool"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/lock"
@@ -74,24 +77,36 @@ type linuxNodeHandler struct {
 	nodeIDsByIPs map[string]uint16
 
 	ipsecMetricCollector prometheus.Collector
+
+	deviceResolver devices.DeviceResolver
+}
+
+type linuxNodeHandlerParams struct {
+	cell.In
+
+	Config         DatapathConfiguration
+	NodeAddressing datapath.NodeAddressing
+	WGAgent        datapath.WireguardAgent
+	DeviceResolver devices.DeviceResolver
 }
 
 // NewNodeHandler returns a new node handler to handle node events and
 // implement the implications in the Linux datapath
-func NewNodeHandler(datapathConfig DatapathConfiguration, nodeAddressing datapath.NodeAddressing, wgAgent datapath.WireguardAgent) datapath.NodeHandler {
+func NewNodeHandler(p linuxNodeHandlerParams) datapath.NodeHandler {
 	return &linuxNodeHandler{
-		nodeAddressing:         nodeAddressing,
-		datapathConfig:         datapathConfig,
+		nodeAddressing:         p.NodeAddressing,
+		datapathConfig:         p.Config,
 		nodes:                  map[nodeTypes.Identity]*nodeTypes.Node{},
 		neighNextHopByNode4:    map[nodeTypes.Identity]map[string]string{},
 		neighNextHopByNode6:    map[nodeTypes.Identity]map[string]string{},
 		neighNextHopRefCount:   counter.StringCounter{},
 		neighByNextHop:         map[string]*netlink.Neigh{},
 		neighLastPingByNextHop: map[string]time.Time{},
-		wgAgent:                wgAgent,
+		wgAgent:                p.WGAgent,
 		nodeIDs:                idpool.NewIDPool(minNodeID, maxNodeID),
 		nodeIDsByIPs:           map[string]uint16{},
 		ipsecMetricCollector:   ipsec.NewXFRMCollector(),
+		deviceResolver:         p.DeviceResolver,
 	}
 }
 
@@ -256,6 +271,11 @@ func installDirectRoute(CIDR *cidr.CIDR, nodeIP net.IP) (routeSpec *netlink.Rout
 
 	err = netlink.RouteReplace(routeSpec)
 	return
+}
+
+func (n *linuxNodeHandler) getDevices() []string {
+	devs := n.deviceResolver.Devices()
+	return tables.DeviceNames(devs)
 }
 
 func (n *linuxNodeHandler) updateDirectRoutes(oldCIDRs, newCIDRs []*cidr.CIDR, oldIP, newIP net.IP, firstAddition, directRouteEnabled bool) error {
@@ -1496,20 +1516,14 @@ func (n *linuxNodeHandler) NodeConfigurationChanged(newConfig datapath.LocalNode
 
 	if n.nodeConfig.EnableIPv4 || n.nodeConfig.EnableIPv6 {
 		var ifaceNames []string
+		directRoutingDevice := n.deviceResolver.DirectRoutingDevice()
 		switch {
 		case !option.Config.EnableL2NeighDiscovery:
 			n.enableNeighDiscovery = false
-		case option.Config.DirectRoutingDeviceRequired():
-			if option.Config.DirectRoutingDevice == "" {
-				return fmt.Errorf("direct routing device is required, but not defined")
-			}
-
-			var targetDevices []string
-			targetDevices = append(targetDevices, option.Config.DirectRoutingDevice)
-			targetDevices = append(targetDevices, option.Config.GetDevices()...)
-
+		case directRoutingDevice != nil:
+			// FIXME
 			var err error
-			ifaceNames, err = filterL2Devices(targetDevices)
+			ifaceNames, err = filterL2Devices(n.getDevices())
 			if err != nil {
 				return err
 			}

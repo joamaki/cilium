@@ -59,22 +59,11 @@ func waitForNodeInformation(ctx context.Context, k8sGetter k8sGetter, nodeName s
 func retrieveNodeInformation(ctx context.Context, nodeGetter k8sGetter, nodeName string) (*nodeTypes.Node, error) {
 	requireIPv4CIDR := option.Config.K8sRequireIPv4PodCIDR
 	requireIPv6CIDR := option.Config.K8sRequireIPv6PodCIDR
-	// At this point it's not clear whether the device auto-detection will
-	// happen, as initKubeProxyReplacementOptions() might disable BPF NodePort.
-	// Anyway, to be on the safe side, don't give up waiting for a (Cilium)Node
-	// self object.
-	mightAutoDetectDevices := option.MightAutoDetectDevices()
 	var n *nodeTypes.Node
 
 	if option.Config.IPAM == ipamOption.IPAMClusterPool || option.Config.IPAM == ipamOption.IPAMClusterPoolV2 {
 		ciliumNode, err := nodeGetter.GetCiliumNode(ctx, nodeName)
 		if err != nil {
-			// If no CIDR is required, retrieving the node information is
-			// optional
-			if !requireIPv4CIDR && !requireIPv6CIDR && !mightAutoDetectDevices {
-				return nil, nil
-			}
-
 			return nil, fmt.Errorf("unable to retrieve CiliumNode: %s", err)
 		}
 
@@ -84,12 +73,6 @@ func retrieveNodeInformation(ctx context.Context, nodeGetter k8sGetter, nodeName
 	} else {
 		k8sNode, err := nodeGetter.GetK8sNode(ctx, nodeName)
 		if err != nil {
-			// If no CIDR is required, retrieving the node information is
-			// optional
-			if !requireIPv4CIDR && !requireIPv6CIDR && !mightAutoDetectDevices {
-				return nil, nil
-			}
-
 			return nil, fmt.Errorf("unable to retrieve k8s node information: %s", err)
 
 		}
@@ -142,9 +125,7 @@ func WaitForNodeInformation(ctx context.Context, k8sGetter k8sGetter) error {
 		if option.Config.K8sRequireIPv4PodCIDR || option.Config.K8sRequireIPv6PodCIDR {
 			return fmt.Errorf("node name must be specified via environment variable '%s' to retrieve Kubernetes PodCIDR range", k8sConst.EnvNodeNameSpec)
 		}
-		if option.MightAutoDetectDevices() {
-			log.Info("K8s node name is empty. BPF NodePort might not be able to auto detect all devices")
-		}
+		log.Info("K8s node name is empty. BPF NodePort might not be able to auto detect all devices")
 		return nil
 	}
 

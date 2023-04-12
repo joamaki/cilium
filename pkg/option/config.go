@@ -1325,20 +1325,17 @@ func LogRegisteredOptions(vp *viper.Viper, entry *logrus.Entry) {
 
 // DaemonConfig is the configuration used by Daemon.
 type DaemonConfig struct {
-	CreationTime        time.Time
-	BpfDir              string       // BPF template files directory
-	LibDir              string       // Cilium library files directory
-	RunDir              string       // Cilium runtime directory
-	devicesMu           lock.RWMutex // Protects devices
-	devices             []string     // bpf_host device
-	DirectRoutingDevice string       // Direct routing device (used by BPF NodePort and BPF Host Routing)
-	LBDevInheritIPAddr  string       // Device which IP addr used by bpf_host devices
-	EnableXDPPrefilter  bool         // Enable XDP-based prefiltering
-	XDPMode             string       // XDP mode, values: { xdpdrv | xdpgeneric | none }
-	HostV4Addr          net.IP       // Host v4 address of the snooping device
-	HostV6Addr          net.IP       // Host v6 address of the snooping device
-	EncryptInterface    []string     // Set of network facing interface to encrypt over
-	EncryptNode         bool         // Set to true for encrypting node IP traffic
+	CreationTime       time.Time
+	BpfDir             string   // BPF template files directory
+	LibDir             string   // Cilium library files directory
+	RunDir             string   // Cilium runtime directory
+	LBDevInheritIPAddr string   // Device which IP addr used by bpf_host devices
+	EnableXDPPrefilter bool     // Enable XDP-based prefiltering
+	XDPMode            string   // XDP mode, values: { xdpdrv | xdpgeneric | none }
+	HostV4Addr         net.IP   // Host v4 address of the snooping device
+	HostV6Addr         net.IP   // Host v6 address of the snooping device
+	EncryptInterface   []string // Set of network facing interface to encrypt over
+	EncryptNode        bool     // Set to true for encrypting node IP traffic
 
 	// If set to true the daemon will detect new and deleted datapath devices
 	// at runtime and reconfigure the datapath to load programs onto the new
@@ -1605,9 +1602,6 @@ type DaemonConfig struct {
 
 	// EnableSCTP is true when SCTP support is enabled.
 	EnableSCTP bool
-
-	// IPv6MCastDevice is the name of device that joins IPv6's solicitation multicast group
-	IPv6MCastDevice string
 
 	// EnableL7Proxy is the option to enable L7 proxy
 	EnableL7Proxy bool
@@ -2383,24 +2377,6 @@ func (c *DaemonConfig) SetIPv6NativeRoutingCIDR(cidr *cidr.CIDR) {
 	c.ConfigPatchMutex.Unlock()
 }
 
-func (c *DaemonConfig) SetDevices(devices []string) {
-	c.devicesMu.Lock()
-	c.devices = devices
-	c.devicesMu.Unlock()
-}
-
-func (c *DaemonConfig) GetDevices() []string {
-	c.devicesMu.RLock()
-	defer c.devicesMu.RUnlock()
-	return c.devices
-}
-
-func (c *DaemonConfig) AppendDevice(dev string) {
-	c.devicesMu.Lock()
-	c.devices = append(c.devices, dev)
-	c.devicesMu.Unlock()
-}
-
 // IsExcludedLocalAddress returns true if the specified IP matches one of the
 // excluded local IP ranges
 func (c *DaemonConfig) IsExcludedLocalAddress(ip net.IP) bool {
@@ -2611,15 +2587,6 @@ func (c *DaemonConfig) K8sGatewayAPIEnabled() bool {
 	return c.EnableGatewayAPI
 }
 
-// DirectRoutingDeviceRequired return whether the Direct Routing Device is needed under
-// the current configuration.
-func (c *DaemonConfig) DirectRoutingDeviceRequired() bool {
-	// BPF NodePort and BPF Host Routing are using the direct routing device now.
-	// When tunneling is enabled, node-to-node redirection will be done by tunneling.
-	BPFHostRoutingEnabled := !c.EnableHostLegacyRouting
-	return (c.EnableNodePort || BPFHostRoutingEnabled || Config.EnableWireguard) && !c.TunnelingEnabled()
-}
-
 func (c *DaemonConfig) validateIPv6ClusterAllocCIDR() error {
 	ip, cidr, err := net.ParseCIDR(c.IPv6ClusterAllocCIDR)
 	if err != nil {
@@ -2676,7 +2643,7 @@ func (c *DaemonConfig) Validate(vp *viper.Viper) error {
 		if !c.EnableIPv6 {
 			return fmt.Errorf("IPv6NDP cannot be enabled when IPv6 is not enabled")
 		}
-		if len(c.IPv6MCastDevice) == 0 && !MightAutoDetectDevices() {
+		if len(c.IPv6MCastDevice) == 0 {
 			return fmt.Errorf("IPv6NDP cannot be enabled without %s", IPv6MCastDevice)
 		}
 	}
@@ -2854,7 +2821,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.DatapathMode = vp.GetString(DatapathMode)
 	c.Debug = vp.GetBool(DebugArg)
 	c.DebugVerbose = vp.GetStringSlice(DebugVerbose)
-	c.DirectRoutingDevice = vp.GetString(DirectRoutingDevice)
 	c.LBDevInheritIPAddr = vp.GetString(LBDevInheritIPAddr)
 	c.EnableIPv4 = vp.GetBool(EnableIPv4Name)
 	c.EnableIPv6 = vp.GetBool(EnableIPv6Name)
@@ -3020,7 +2986,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.IPAMCiliumNodeUpdateRate = vp.GetDuration(IPAMCiliumNodeUpdateRate)
 
 	c.populateLoadBalancerSettings(vp)
-	c.populateDevices(vp)
 	c.EnableRuntimeDeviceDetection = vp.GetBool(EnableRuntimeDeviceDetection)
 	c.EgressMultiHomeIPRuleCompat = vp.GetBool(EgressMultiHomeIPRuleCompat)
 
@@ -3377,23 +3342,6 @@ func (c *DaemonConfig) additionalMetrics() []string {
 		m = append(m, addMetric(metrics.SubsystemFQDN+"_semaphore_rejected_total"))
 	}
 	return m
-}
-
-func (c *DaemonConfig) populateDevices(vp *viper.Viper) {
-	c.devices = vp.GetStringSlice(Devices)
-
-	// Make sure that devices are unique
-	if len(c.devices) <= 1 {
-		return
-	}
-	devSet := map[string]struct{}{}
-	for _, dev := range c.devices {
-		devSet[dev] = struct{}{}
-	}
-	c.devices = make([]string, 0, len(devSet))
-	for dev := range devSet {
-		c.devices = append(c.devices, dev)
-	}
 }
 
 func (c *DaemonConfig) populateLoadBalancerSettings(vp *viper.Viper) {
@@ -4030,15 +3978,6 @@ func EndpointStatusValuesMap() (values map[string]struct{}) {
 		values[v] = struct{}{}
 	}
 	return
-}
-
-// MightAutoDetectDevices returns true if the device auto-detection might take
-// place.
-func MightAutoDetectDevices() bool {
-	devices := Config.GetDevices()
-	return ((Config.EnableHostFirewall || Config.EnableWireguard) && len(devices) == 0) ||
-		(Config.KubeProxyReplacement != KubeProxyReplacementDisabled &&
-			(len(devices) == 0 || Config.DirectRoutingDevice == ""))
 }
 
 // BPFEventBufferConfig contains parsed configuration for a bpf map event buffer.

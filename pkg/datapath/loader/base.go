@@ -26,6 +26,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/linux/route"
 	linuxrouting "github.com/cilium/cilium/pkg/datapath/linux/routing"
 	"github.com/cilium/cilium/pkg/datapath/prefilter"
+	"github.com/cilium/cilium/pkg/datapath/tables"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
@@ -105,7 +106,9 @@ func writePreFilterHeader(preFilter *prefilter.PreFilter, dir string) error {
 
 	fw := bufio.NewWriter(f)
 	fmt.Fprint(fw, "/*\n")
-	fmt.Fprintf(fw, " * XDP devices: %s\n", strings.Join(option.Config.GetDevices(), " "))
+
+	// FIXME needs access to devices table
+	//fmt.Fprintf(fw, " * XDP devices: %s\n", strings.Join(option.Config.GetDevices(), " "))
 	fmt.Fprintf(fw, " * XDP mode: %s\n", option.Config.NodePortAcceleration)
 	fmt.Fprint(fw, " */\n\n")
 	preFilter.WriteConfig(fw)
@@ -211,12 +214,12 @@ func (l *Loader) reinitializeIPSec(ctx context.Context) error {
 }
 
 func (l *Loader) reinitializeXDPLocked(ctx context.Context, extraCArgs []string) error {
-	maybeUnloadObsoleteXDPPrograms(option.Config.GetDevices(), option.Config.XDPMode)
+	maybeUnloadObsoleteXDPPrograms(l.getDevices(), option.Config.XDPMode)
 	if option.Config.XDPMode == option.XDPModeDisabled {
 		return nil
 	}
-	for _, dev := range option.Config.GetDevices() {
-		if err := compileAndLoadXDPProg(ctx, dev, option.Config.XDPMode, extraCArgs); err != nil {
+	for _, dev := range l.getDevices() {
+		if err := compileAndLoadXDPProg(ctx, dev.Name, option.Config.XDPMode, extraCArgs); err != nil {
 			return err
 		}
 	}
@@ -237,11 +240,8 @@ func (l *Loader) ReinitializeXDP(ctx context.Context, o datapath.BaseProgramOwne
 // locally detected prefixes. It may be run upon initial Cilium startup, after
 // restore from a previous Cilium run, or during regular Cilium operation.
 func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, deviceMTU int, iptMgr datapath.IptablesManager, p datapath.Proxy) error {
-	var (
-		args []string
-	)
-
-	args = make([]string, initArgMax)
+	args := make([]string, initArgMax)
+	devices := tables.DeviceNames(l.getDevices())
 
 	sysSettings := []sysctl.Setting{
 		{Name: "net.core.bpf_jit_enable", Val: "1", IgnoreErr: true, Warn: "Unable to ensure that BPF JIT compilation is enabled. This can be ignored when Cilium is running inside non-host network namespace (e.g. with kind or minikube)"},
@@ -266,7 +266,7 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 	args[initArgSysDir] = filepath.Join("/sys", "class", "net")
 
 	if option.Config.EnableXDPPrefilter {
-		scopedLog := log.WithField(logfields.Devices, option.Config.GetDevices())
+		scopedLog := log.WithField(logfields.Devices, devices)
 
 		preFilter, err := prefilter.NewPreFilter()
 		if err != nil {
@@ -309,8 +309,8 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 	args[initArgCgroupRoot] = "<nil>"
 	args[initArgBpffsRoot] = "<nil>"
 
-	if len(option.Config.GetDevices()) != 0 {
-		args[initArgDevices] = strings.Join(option.Config.GetDevices(), ";")
+	if len(devices) != 0 {
+		args[initArgDevices] = strings.Join(devices, ";")
 	} else {
 		args[initArgDevices] = "<nil>"
 	}
@@ -448,7 +448,7 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		return err
 	}
 
-	if err := o.Datapath().Node().NodeConfigurationChanged(*o.LocalConfig()); err != nil {
+	if err := o.Node().NodeConfigurationChanged(*o.LocalConfig()); err != nil {
 		return err
 	}
 

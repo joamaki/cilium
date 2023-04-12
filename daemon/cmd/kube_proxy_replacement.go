@@ -18,13 +18,13 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
-	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/datapath/linux/probes"
 	"github.com/cilium/cilium/pkg/datapath/loader"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
+	datapathTables "github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maglev"
 	"github.com/cilium/cilium/pkg/mountinfo"
@@ -32,7 +32,6 @@ import (
 	"github.com/cilium/cilium/pkg/probe"
 	"github.com/cilium/cilium/pkg/safeio"
 	"github.com/cilium/cilium/pkg/sysctl"
-	wgTypes "github.com/cilium/cilium/pkg/wireguard/types"
 )
 
 // initKubeProxyReplacementOptions will grok the global config and determine
@@ -409,7 +408,7 @@ func probeCgroupSupportUDP(ipv4 bool) error {
 
 // finishKubeProxyReplacementInit finishes initialization of kube-proxy
 // replacement after all devices are known.
-func finishKubeProxyReplacementInit() error {
+func finishKubeProxyReplacementInit(devices []*datapathTables.Device) error {
 	if !(option.Config.EnableNodePort || option.Config.EnableWireguard) {
 		// Make sure that NodePort dependencies are disabled
 		disableNodePort()
@@ -430,10 +429,13 @@ func finishKubeProxyReplacementInit() error {
 	// from the remote node, we need to attach bpf_host to the Cilium's WG
 	// netdev (otherwise, the WG netdev after decrypting the reply will pass
 	// it to the stack which drops the packet).
-	if option.Config.EnableNodePort &&
-		option.Config.EnableWireguard && option.Config.EncryptNode {
-		option.Config.AppendDevice(wgTypes.IfaceName)
-	}
+	/*
+		FIXME check that we'll detect the wireguard device and load bpf_host onto it.
+		if option.Config.EnableNodePort &&
+			option.Config.EnableWireguard && option.Config.EncryptNode {
+			option.Config.AppendDevice(wgTypes.IfaceName)
+		}
+	*/
 
 	// For MKE, we only need to change/extend the socket LB behavior in case
 	// of kube-proxy replacement. Otherwise, nothing else is needed.
@@ -475,28 +477,24 @@ func finishKubeProxyReplacementInit() error {
 		option.Config.NodePortMode == option.NodePortModeSNAT &&
 		probes.HaveLargeInstructionLimit() == nil
 
-	for _, iface := range option.Config.GetDevices() {
-		link, err := netlink.LinkByName(iface)
-		if err != nil {
-			return fmt.Errorf("Cannot retrieve %s link: %w", iface, err)
-		}
-		if strings.ContainsAny(iface, "=;") {
+	for _, dev := range devices {
+		if strings.ContainsAny(dev.Name, "=;") {
 			// Because we pass IPV{4,6}_NODEPORT addresses to bpf/init.sh
 			// in a form "$IFACE_NAME1=$IPV{4,6}_ADDR1;$IFACE_NAME2=...",
 			// we need to restrict the iface names. Otherwise, bpf/init.sh
 			// won't properly parse the mappings.
 			return fmt.Errorf("%s link name contains '=' or ';' character which is not allowed",
-				iface)
+				dev.Name)
 		}
-		if idx := link.Attrs().Index; idx > math.MaxUint16 {
-			return fmt.Errorf("%s link ifindex %d exceeds max(uint16)", iface, idx)
+		if dev.Index > math.MaxUint16 {
+			return fmt.Errorf("%s link ifindex %d exceeds max(uint16)", dev.Name, dev.Index)
 		}
 	}
 
 	if option.Config.EnableIPv4 &&
 		!option.Config.TunnelingEnabled() &&
 		option.Config.NodePortMode != option.NodePortModeSNAT &&
-		len(option.Config.GetDevices()) > 1 {
+		len(devices) > 1 {
 
 		// In the case of the multi-dev NodePort DSR, if a request from an
 		// external client was sent to a device which is not used for direct

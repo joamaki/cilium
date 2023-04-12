@@ -19,6 +19,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/link"
 	"github.com/cilium/cilium/pkg/datapath/linux/route"
 	"github.com/cilium/cilium/pkg/datapath/loader/metrics"
+	"github.com/cilium/cilium/pkg/datapath/tables"
 	datapath "github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/elf"
@@ -28,6 +29,7 @@ import (
 	"github.com/cilium/cilium/pkg/maps/callsmap"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/statedb"
 	wgTypes "github.com/cilium/cilium/pkg/wireguard/types"
 )
 
@@ -63,18 +65,26 @@ type Loader struct {
 
 	// templateCache is the cache of pre-compiled datapaths.
 	templateCache *objectCache
+
+	db           statedb.DB
+	devicesTable statedb.Table[*tables.Device]
 }
 
 // NewLoader returns a new loader.
-func NewLoader() *Loader {
-	return &Loader{}
+func NewLoader(db statedb.DB, devicesTable statedb.Table[*tables.Device]) *Loader {
+	return &Loader{db: db, devicesTable: devicesTable}
+}
+
+func (l *Loader) getDevices() []*tables.Device {
+	devs, _ := tables.ViableDevices(l.devicesTable.Reader(l.db.ReadTxn()))
+	return devs
 }
 
 // Init initializes the datapath cache with base program hashes derived from
 // the LocalNodeConfiguration.
 func (l *Loader) init(dp datapath.ConfigWriter, nodeCfg *datapath.LocalNodeConfiguration) {
 	l.once.Do(func() {
-		l.templateCache = NewObjectCache(dp, nodeCfg)
+		l.templateCache = NewObjectCache(dp, nodeCfg, l.getDevices)
 		ignorePrefixes := ignoredELFPrefixes
 		if !option.Config.EnableIPv4 {
 			ignorePrefixes = append(ignorePrefixes, "LXC_IPV4")
@@ -196,7 +206,7 @@ func patchHostNetdevDatapath(ep datapath.Endpoint, objPath, dstPath, ifName stri
 // will return with an error. Failing to load or to attach the host device
 // always results in reloadHostDatapath returning with an error.
 func (l *Loader) reloadHostDatapath(ctx context.Context, ep datapath.Endpoint, objPath string) error {
-	nbInterfaces := len(option.Config.GetDevices()) + 2
+	nbInterfaces := len(l.getDevices()) + 2
 	symbols := make([]string, 2, nbInterfaces)
 	directions := make([]string, 2, nbInterfaces)
 	objPaths := make([]string, 2, nbInterfaces)
@@ -222,33 +232,29 @@ func (l *Loader) reloadHostDatapath(ctx context.Context, ep datapath.Endpoint, o
 
 	bpfMasqIPv4Addrs := node.GetMasqIPv4AddrsWithDevices()
 
-	for _, device := range option.Config.GetDevices() {
-		if _, err := netlink.LinkByName(device); err != nil {
-			log.WithError(err).WithField("device", device).Warn("Link does not exist")
-			continue
-		}
-
-		netdevObjPath := path.Join(ep.StateDir(), hostEndpointNetdevPrefix+device+".o")
-		if err := patchHostNetdevDatapath(ep, objPath, netdevObjPath, device, bpfMasqIPv4Addrs); err != nil {
+	for _, device := range l.getDevices() {
+		name := device.Name
+		netdevObjPath := path.Join(ep.StateDir(), hostEndpointNetdevPrefix+name+".o")
+		if err := patchHostNetdevDatapath(ep, objPath, netdevObjPath, name, bpfMasqIPv4Addrs); err != nil {
 			return err
 		}
 		objPaths = append(objPaths, netdevObjPath)
 
-		interfaceNames = append(interfaceNames, device)
+		interfaceNames = append(interfaceNames, name)
 		symbols = append(symbols, symbolFromHostNetdevEp)
 		directions = append(directions, dirIngress)
-		if device != wgTypes.IfaceName {
+		if name != wgTypes.IfaceName {
 			// Attaching bpf_host to cilium_wg0 is required for encrypting KPR
 			// traffic. Only ingress prog (aka "from-netdev") is needed to handle
 			// the rev-NAT xlations.
-			interfaceNames = append(interfaceNames, device)
+			interfaceNames = append(interfaceNames, name)
 			symbols = append(symbols, symbolToHostNetdevEp)
 			directions = append(directions, dirEgress)
 			objPaths = append(objPaths, netdevObjPath)
 		} else {
 			// Remove any previously attached device from egress path if BPF
 			// NodePort and host firewall are disabled.
-			err := RemoveTCFilters(device, netlink.HANDLE_MIN_EGRESS)
+			err := RemoveTCFilters(name, netlink.HANDLE_MIN_EGRESS)
 			if err != nil {
 				log.WithField("device", device).Error(err)
 			}

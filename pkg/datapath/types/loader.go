@@ -29,6 +29,7 @@ type BaseProgramOwner interface {
 	DeviceConfiguration
 	GetCompilationLock() *lock.RWMutex
 	Datapath() Datapath
+	Node() NodeHandler
 	LocalConfig() *LocalNodeConfiguration
 	SetPrefilter(pf PreFilter)
 }
