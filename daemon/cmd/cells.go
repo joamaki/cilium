@@ -71,11 +71,12 @@ var (
 		// Provide option.Config via hive so cells can depend on the agent config.
 		cell.Provide(func() *option.DaemonConfig { return option.Config }),
 
-		// Provides an in-memory transactional database for internal state
-		statedb.Cell,
-
 		// Provides a global job registry which cells can use to spawn job groups.
 		job.Cell,
+
+		// DB provides an extendable in-memory database with rich transactions
+		// and multi-version concurrency control through immutable radix trees.
+		statedb.Cell,
 	)
 
 	// ControlPlane implement the per-node control functions. These are pure
