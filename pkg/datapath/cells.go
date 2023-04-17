@@ -51,6 +51,10 @@ var Cell = cell.Module(
 	cell.Provide(
 		newWireguardAgent,
 		newDatapath,
+
+		func(dp types.Datapath) ipcache.NodeIDHandler {
+			return dp.NodeIDs()
+		},
 	),
 
 	// This cell periodically updates the agent liveness value in configmap.Map to inform
@@ -65,8 +69,13 @@ var Cell = cell.Module(
 	// between datapath components and more high-level components.
 	tables.Cell,
 
-	cell.Provide(func(dp types.Datapath) ipcache.NodeIDHandler {
-		return dp.NodeIDs()
+	// DevicesController manages the devices and routes tables
+	linuxdatapath.DevicesControllerCell,
+	cell.Provide(func(cfg *option.DaemonConfig) linuxdatapath.DevicesConfig {
+		// Provide the configured devices to the devices controller.
+		// This is temporary until DevicesController takes ownership of the
+		// device-related configuration options.
+		return linuxdatapath.DevicesConfig{Devices: cfg.GetDevices()}
 	}),
 )
 

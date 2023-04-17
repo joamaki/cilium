@@ -1603,6 +1603,7 @@ type daemonParams struct {
 	ClusterMesh          *clustermesh.ClusterMesh
 	MonitorAgent         monitorAgent.Agent
 	L2Announcer          *l2announcer.L2Announcer
+	DeviceManager        *linuxdatapath.DeviceManager `optional:"true"`
 }
 
 func newDaemonPromise(params daemonParams) promise.Promise[*Daemon] {
