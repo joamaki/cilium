@@ -96,10 +96,12 @@ type Resource[T k8sRuntime.Object] interface {
 //
 // See also pkg/k8s/resource/example/main.go for a runnable example.
 func New[T k8sRuntime.Object](lc hive.Lifecycle, lw cache.ListerWatcher) Resource[T] {
+	var prototype T
 	r := &resource[T]{
-		queues: make(map[uint64]*keyQueue),
-		needed: make(chan struct{}, 1),
-		lw:     lw,
+		queues:           make(map[uint64]*keyQueue),
+		needed:           make(chan struct{}, 1),
+		lw:               lw,
+		mutationDetector: cache.NewCacheMutationDetector(fmt.Sprintf("%T", prototype)),
 	}
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	r.storeResolver, r.storePromise = promise.New[Store[T]]()
@@ -121,8 +123,9 @@ type resource[T k8sRuntime.Object] struct {
 	lw           cache.ListerWatcher
 	synchronized bool // flipped to true when informer has synced.
 
-	storePromise  promise.Promise[Store[T]]
-	storeResolver promise.Resolver[Store[T]]
+	storePromise     promise.Promise[Store[T]]
+	storeResolver    promise.Resolver[Store[T]]
+	mutationDetector cache.MutationDetector
 }
 
 var _ Resource[*corev1.Node] = &resource[*corev1.Node]{}
@@ -144,7 +147,12 @@ func (r *resource[T]) Store(ctx context.Context) (Store[T], error) {
 	return r.storePromise.Await(ctx)
 }
 
-func (r *resource[T]) pushUpdate(key Key) {
+func (r *resource[T]) pushUpdate(obj any) {
+	// In CI we detect if the objects were mutated and panic (KUBE_CACHE_MUTATION_DETECTOR is set).
+	// No-op in production.
+	r.mutationDetector.AddObject(obj)
+
+	key := NewKey(obj)
 	r.mu.RLock()
 	for _, queue := range r.queues {
 		queue.AddUpsert(key)
@@ -193,12 +201,19 @@ func (r *resource[T]) startWhenNeeded() {
 		return
 	}
 
+	// Start the mutation detector (no-op in production)
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		r.mutationDetector.Run(r.ctx.Done())
+	}()
+
 	// Construct the informer and run it.
 	var objType T
 	handlerFuncs :=
 		cache.ResourceEventHandlerFuncs{
-			AddFunc:    func(obj any) { r.pushUpdate(NewKey(obj)) },
-			UpdateFunc: func(old any, new any) { r.pushUpdate(NewKey(new)) },
+			AddFunc:    func(obj any) { r.pushUpdate(obj) },
+			UpdateFunc: func(old any, new any) { r.pushUpdate(new) },
 			DeleteFunc: func(obj any) { r.pushDelete(obj) },
 		}
 
