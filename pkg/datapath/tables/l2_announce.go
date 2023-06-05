@@ -62,7 +62,7 @@ var (
 				Unique: true,
 				Indexer: &memdb.CompoundIndex{
 					Indexes: []memdb.Indexer{
-						&statedb.IPIndexer{Field: "IP"},
+						&statedb.IPFieldIndex{Field: "IP"},
 						&memdb.StringFieldIndex{Field: "NetworkInterface"},
 					},
 				},

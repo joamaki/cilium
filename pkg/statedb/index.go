@@ -10,13 +10,13 @@ import (
 	"strings"
 )
 
-type IPIndexer struct {
+type IPFieldIndex struct {
 	Field string
 }
 
 var ipType = reflect.TypeOf(net.IP{})
 
-func (ii *IPIndexer) FromObject(obj interface{}) (bool, []byte, error) {
+func (ii *IPFieldIndex) FromObject(obj interface{}) (bool, []byte, error) {
 	v := reflect.ValueOf(obj)
 	v = reflect.Indirect(v) // Dereference the pointer if any
 
@@ -37,7 +37,7 @@ func (ii *IPIndexer) FromObject(obj interface{}) (bool, []byte, error) {
 	return true, []byte(ip), nil
 }
 
-func (ii *IPIndexer) FromArgs(args ...interface{}) ([]byte, error) {
+func (ii *IPFieldIndex) FromArgs(args ...interface{}) ([]byte, error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("must provide only a single argument")
 	}
@@ -57,7 +57,7 @@ func (ii *IPIndexer) FromArgs(args ...interface{}) ([]byte, error) {
 	}
 }
 
-func (ii *IPIndexer) PrefixFromArgs(args ...interface{}) ([]byte, error) {
+func (ii *IPFieldIndex) PrefixFromArgs(args ...interface{}) ([]byte, error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("must provide only a single argument")
 	}
@@ -72,6 +72,54 @@ func (ii *IPIndexer) PrefixFromArgs(args ...interface{}) ([]byte, error) {
 		return nil,
 			fmt.Errorf("argument must be a net.IP, string or byte slice: %#v", args[0])
 	}
+}
+
+// IPNetFieldIndex is to index an a net.IPNet field.
+// Constructs an index key "<IP bytes>\n<mask bytes>".
+type IPNetFieldIndex struct {
+	Field string
+}
+
+func (i *IPNetFieldIndex) FromObject(obj interface{}) (bool, []byte, error) {
+	v := reflect.ValueOf(obj)
+	v = reflect.Indirect(v) // Dereference the pointer if any
+	fv := v.FieldByName(i.Field)
+	if !fv.IsValid() {
+		return false, nil,
+			fmt.Errorf("field '%s' for %#v is invalid", i.Field, obj)
+	}
+	if fv.IsNil() {
+		return true, []byte{}, nil
+	}
+	fv = reflect.Indirect(fv) // Dereference the pointer if any
+	val, ok := fv.Interface().(net.IPNet)
+	if !ok {
+		return false, nil, fmt.Errorf("field is of type %s; want a net.IPNet", fv.Type())
+	}
+	out := make([]byte, 0, len(val.IP)+1+len(val.Mask))
+	out = append(out, val.IP...)
+	out = append(out, byte('\n'))
+	out = append(out, val.Mask...)
+	return true, out, nil
+}
+
+func (i *IPNetFieldIndex) FromArgs(args ...interface{}) ([]byte, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("must provide only a single argument")
+	}
+	v := reflect.ValueOf(args[0])
+	if !v.IsValid() || v.IsNil() {
+		return []byte{}, nil
+	}
+	val, ok := v.Interface().(net.IPNet)
+	if !ok {
+		return nil, fmt.Errorf("field is of type %T; want a net.IPNet", val)
+	}
+	out := make([]byte, 0, len(val.IP)+1+len(val.Mask))
+	out = append(out, val.IP...)
+	out = append(out, byte('\n'))
+	out = append(out, val.Mask...)
+	return out, nil
 }
 
 // StringerSliceFieldIndex builds an index from a field on an object that is a
