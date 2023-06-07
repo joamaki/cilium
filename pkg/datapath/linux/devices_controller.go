@@ -17,12 +17,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 
+	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/datapath/linux/probes"
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -75,15 +77,21 @@ type DevicesConfig struct {
 type devicesControllerParams struct {
 	cell.In
 
+	Config      DevicesConfig
 	Log         logrus.FieldLogger
 	DB          statedb.DB
 	DeviceTable statedb.Table[*tables.Device]
 	RouteTable  statedb.Table[*tables.Route]
-	Config      DevicesConfig
 
 	// NetNS is an optional network namespace handle. Used by tests to restrict the detection
 	// to specific namespace.
 	NetNS *netns.NsHandle `optional:"true"`
+
+	// netlinkFuncs is optional and used by tests to verify error handling behavior.
+	NetlinkFuncs *netlinkFuncs `optional:"true"`
+
+	// netlinkHandle is optional and used by tests to verify error handling behavior.
+	NetlinkHandle netlinkHandle `optional:"true"`
 }
 
 func registerDevicesController(lc hive.Lifecycle, p devicesControllerParams) {
@@ -100,92 +108,154 @@ type devicesController struct {
 	devicesControllerParams
 	filter         deviceFilter
 	l3DevSupported bool
-	handle         *netlink.Handle
 	ctx            context.Context
 	cancel         context.CancelFunc
 	links          map[int]netlink.Link
 }
 
 func (dc *devicesController) Start(hive.HookContext) error {
-	dc.l3DevSupported = probes.HaveProgramHelper(ebpf.SchedCLS, asm.FnSkbChangeHead) == nil
-
-	// Construct a handle that uses the configured network namespace.
 	netns := netns.None()
 	if dc.NetNS != nil {
 		netns = *dc.NetNS
 	}
-	var err error
-	dc.handle, err = netlink.NewHandleAt(netns)
-	if err != nil {
-		return fmt.Errorf("NewHandleAt failed: %w", err)
+
+	if dc.NetlinkHandle == nil {
+		var err error
+		dc.NetlinkHandle, err = netlink.NewHandleAt(netns)
+		if err != nil {
+			return fmt.Errorf("NewHandleAt failed: %w", err)
+		}
+
+		// Only probe for L3 device support when netlink isn't mocked by tests.
+		dc.l3DevSupported = probes.HaveProgramHelper(ebpf.SchedCLS, asm.FnSkbChangeHead) == nil
+	}
+
+	if dc.NetlinkFuncs == nil {
+		dc.NetlinkFuncs = makeNetlinkFuncs(&netns)
+	}
+
+	go dc.run()
+
+	return nil
+}
+
+func (dc *devicesController) run() {
+	defer dc.NetlinkHandle.Close()
+
+	// Avoid tight restart loop with an exponential backoff
+	backoff := backoff.Exponential{
+		Min:  100 * time.Millisecond,
+		Name: "devicesController",
+	}
+
+	// Run the controller in a loop and restarting on failures until stopped.
+	// We're doing this as netlink is an unreliable protocol that may drop
+	// messages if the socket buffer is filled (recvmsg returns ENOBUFS).
+	for dc.ctx.Err() == nil {
+		dc.subscribeAndProcess()
+		backoff.Wait(dc.ctx)
+	}
+}
+
+func (dc *devicesController) subscribeAndProcess() {
+	ctx, cancel := context.WithCancel(dc.ctx)
+	defer cancel()
+
+	// Callback for logging errors from the netlink subscriptions.
+	errorCallback := func(err error) {
+		dc.Log.WithError(err).Warn("Netlink error received, restarting")
+
+		// Cancel the context to stop the subscriptions.
+		cancel()
 	}
 
 	// Subscribe to address updates to find out about link address changes
 	// to update the device's addresses.
 	addrUpdates := make(chan netlink.AddrUpdate, 16)
-	opts := netlink.AddrSubscribeOptions{
-		Namespace:    dc.NetNS,
-		ListExisting: false,
+	if err := dc.NetlinkFuncs.AddrSubscribe(addrUpdates, ctx.Done(), errorCallback); err != nil {
+		dc.Log.WithError(err).Warn("AddrSubscribe failed, restarting")
+		return
 	}
-	if err := netlink.AddrSubscribeWithOptions(addrUpdates, dc.ctx.Done(), opts); err != nil {
-		return fmt.Errorf("AddrSubscribeWithOptions failed: %w", err)
-	}
-
 	// Subscribe to route updates to find out if veth devices get a default
 	// gateway.
 	routeUpdates := make(chan netlink.RouteUpdate, 16)
-	err = netlink.RouteSubscribeWithOptions(routeUpdates, dc.ctx.Done(),
-		netlink.RouteSubscribeOptions{
-			ListExisting: false,
-			Namespace:    dc.NetNS,
-		})
+	err := dc.NetlinkFuncs.RouteSubscribe(routeUpdates, ctx.Done(), errorCallback)
 	if err != nil {
-		return fmt.Errorf("RouteSubscribeWithOptions failed: %w", err)
+		dc.Log.WithError(err).Warn("RouteSubscribe failed, restarting")
+		return
 	}
 
 	// Subscribe to link updates to find out if a device is removed or
 	// changes state to become unviable.
 	linkUpdates := make(chan netlink.LinkUpdate, 16)
-	err = netlink.LinkSubscribeWithOptions(linkUpdates, dc.ctx.Done(),
-		netlink.LinkSubscribeOptions{
-			ListExisting: false,
-			Namespace:    dc.NetNS,
-		})
+	err = dc.NetlinkFuncs.LinkSubscribe(linkUpdates, ctx.Done(), errorCallback)
 	if err != nil {
-		return fmt.Errorf("LinkSubscribeWithOptions failed: %w", err)
+		dc.Log.WithError(err).Warn("LinkSubscribe failed, restarting", err)
+		return
 	}
 
 	// Initialize the tables with the current tables.
 	if err := dc.initialize(); err != nil {
-		return err
+		dc.Log.WithError(err).Warn("Initialization failed, restarting")
+		return
 	}
 
-	// Start processing further updates in the background.
-	go dc.loop(addrUpdates, routeUpdates, linkUpdates)
+	// Start processing the incremental updates.
+	dc.processUpdates(ctx, addrUpdates, routeUpdates, linkUpdates)
 
-	return nil
+	// Drain the channels to unblock the producer.
+	cancel()
+	for range addrUpdates {
+	}
+	for range routeUpdates {
+	}
+	for range linkUpdates {
+	}
+
 }
 
 func (dc *devicesController) Stop(hive.HookContext) error {
 	dc.cancel()
-	dc.handle.Close()
 
 	// Unfortunately vishvananda/netlink is buggy and does not return from Recvfrom even
 	// though the stop channel given to AddrSubscribeWithOptions or RouteSubscribeWithOptions
 	// is closed. This is fixed by https://github.com/vishvananda/netlink/pull/793, which
 	// isn't yet merged.
-	// Due to this, we're currently not waiting here for loop() to exit and thus leaving around
+	// Due to this, we're currently not waiting here for run() to exit and thus leaving around
 	// couple goroutines until some address or route change arrive.
 	return nil
 }
 
+func (dc *devicesController) flushState() error {
+	dc.links = make(map[int]netlink.Link)
+
+	txn := dc.DB.WriteTxn()
+	_, err := dc.DeviceTable.Writer(txn).DeleteAll(statedb.All)
+	if err != nil {
+		return fmt.Errorf("failed to flush device table: %w", err)
+	}
+	_, err = dc.RouteTable.Writer(txn).DeleteAll(statedb.All)
+	if err != nil {
+		return fmt.Errorf("failed to flush route table: %w", err)
+	}
+	if err := txn.Commit(); err != nil {
+		return fmt.Errorf("failed to commit table flush: %w", err)
+	}
+	return nil
+}
+
 func (dc *devicesController) initialize() error {
+	// Flush the device and routes tables as we may be restarting due to a failure.
+	if err := dc.flushState(); err != nil {
+		return err
+	}
+
 	// Do initial listing for each address, routes and links. We cannot use
 	// 'ListExiting' option as it does not provide a mechanism to know when
 	// the listing is done. Netlink does send a NLMSG_DONE, but this is not
 	// handled by the library.
 	batch := map[int][]any{}
-	links, err := dc.handle.LinkList()
+	links, err := dc.NetlinkHandle.LinkList()
 	if err != nil {
 		return fmt.Errorf("LinkList failed: %w", err)
 	}
@@ -195,7 +265,7 @@ func (dc *devicesController) initialize() error {
 			Link:   link,
 		})
 	}
-	addrs, err := dc.handle.AddrList(nil, netlink.FAMILY_ALL)
+	addrs, err := dc.NetlinkHandle.AddrList(nil, netlink.FAMILY_ALL)
 	if err != nil {
 		return fmt.Errorf("AddrList failed: %w", err)
 	}
@@ -214,7 +284,7 @@ func (dc *devicesController) initialize() error {
 			NewAddr:     true,
 		})
 	}
-	routes, err := dc.handle.RouteListFiltered(netlink.FAMILY_ALL, &routeFilter, routeFilterMask)
+	routes, err := dc.NetlinkHandle.RouteListFiltered(netlink.FAMILY_ALL, &routeFilter, routeFilterMask)
 	if err != nil {
 		return fmt.Errorf("RouteList failed: %w", err)
 	}
@@ -239,16 +309,27 @@ func (dc *devicesController) initialize() error {
 	return nil
 }
 
-func (dc *devicesController) loop(
+func (dc *devicesController) processUpdates(
+	ctx context.Context,
 	addrUpdates chan netlink.AddrUpdate,
 	routeUpdates chan netlink.RouteUpdate,
 	linkUpdates chan netlink.LinkUpdate,
 ) {
+	// Collect all updates into a batch to minimize the
+	// number of write transactions when there are large
+	// amount of updates.
 	timer := time.NewTimer(batchingDuration)
+	// Start with a stopped timer and only start it when an
+	// update is appended.
 	if !timer.Stop() {
 		<-timer.C
 	}
 	timerStopped := true
+	defer func() {
+		if !timerStopped && !timer.Stop() {
+			<-timer.C
+		}
+	}()
 
 	batch := map[int][]any{}
 	appendUpdate := func(index int, u any) {
@@ -261,25 +342,25 @@ func (dc *devicesController) loop(
 
 	for {
 		select {
-		case <-dc.ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			for range addrUpdates {
-			}
-			for range routeUpdates {
-			}
-			for range linkUpdates {
-			}
+		case <-ctx.Done():
 			return
 
-		case u := <-addrUpdates:
+		case u, ok := <-addrUpdates:
+			if !ok {
+				return
+			}
 			appendUpdate(u.LinkIndex, u)
 
-		case r := <-routeUpdates:
+		case r, ok := <-routeUpdates:
+			if !ok {
+				return
+			}
 			appendUpdate(r.LinkIndex, r)
 
-		case l := <-linkUpdates:
+		case l, ok := <-linkUpdates:
+			if !ok {
+				return
+			}
 			appendUpdate(int(l.Index), l)
 
 		case <-timer.C:
@@ -334,9 +415,7 @@ func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 	for index, updates := range batch {
 		link := dc.links[index]
 		if link == nil {
-			// Update for a link we have not yet observed, abort and try again
-			// later.
-			dc.Log.Debugf("link %d not found, retrying later", index)
+			dc.Log.Debugf("link %d not seen yet, retrying processing of update later (links: %v)", index, maps.Keys(dc.links))
 			txn.Abort()
 			return false
 		}
@@ -382,11 +461,13 @@ func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 				}
 				if u.Type == unix.RTM_NEWROUTE {
 					if err := routesWriter.Insert(&r); err != nil {
-						log.WithError(err).Error("Insert into routes table failed")
+						dc.Log.WithError(err).Error("Insert into routes table failed")
 					}
 				} else {
 					routesWriter.Delete(&r)
 				}
+			case netlink.LinkUpdate:
+				// Already processed above.
 			}
 		}
 		// Sort the addresses so that secondary addresses are at bottom and then
@@ -400,12 +481,12 @@ func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 		d.Viable = dc.isViableDevice(link, routesWriter)
 
 		if err := devicesWriter.Insert(d); err != nil {
-			log.WithError(err).Error("Insert into devices table failed")
+			dc.Log.WithError(err).Error("Insert into devices table failed")
 		}
 	}
 
 	if err := txn.Commit(); err != nil {
-		log.WithError(err).Error("Committing devices and routes failed")
+		dc.Log.WithError(err).Error("Committing devices and routes failed")
 		return false
 	}
 
@@ -527,4 +608,49 @@ func (lst deviceFilter) match(dev string) bool {
 		}
 	}
 	return false
+}
+
+// netlinkFuncs wraps the netlink subscribe functions into a simpler interface to facilitate
+// testing of the error handling paths.
+type netlinkFuncs struct {
+	RouteSubscribe func(ch chan<- netlink.RouteUpdate, done <-chan struct{}, errorCallback func(error)) error
+	AddrSubscribe  func(ch chan<- netlink.AddrUpdate, done <-chan struct{}, errorCallback func(error)) error
+	LinkSubscribe  func(ch chan<- netlink.LinkUpdate, done <-chan struct{}, errorCallback func(error)) error
+}
+
+func makeNetlinkFuncs(netns *netns.NsHandle) *netlinkFuncs {
+	return &netlinkFuncs{
+		RouteSubscribe: func(ch chan<- netlink.RouteUpdate, done <-chan struct{}, errorCallback func(error)) error {
+			return netlink.RouteSubscribeWithOptions(ch, done,
+				netlink.RouteSubscribeOptions{
+					ListExisting:  false,
+					Namespace:     netns,
+					ErrorCallback: errorCallback,
+				})
+		},
+		AddrSubscribe: func(ch chan<- netlink.AddrUpdate, done <-chan struct{}, errorCallback func(error)) error {
+			return netlink.AddrSubscribeWithOptions(ch, done,
+				netlink.AddrSubscribeOptions{
+					Namespace:     netns,
+					ListExisting:  false,
+					ErrorCallback: errorCallback,
+				})
+		},
+		LinkSubscribe: func(ch chan<- netlink.LinkUpdate, done <-chan struct{}, errorCallback func(error)) error {
+			return netlink.LinkSubscribeWithOptions(ch, done,
+				netlink.LinkSubscribeOptions{
+					ListExisting:  false,
+					Namespace:     netns,
+					ErrorCallback: errorCallback,
+				})
+		},
+	}
+}
+
+// netlinkHandle wraps the methods used from the netlink.Handle to facilitate testing.
+type netlinkHandle interface {
+	Close()
+	LinkList() ([]netlink.Link, error)
+	AddrList(link netlink.Link, family int) ([]netlink.Addr, error)
+	RouteListFiltered(family int, filter *netlink.Route, filterMask uint64) ([]netlink.Route, error)
 }
