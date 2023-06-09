@@ -45,6 +45,13 @@ func (m *mtuFromDevices) reconcile(ctx context.Context) error {
 		m.emit(mtu)
 	}
 
+	// FIXME if we have a NodeIP then use the MTU of that device.
+	// What's a clean way to get that information here? Not sure about
+	// depending on LocalNodeStore directly (e.g. somewhat against the
+	// idea of pkg/datapath being the bottom layer of the stack). OTOH
+	// "LocalNodeStore" is pretty fundamental and it's already somewhat
+	// decoupled from both "control-plane" and "datapath".
+
 	for ctx.Err() == nil {
 		txn := m.db.ReadTxn()
 
