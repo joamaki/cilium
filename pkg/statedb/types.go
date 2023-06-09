@@ -125,10 +125,22 @@ type TableReader[Obj ObjectConstraints[Obj]] interface {
 	// is malformed (e.g. unknown index).
 	First(Query) (Obj, error)
 
+	// FirstWatch returns the first matching object with the given query and
+	// a channel for waiting for changes.
+	// Returned object is nil if the object does not exist. Error is non-nil
+	// if the query is malformed (e.g. unknown index).
+	FirstWatch(q Query) (<-chan struct{}, Obj, error)
+
 	// Last returns the last matching object with the given query. Returned
 	// object is nil if the object does not exist. Error is non-nil if the query
 	// is malformed (e.g. unknown index).
 	Last(Query) (Obj, error)
+
+	// Last returns the last matching object with the given query and a channel
+	// for waiting for  changes.
+	// Returned object is nil if the object does not exist. Error is non-nil if the query
+	// is malformed (e.g. unknown index).
+	LastWatch(Query) (<-chan struct{}, Obj, error)
 
 	// Get returns all objects matching the given query as a WatchableIterator
 	// that allows iterating over the set of matching objects and to watch whether

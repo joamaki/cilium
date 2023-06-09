@@ -90,8 +90,27 @@ func (t *tableTxn[Obj]) DeleteAll(q Query) (int, error) {
 }
 
 func (t *tableTxn[Obj]) First(q Query) (obj Obj, err error) {
+	_, obj, err = t.FirstWatch(q)
+	return
+}
+
+func (t *tableTxn[Obj]) FirstWatch(q Query) (invalidated <-chan struct{}, obj Obj, err error) {
 	var v any
-	v, err = t.txn.First(t.table, string(q.Index), q.Args...)
+	invalidated, v, err = t.txn.FirstWatch(t.table, string(q.Index), q.Args...)
+	if err == nil && v != nil {
+		obj = v.(Obj)
+	}
+	return
+}
+
+func (t *tableTxn[Obj]) Last(q Query) (obj Obj, err error) {
+	_, obj, err = t.LastWatch(q)
+	return
+}
+
+func (t *tableTxn[Obj]) LastWatch(q Query) (invalidated <-chan struct{}, obj Obj, err error) {
+	var v any
+	invalidated, v, err = t.txn.LastWatch(t.table, string(q.Index), q.Args...)
 	if err == nil && v != nil {
 		obj = v.(Obj)
 	}
@@ -116,13 +135,4 @@ func (t *tableTxn[Obj]) LowerBound(q Query) (Iterator[Obj], error) {
 
 func (t *tableTxn[Obj]) Insert(obj Obj) error {
 	return t.txn.Insert(t.table, obj)
-}
-
-func (t *tableTxn[Obj]) Last(q Query) (obj Obj, err error) {
-	var v any
-	v, err = t.txn.Last(t.table, string(q.Index), q.Args...)
-	if err == nil && v != nil {
-		obj = v.(Obj)
-	}
-	return
 }
