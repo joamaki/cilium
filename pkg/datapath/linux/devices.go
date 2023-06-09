@@ -68,7 +68,7 @@ func (dm *DeviceManager) Detect(k8sEnabled bool) ([]string, error) {
 		}
 	}
 	if option.Config.EnableIPv6NDP && option.Config.IPv6MCastDevice == "" {
-		if nodeDevice != nil && nodeDevice.Link.Attrs().Flags&net.FlagMulticast != 0 {
+		if nodeDevice != nil && nodeDevice.Flags&net.FlagMulticast != 0 {
 			option.Config.IPv6MCastDevice = nodeDevice.Name
 		} else {
 			return nil, fmt.Errorf("unable to determine Multicast device. Use --%s to specify it",

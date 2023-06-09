@@ -43,6 +43,7 @@ func (r *Route) String() string {
 const (
 	linkNameIndex  statedb.Index = "LinkName"
 	linkIndexIndex statedb.Index = "LinkIndex"
+	dstIndex       statedb.Index = "Dst"
 )
 
 var (
@@ -60,6 +61,12 @@ var (
 						&statedb.IPNetFieldIndex{Field: "Dst"},
 					},
 				},
+			},
+			string(dstIndex): {
+				Name:         string(dstIndex),
+				AllowMissing: false,
+				Unique:       false,
+				Indexer:      &statedb.IPNetFieldIndex{Field: "Dst"},
 			},
 			string(linkNameIndex): {
 				Name:         string(linkNameIndex),
@@ -82,6 +89,10 @@ func RouteByLinkName(name string) statedb.Query {
 
 func RouteByLinkIndex(index int) statedb.Query {
 	return statedb.Query{Index: linkIndexIndex, Args: []any{index}}
+}
+
+func RouteByDst(dst *net.IPNet) statedb.Query {
+	return statedb.Query{Index: dstIndex, Args: []any{dst}}
 }
 
 func HasDefaultRoute(reader statedb.TableReader[*Route], linkIndex int) bool {

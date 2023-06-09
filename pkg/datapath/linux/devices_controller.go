@@ -380,6 +380,17 @@ func deviceAddressFromAddrUpdate(upd netlink.AddrUpdate) tables.DeviceAddress {
 	}
 }
 
+func interfaceFromLink(link netlink.Link) net.Interface {
+	a := link.Attrs()
+	return net.Interface{
+		Index:        a.Index,
+		MTU:          a.MTU,
+		Name:         a.Name,
+		HardwareAddr: a.HardwareAddr,
+		Flags:        a.Flags,
+	}
+}
+
 // processBatch processes a batch of link, route and address updates. If it successfully
 // commits it to the state it returns true, if the batch is incomplete (e.g. route updates
 // for non-existing link), it returns false and the batch should be expanded with newer
@@ -420,14 +431,10 @@ func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 			return false
 		}
 
-		name := link.Attrs().Name
-
 		d, _ := devicesWriter.First(tables.DeviceByIndex(index))
 		if d == nil {
 			d = &tables.Device{
-				Index: index,
-				Name:  name,
-				Link:  link,
+				Interface: interfaceFromLink(link),
 			}
 		} else {
 			d = d.DeepCopy()
@@ -452,7 +459,7 @@ func (dc *devicesController) processBatch(batch map[int][]any) (ok bool) {
 			case netlink.RouteUpdate:
 				r := tables.Route{
 					Table:     u.Table,
-					LinkName:  name,
+					LinkName:  d.Name,
 					LinkIndex: index,
 					Scope:     uint8(u.Scope),
 					Dst:       u.Dst,

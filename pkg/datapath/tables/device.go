@@ -9,7 +9,6 @@ import (
 	"net/netip"
 
 	"github.com/hashicorp/go-memdb"
-	"github.com/vishvananda/netlink"
 	"golang.org/x/exp/slices"
 
 	"github.com/cilium/cilium/pkg/statedb"
@@ -39,11 +38,10 @@ var deviceTableSchema = &memdb.TableSchema{
 
 // Device is a local network device along with addresses associated with it.
 type Device struct {
-	Index  int             // Interface index (primary key)
-	Name   string          // Interface name (e.g. eth0)
+	net.Interface
+
 	Viable bool            // If true this device can be used by Cilium
 	Addrs  []DeviceAddress // Addresses assigned to the device
-	Link   netlink.Link    // The underlying link device
 }
 
 func (d *Device) String() string {
