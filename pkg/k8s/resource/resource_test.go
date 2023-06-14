@@ -21,6 +21,7 @@ import (
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
 	"github.com/cilium/cilium/pkg/hive"
@@ -362,7 +363,87 @@ func TestResource_WithTransform(t *testing.T) {
 	if ok {
 		t.Fatalf("unexpected event still in channel: %v", event)
 	}
+}
 
+func TestResource_WithCacheIndexers(t *testing.T) {
+	var nodes resource.Resource[*corev1.Node]
+	var fakeClient, cs = k8sClient.NewFakeClientset()
+
+	node1 := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1", ResourceVersion: "0"},
+		Status:     corev1.NodeStatus{Phase: "p-node1"},
+	}
+	node2 := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node2", ResourceVersion: "0"},
+		Status:     corev1.NodeStatus{Phase: "p-node2"},
+	}
+
+	indexers := cache.Indexers{
+		"Phase": func(n any) ([]string, error) {
+			return []string{string(n.(*corev1.Node).Status.Phase)}, nil
+		},
+	}
+
+	hive := hive.New(
+		cell.Provide(
+			func() k8sClient.Clientset { return cs },
+			func(lc hive.Lifecycle, c k8sClient.Clientset) resource.Resource[*corev1.Node] {
+				lw := utils.ListerWatcherFromTyped[*corev1.NodeList](c.CoreV1().Nodes())
+				return resource.New[*corev1.Node](lc, lw, resource.WithCacheIndexers(indexers))
+			}),
+
+		cell.Invoke(func(r resource.Resource[*corev1.Node]) {
+			nodes = r
+		}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	if err := hive.Start(ctx); err != nil {
+		t.Fatalf("hive.Start failed: %s", err)
+	}
+
+	fakeClient.KubernetesFakeClientset.Tracker().Create(
+		corev1.SchemeGroupVersion.WithResource("nodes"),
+		node1.DeepCopy(), "")
+	fakeClient.KubernetesFakeClientset.Tracker().Create(
+		corev1.SchemeGroupVersion.WithResource("nodes"),
+		node2.DeepCopy(), "")
+
+	events := nodes.Events(ctx)
+
+	event := <-events
+	assert.Equal(t, resource.Upsert, event.Kind)
+	event.Done(nil)
+
+	event = <-events
+	assert.Equal(t, resource.Upsert, event.Kind)
+	event.Done(nil)
+
+	event = <-events
+	assert.Equal(t, resource.Sync, event.Kind)
+	event.Done(nil)
+
+	// Validate that we can query by "phase"
+	store, err := nodes.Store(ctx)
+	assert.NoError(t, err)
+
+	nodesAny, err := store.CacheIndexer().ByIndex("Phase", "p-node1")
+	assert.NoError(t, err)
+	if assert.NoError(t, err) && assert.Len(t, nodesAny, 1) {
+		assert.Equal(t, "node1", nodesAny[0].(*corev1.Node).Name)
+	}
+
+	// Stop the hive to stop the resource.
+	if err := hive.Stop(ctx); err != nil {
+		t.Fatalf("hive.Stop failed: %s", err)
+	}
+
+	// No more events should be observed.
+	event, ok := <-events
+	if ok {
+		t.Fatalf("unexpected event still in channel: %v", event)
+	}
 }
 
 var RetryFiveTimes resource.ErrorHandler = func(key resource.Key, numRetries int, err error) resource.ErrorAction {

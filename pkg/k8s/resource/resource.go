@@ -104,6 +104,7 @@ func New[T k8sRuntime.Object](lc hive.Lifecycle, lw cache.ListerWatcher, opts ..
 		needed: make(chan struct{}, 1),
 		lw:     lw,
 	}
+	r.opts.indexers = cache.Indexers{}
 	r.opts.sourceObj = func() k8sRuntime.Object {
 		var obj T
 		return obj
@@ -120,6 +121,7 @@ func New[T k8sRuntime.Object](lc hive.Lifecycle, lw cache.ListerWatcher, opts ..
 type options struct {
 	transform cache.TransformFunc      // if non-nil, the object is transformed with this function before storing
 	sourceObj func() k8sRuntime.Object // prototype for the object before it is transformed
+	indexers  cache.Indexers           // indexers for the underlying cache.Store
 }
 
 type ResourceOption func(o *options)
@@ -149,6 +151,14 @@ func WithLazyTransform(sourceObj func() k8sRuntime.Object, transform cache.Trans
 	return func(o *options) {
 		o.sourceObj = sourceObj
 		o.transform = transform
+	}
+}
+
+// WithCacheIndexers allows setting custom cache.Store indexers on the resource.
+// Queries with these indexes are only possible via "Store().CacheStore()"
+func WithCacheIndexers(indexers cache.Indexers) ResourceOption {
+	return func(o *options) {
+		o.indexers = indexers
 	}
 }
 
@@ -247,8 +257,12 @@ func (r *resource[T]) startWhenNeeded() {
 			DeleteFunc: func(obj any) { r.pushDelete(obj) },
 		}
 
-	store, informer := cache.NewTransformingInformer(r.lw, r.opts.sourceObj(), 0, handlerFuncs, r.opts.transform)
-	r.storeResolver.Resolve(&typedStore[T]{store})
+	indexer, informer := cache.NewTransformingIndexerInformer(
+		r.lw, r.opts.sourceObj(), 0, handlerFuncs,
+		r.opts.indexers,
+		r.opts.transform,
+	)
+	r.storeResolver.Resolve(&typedStore[T]{indexer})
 
 	r.wg.Add(1)
 	go func() {

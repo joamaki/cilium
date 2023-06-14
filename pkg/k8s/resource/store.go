@@ -26,11 +26,14 @@ type Store[T k8sRuntime.Object] interface {
 	// CacheStore returns the underlying cache.Store instance. Use for temporary
 	// compatibility purposes only!
 	CacheStore() cache.Store
+
+	// CacheIndexer returns the underlying cache.Indexer instance.
+	CacheIndexer() cache.Indexer
 }
 
 // typedStore implements Store on top of an untyped cache.Store.
 type typedStore[T k8sRuntime.Object] struct {
-	store cache.Store
+	store cache.Indexer
 }
 
 var _ Store[*corev1.Node] = &typedStore[*corev1.Node]{}
@@ -62,6 +65,10 @@ func (s *typedStore[T]) GetByKey(key Key) (item T, exists bool, err error) {
 }
 
 func (s *typedStore[T]) CacheStore() cache.Store {
+	return s.store
+}
+
+func (s *typedStore[T]) CacheIndexer() cache.Indexer {
 	return s.store
 }
 
