@@ -65,6 +65,8 @@ var log = logging.DefaultLogger.WithField(logfields.LogSubsys, Subsystem)
 // Loader is a wrapper structure around operations related to compiling,
 // loading, and reloading datapath programs.
 type Loader struct {
+	flags datapath.FeatureFlags
+
 	once sync.Once
 
 	// templateCache is the cache of pre-compiled datapaths.
@@ -77,8 +79,8 @@ type Loader struct {
 }
 
 // NewLoader returns a new loader.
-func NewLoader() *Loader {
-	return &Loader{hostDpInitialized: make(chan struct{})}
+func NewLoader(flags datapath.FeatureFlags) *Loader {
+	return &Loader{flags: flags, hostDpInitialized: make(chan struct{})}
 }
 
 // Init initializes the datapath cache with base program hashes derived from

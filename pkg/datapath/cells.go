@@ -16,6 +16,7 @@ import (
 	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
 	dpcfg "github.com/cilium/cilium/pkg/datapath/linux/config"
 	"github.com/cilium/cilium/pkg/datapath/linux/utime"
+	"github.com/cilium/cilium/pkg/datapath/loader"
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/defaults"
@@ -37,6 +38,15 @@ var Cell = cell.Module(
 	"datapath",
 	"Datapath",
 
+	cell.Group(
+		// FeatureFlags collects the set of datapath features required by control-plane
+		// modules that were provided as 'types.FeatureFlagOption'.
+		cell.Provide(types.NewFeatureFlags),
+
+		// featureFlagsFromDaemonConfig populates feature flags from option.Config.
+		cell.Provide(featureFlagsFromDaemonConfig),
+	),
+
 	// Provides all BPF Map which are already provided by via hive cell.
 	maps.Cell,
 
@@ -52,6 +62,7 @@ var Cell = cell.Module(
 	cell.Provide(
 		newWireguardAgent,
 		newDatapath,
+		loader.NewLoader,
 	),
 
 	// This cell periodically updates the agent liveness value in configmap.Map to inform
@@ -133,7 +144,7 @@ func newDatapath(params datapathParams) types.Datapath {
 			return nil
 		}})
 
-	datapath := linuxdatapath.NewDatapath(datapathConfig, iptablesManager, params.WgAgent, params.NodeMap, params.ConfigWriter)
+	datapath := linuxdatapath.NewDatapath(datapathConfig, iptablesManager, params.WgAgent, params.NodeMap, params.ConfigWriter, params.Loader)
 
 	params.LC.Append(hive.Hook{
 		OnStart: func(hive.HookContext) error {
@@ -157,10 +168,28 @@ type datapathParams struct {
 
 	NodeMap nodemap.Map
 
+	Loader *loader.Loader
+
 	// Depend on DeviceManager to ensure devices have been resolved.
 	// This is required until option.Config.GetDevices() has been removed and
 	// uses of it converted to Table[Device].
 	DeviceManager *linuxdatapath.DeviceManager
 
 	ConfigWriter types.ConfigWriter
+}
+
+func featureFlagsFromDaemonConfig(cfg *option.DaemonConfig) types.FeatureFlagsOut {
+	return types.FeatureFlagsOut{
+		Option: func(flags *types.FeatureFlags) {
+			flags.Tunneling.Raise(
+				// We check if routing mode is not native rather than checking if it's
+				// tunneling because, in unit tests, RoutingMode is usually not set and we
+				// would like for TunnelingEnabled to default to the actual default
+				// (tunneling is enabled) in that case.
+				cfg.RoutingMode != option.RoutingModeNative,
+			)
+			flags.EgressGatewayCommon.Raise(cfg.EnableIPv4EgressGateway)
+		},
+	}
+
 }

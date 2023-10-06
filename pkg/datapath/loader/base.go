@@ -319,7 +319,7 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		}
 	}
 
-	if !option.Config.TunnelingEnabled() {
+	if !l.flags.Tunneling.Enabled() {
 		if option.Config.EgressGatewayCommonEnabled() || option.Config.EnableHighScaleIPcache {
 			// Tunnel is required for egress traffic under this config
 			encapProto = option.Config.TunnelProtocol
