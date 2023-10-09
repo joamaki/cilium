@@ -1160,6 +1160,9 @@ func (e *Endpoint) ApplyPolicyMapChanges(proxyWaitGroup *completion.WaitGroup) e
 
 	err := e.applyPolicyMapChanges()
 	if err != nil {
+		// Applying the incremental changes failed, trigger the
+		// sync policy map controller to perform the retries.
+		e.triggerSyncPolicyMapController()
 		return err
 	}
 
@@ -1372,6 +1375,11 @@ func (e *Endpoint) syncPolicyMapWithDump() error {
 		return err
 	}
 
+	// Skip full reconciliation if it has been performed recently.
+	if time.Since(e.policyMapLastFullReconciliation) < option.Config.PolicyMapFullReconciliationInterval {
+		return nil
+	}
+
 	currentMap, err := e.dumpPolicyMapToMapState()
 
 	// If map is unable to be dumped, attempt to close map and open it again.
@@ -1410,12 +1418,25 @@ func (e *Endpoint) syncPolicyMapWithDump() error {
 		e.PolicyDebug(logrus.Fields{"dumpedDiffs": diffs}, "syncPolicyMapWithDump")
 	}
 
+	if err == nil {
+		e.policyMapLastFullReconciliation = time.Now()
+	}
+
 	return err
 }
 
+func (e *Endpoint) syncPolicyMapControllerName() string {
+	return fmt.Sprintf("sync-policymap-%d", e.ID)
+}
+
+// startSyncPolicyMapController starts a controller to periodically reconcile
+// pending policy map changes, and every option.Config.PolicyMapFullReconciliationInterval
+// perform a full reconciliation by dumping the policy map.
+// Does nothing on subsequent calls when the controller has already been
+// started.
 func (e *Endpoint) startSyncPolicyMapController() {
-	ctrlName := fmt.Sprintf("sync-policymap-%d", e.ID)
-	e.controllers.CreateController(ctrlName,
+	e.controllers.CreateController(
+		e.syncPolicyMapControllerName(),
 		controller.ControllerParams{
 			DoFunc: func(ctx context.Context) error {
 				// Failure to lock is not an error, it means
@@ -1427,13 +1448,18 @@ func (e *Endpoint) startSyncPolicyMapController() {
 				defer e.unlock()
 				return e.syncPolicyMapWithDump()
 			},
-			StopFunc: func(ctx context.Context) error {
-				return nil
-			},
-			RunInterval: option.Config.PolicyMapFullReconciliationInterval,
-			Context:     e.aliveCtx,
+			RunInterval:            option.Config.PolicyMapFullReconciliationInterval,
+			Context:                e.aliveCtx,
+			ErrorRetryBaseDuration: 100 * time.Millisecond,
 		},
 	)
+}
+
+// triggerSyncPolicyMapController triggers an immediate run of the policy map
+// synchronization. Used to schedule retrying for failed incremental reconciliation
+// of policy map changes.
+func (e *Endpoint) triggerSyncPolicyMapController() {
+	e.controllers.TriggerController(e.syncPolicyMapControllerName())
 }
 
 // RequireARPPassthrough returns true if the datapath must implement ARP
