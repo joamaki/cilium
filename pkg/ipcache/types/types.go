@@ -24,5 +24,5 @@ type PolicyHandler interface {
 // Wait on the returned sync.WaitGroup to ensure that the operation is complete
 // before updating the datapath's IPCache maps.
 type DatapathHandler interface {
-	UpdatePolicyMaps(context.Context, *sync.WaitGroup) *sync.WaitGroup
+	UpdatePolicyMaps(context.Context, *sync.WaitGroup) <-chan struct{}
 }

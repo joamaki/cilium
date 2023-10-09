@@ -196,6 +196,10 @@ type Endpoint struct {
 	// policy map state against the BPF map state.
 	policyMapLastFullReconciliation time.Time
 
+	// policyMapApplied is a channel that is closed and replaced when
+	// policy map changes are applied by the sync-policy-map controller.
+	policyMapApplied chan struct{}
+
 	// Options determine the datapath configuration of the endpoint.
 	Options *option.IntOptions
 
@@ -469,6 +473,7 @@ func createEndpoint(owner regeneration.Owner, policyGetter policyRepoGetter, nam
 		allocator:        allocator,
 		logLimiter:       logging.NewLimiter(10*time.Second, 3), // 1 log / 10 secs, burst of 3
 		noTrackPort:      0,
+		policyMapApplied: make(chan struct{}),
 	}
 
 	ep.initDNSHistoryTrigger()

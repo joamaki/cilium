@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/exp/slices"
 
+	"github.com/cilium/cilium/pkg/channels"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
@@ -153,7 +154,7 @@ type selectorCacheUpdater interface {
 }
 
 type policyTriggerer interface {
-	UpdatePolicyMaps(context.Context, *sync.WaitGroup) *sync.WaitGroup
+	UpdatePolicyMaps(context.Context, *sync.WaitGroup) channels.DoneChan
 }
 
 // Subscribe subscribes the given node handler to node events.
