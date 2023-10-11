@@ -208,6 +208,7 @@
 /images/runtime/update-cilium-runtime-image.sh @cilium/github-sec
 /pkg/api/ @cilium/api
 /pkg/byteorder/ @cilium/sig-datapath @cilium/api
+/pkg/channels/ @cilium/sig-foundations
 /pkg/client @cilium/api
 /pkg/k8s/apis/cilium.io/v2/ @cilium/api
 /pkg/datapath/linux/ipsec/xfrm_collector* @cilium/metrics
