@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -83,7 +82,7 @@ func syncOnDeviceChanges(
 	limiter := rate.NewLimiter(30*time.Second, 2)
 	jobs.Add(job.OneShot(
 		"sync-routes-on-device-changes",
-		func(ctx context.Context) error {
+		func(ctx context.Context, _ cell.HealthReporter) error {
 			for {
 				limiter.Wait(ctx)
 				_, watch := tables.SelectedDevices(
@@ -340,6 +339,7 @@ func (t *routeTestTarget) Delete(_ context.Context, txn statedb.ReadTxn, desired
 	return nil
 }
 
+/*
 // Sync implements reconciler.Target
 func (t *routeTestTarget) Sync(ctx context.Context, txn statedb.ReadTxn, iter statedb.Iterator[*DesiredRoute]) (outOfSync bool, err error) {
 	// TODO: Might want to trigger sync when devices change their state.
@@ -365,16 +365,16 @@ func (t *routeTestTarget) Sync(ctx context.Context, txn statedb.ReadTxn, iter st
 	}
 
 	return
-}
+}*/
 
 // Update implements reconciler.Target
-func (t *routeTestTarget) Update(_ context.Context, txn statedb.ReadTxn, desired *DesiredRoute) error {
+func (t *routeTestTarget) Update(_ context.Context, txn statedb.ReadTxn, desired *DesiredRoute) (bool, error) {
 	fmt.Printf("Update: %v\n", desired)
 	actual, _, ok := t.routes.First(txn, tables.RouteIDIndex.Query(desired.RouteID()))
 	if ok {
 		if *actual == desired.Route {
 			// Route already exists.
-			return nil
+			return false, nil
 		}
 	}
 
@@ -384,7 +384,7 @@ func (t *routeTestTarget) Update(_ context.Context, txn statedb.ReadTxn, desired
 	if desired.OptDeviceName != "" {
 		dev, _, ok := t.devices.First(txn, tables.DeviceNameIndex.Query(desired.OptDeviceName))
 		if !ok {
-			return fmt.Errorf("device %q not found for route to %q", desired.OptDeviceName, desired.Route.Dst.String())
+			return false, fmt.Errorf("device %q not found for route to %q", desired.OptDeviceName, desired.Route.Dst.String())
 		}
 		linkIndex = dev.Index
 	}
@@ -394,15 +394,22 @@ func (t *routeTestTarget) Update(_ context.Context, txn statedb.ReadTxn, desired
 		// TODO: we likely hit races where the device is removed but the desired
 		// routes aren't yet updated. feels safer to have spurious errors on
 		// device changes versus ignoring this completely.
-		return fmt.Errorf("device with index %d does not exist", desired.Route.LinkIndex)
+		return false, fmt.Errorf("device with index %d does not exist", desired.Route.LinkIndex)
 	}
 
 	if err := t.netlinkHandle.RouteReplace(desired.toNetlinkRoute(linkIndex)); err != nil {
-		return fmt.Errorf("failed to replace route to %q owned by %q: %w",
+		return false, fmt.Errorf("failed to replace route to %q owned by %q: %w",
 			desired.Route.Dst.String(),
 			desired.Owner,
 			err)
 	}
+	return true, nil
+}
+
+func (t *routeTestTarget) Prune(context.Context, statedb.ReadTxn, statedb.Iterator[*DesiredRoute]) error {
+	// Not touching routes that are not managed by Cilium.
+	// TODO: Here we could consider checking for things that were left over by older versions
+	// of Cilium. Currently not easy to figure out what they are though.
 	return nil
 }
 

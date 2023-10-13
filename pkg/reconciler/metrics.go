@@ -94,7 +94,7 @@ func newMetrics() *reconcilerMetrics {
 			Namespace:  metrics.Namespace,
 			Subsystem:  "reconciler",
 			Name:       "full_duration_seconds",
-			Help:       "Histogram over full reconciliation duration",
+			Help:       "Histogram of per-operation duration during full reconciliation",
 		}, []string{LabelModuleId}),
 	}
 }
