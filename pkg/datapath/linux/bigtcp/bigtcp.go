@@ -10,10 +10,12 @@ import (
 	"github.com/vishvananda/netlink"
 
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
+	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/math"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/statedb"
 )
 
 const (
@@ -208,6 +210,8 @@ type params struct {
 	Configuration Configuration
 	DaemonConfig  *option.DaemonConfig
 	UserConfig    UserConfig
+	DB            *statedb.DB
+	Devices       statedb.Table[*tables.Device]
 }
 
 func registerBIGTCP(lc hive.Lifecycle, p params) {
@@ -221,7 +225,8 @@ func registerBIGTCP(lc hive.Lifecycle, p params) {
 func startBIGTCP(p params) error {
 	var err error
 
-	deviceNames := p.DaemonConfig.GetDevices()
+	nativeDevices, _ := tables.SelectedDevices(p.Devices, p.DB.ReadTxn())
+	deviceNames := tables.DeviceNames(nativeDevices)
 
 	disableMsg := ""
 	if len(deviceNames) == 0 {
