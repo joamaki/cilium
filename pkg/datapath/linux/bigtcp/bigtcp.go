@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -59,7 +60,7 @@ func (def UserConfig) Flags(flags *pflag.FlagSet) {
 
 var Cell = cell.Module(
 	"bigtcp",
-	"BIG TCP support",
+	"BIG TCP support (increases GSO/GRO limits)",
 
 	cell.Config(defaultUserConfig),
 	cell.Provide(newDefaultConfiguration),
@@ -117,99 +118,6 @@ func (c *Configuration) GetGSOIPv4MaxSize() int {
 	return c.gsoIPv4MaxSize
 }
 
-// If an error is returned the caller is responsible for rolling back
-// any partial changes.
-func setGROGSOIPv6MaxSize(userConfig UserConfig, device string, GROMaxSize, GSOMaxSize int) error {
-	link, err := netlink.LinkByName(device)
-	if err != nil {
-		log.WithError(err).WithField("device", device).Warn("Link does not exist")
-		return err
-	}
-
-	attrs := link.Attrs()
-	// The check below is needed to avoid trying to change GSO/GRO max sizes
-	// when that is not necessary (e.g. BIG TCP was never enabled or current
-	// size matches the target size we need).
-	if (int(attrs.GROMaxSize) == GROMaxSize && int(attrs.GSOMaxSize) == GSOMaxSize) ||
-		(!userConfig.EnableIPv6BIGTCP &&
-			int(attrs.GROMaxSize) <= GROMaxSize &&
-			int(attrs.GSOMaxSize) <= GSOMaxSize) {
-		return nil
-	}
-
-	err = netlink.LinkSetGROMaxSize(link, GROMaxSize)
-	if err != nil {
-		return err
-	}
-
-	return netlink.LinkSetGSOMaxSize(link, GSOMaxSize)
-}
-
-// If an error is returned the caller is responsible for rolling back
-// any partial changes.
-func setGROGSOIPv4MaxSize(userConfig UserConfig, device string, GROMaxSize, GSOMaxSize int) error {
-	link, err := netlink.LinkByName(device)
-	if err != nil {
-		return err
-	}
-
-	attrs := link.Attrs()
-	// The check below is needed to avoid trying to change GSO/GRO max sizes
-	// when that is not necessary (e.g. BIG TCP was never enabled or current
-	// size matches the target size we need).
-	if (int(attrs.GROIPv4MaxSize) == GROMaxSize && int(attrs.GSOIPv4MaxSize) == GSOMaxSize) ||
-		(!userConfig.EnableIPv4BIGTCP &&
-			int(attrs.GROIPv4MaxSize) <= GROMaxSize &&
-			int(attrs.GSOIPv4MaxSize) <= GSOMaxSize) {
-		return nil
-	}
-
-	err = netlink.LinkSetGROIPv4MaxSize(link, GROMaxSize)
-	if err != nil {
-		return err
-	}
-
-	return netlink.LinkSetGSOIPv4MaxSize(link, GSOMaxSize)
-}
-
-func haveIPv4MaxSize() bool {
-	link, err := netlink.LinkByName(probeDevice)
-	if err != nil {
-		return false
-	}
-	if link.Attrs().GROIPv4MaxSize > 0 && link.Attrs().GSOIPv4MaxSize > 0 {
-		return true
-	}
-	return false
-}
-
-func haveIPv6MaxSize() bool {
-	link, err := netlink.LinkByName(probeDevice)
-	if err != nil {
-		return false
-	}
-	if link.Attrs().TSOMaxSize > 0 {
-		return true
-	}
-	return false
-}
-
-func probeTSOMaxSize(devices sets.Set[string]) int {
-	maxSize := math.IntMin(bigTCPGSOMaxSize, bigTCPGROMaxSize)
-	for device := range devices {
-		link, err := netlink.LinkByName(device)
-		if err == nil {
-			tso := link.Attrs().TSOMaxSize
-			tsoMax := int(tso)
-			if tsoMax > defaultGSOMaxSize && tsoMax < maxSize {
-				log.WithField("device", device).Infof("Lowering GRO/GSO max size from %d to %d", maxSize, tsoMax)
-				maxSize = tsoMax
-			}
-		}
-	}
-	return maxSize
-}
-
 func validateConfig(cfg UserConfig, daemonCfg *option.DaemonConfig) error {
 	if cfg.EnableIPv6BIGTCP || cfg.EnableIPv4BIGTCP {
 		if daemonCfg.DatapathMode != datapathOption.DatapathModeVeth {
@@ -232,9 +140,15 @@ func registerBIGTCP(lc hive.Lifecycle, p params) error {
 	if err := validateConfig(p.UserConfig, p.DaemonConfig); err != nil {
 		return err
 	}
+	b := &bigtcp{params: p, health: cell.GetHealthReporter(p.Scope, "reconciler")}
+
+	if !p.UserConfig.EnableIPv6BIGTCP && p.UserConfig.EnableIPv4BIGTCP {
+		b.health.Stopped("Disabled")
+		return nil
+	}
 
 	g := p.Jobs.NewGroup()
-	g.Add(job.OneShot("bigtcp-reconcile-loop", (&bigtcp{p}).reconcileLoop))
+	g.Add(job.OneShot("bigtcp-reconcile-loop", b.reconcileLoop))
 	lc.Append(g)
 
 	return nil
@@ -249,10 +163,12 @@ type params struct {
 	DB            *statedb.DB
 	Devices       statedb.Table[*tables.Device]
 	Jobs          job.Registry
+	Scope         cell.Scope
 }
 
 type bigtcp struct {
 	params
+	health cell.HealthReporter
 }
 
 func (b *bigtcp) reconcileLoop(ctx context.Context) error {
@@ -261,19 +177,18 @@ func (b *bigtcp) reconcileLoop(ctx context.Context) error {
 	haveIPv6 := haveIPv6MaxSize()
 	if !haveIPv4 {
 		if b.UserConfig.EnableIPv4BIGTCP {
-			log.Warnf("Cannot enable --%s, needs kernel 6.3 or newer",
-				EnableIPv4BIGTCPFlag)
+			log.Warnf("Cannot enable --%s, needs kernel 6.3 or newer", EnableIPv4BIGTCPFlag)
 		}
 		b.UserConfig.EnableIPv4BIGTCP = false
 	}
 	if !haveIPv6 {
 		if b.UserConfig.EnableIPv6BIGTCP {
-			log.Warnf("Cannot enable --%s, needs kernel 5.19 or newer",
-				EnableIPv6BIGTCPFlag)
+			log.Warnf("Cannot enable --%s, needs kernel 5.19 or newer", EnableIPv6BIGTCPFlag)
 		}
 		b.UserConfig.EnableIPv6BIGTCP = false
 	}
-	if !haveIPv4 && !haveIPv6 {
+	if !b.UserConfig.EnableIPv4BIGTCP && !b.UserConfig.EnableIPv6BIGTCP {
+		b.health.Stopped("Not supported")
 		return nil
 	}
 
@@ -300,15 +215,18 @@ func (b *bigtcp) reconcileLoop(ctx context.Context) error {
 				retryChan = retryTimer.After(retryDuration)
 				prevDeviceNames.Clear()
 				log.WithError(err).Warnf("Failed to reconcile BIG TCP settings, retrying in %d seconds", retryDuration/time.Second)
+				b.health.Degraded(fmt.Sprintf("Failed to reconcile, retry in %d seconds", retryDuration/time.Second), err)
 			} else {
 				retryAttempt = 0
 				backoff.Reset()
 				prevDeviceNames = deviceNames
+				b.health.OK(fmt.Sprintf("OK (%s)", strings.Join(deviceNames.UnsortedList(), ",")))
 			}
 		}
 
 		select {
 		case <-ctx.Done():
+			b.health.Stopped(ctx.Err().Error())
 			return nil
 		case <-watchChan:
 		case <-retryChan:
@@ -363,4 +281,93 @@ func (b *bigtcp) reconcile(deviceNames sets.Set[string]) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func haveIPv4MaxSize() bool {
+	link, err := netlink.LinkByName(probeDevice)
+	if err != nil {
+		return false
+	}
+	if link.Attrs().GROIPv4MaxSize > 0 && link.Attrs().GSOIPv4MaxSize > 0 {
+		return true
+	}
+	return false
+}
+
+func haveIPv6MaxSize() bool {
+	link, err := netlink.LinkByName(probeDevice)
+	if err != nil {
+		return false
+	}
+	if link.Attrs().TSOMaxSize > 0 {
+		return true
+	}
+	return false
+}
+
+func setGROGSOIPv6MaxSize(userConfig UserConfig, device string, GROMaxSize, GSOMaxSize int) error {
+	link, err := netlink.LinkByName(device)
+	if err != nil {
+		log.WithError(err).WithField("device", device).Warn("Link does not exist")
+		return err
+	}
+
+	attrs := link.Attrs()
+	// The check below is needed to avoid trying to change GSO/GRO max sizes
+	// when that is not necessary (e.g. BIG TCP was never enabled or current
+	// size matches the target size we need).
+	if (int(attrs.GROMaxSize) == GROMaxSize && int(attrs.GSOMaxSize) == GSOMaxSize) ||
+		(!userConfig.EnableIPv6BIGTCP &&
+			int(attrs.GROMaxSize) <= GROMaxSize &&
+			int(attrs.GSOMaxSize) <= GSOMaxSize) {
+		return nil
+	}
+
+	err = netlink.LinkSetGROMaxSize(link, GROMaxSize)
+	if err != nil {
+		return err
+	}
+
+	return netlink.LinkSetGSOMaxSize(link, GSOMaxSize)
+}
+
+func setGROGSOIPv4MaxSize(userConfig UserConfig, device string, GROMaxSize, GSOMaxSize int) error {
+	link, err := netlink.LinkByName(device)
+	if err != nil {
+		return err
+	}
+
+	attrs := link.Attrs()
+	// The check below is needed to avoid trying to change GSO/GRO max sizes
+	// when that is not necessary (e.g. BIG TCP was never enabled or current
+	// size matches the target size we need).
+	if (int(attrs.GROIPv4MaxSize) == GROMaxSize && int(attrs.GSOIPv4MaxSize) == GSOMaxSize) ||
+		(!userConfig.EnableIPv4BIGTCP &&
+			int(attrs.GROIPv4MaxSize) <= GROMaxSize &&
+			int(attrs.GSOIPv4MaxSize) <= GSOMaxSize) {
+		return nil
+	}
+
+	err = netlink.LinkSetGROIPv4MaxSize(link, GROMaxSize)
+	if err != nil {
+		return err
+	}
+
+	return netlink.LinkSetGSOIPv4MaxSize(link, GSOMaxSize)
+}
+
+func probeTSOMaxSize(devices sets.Set[string]) int {
+	maxSize := math.IntMin(bigTCPGSOMaxSize, bigTCPGROMaxSize)
+	for device := range devices {
+		link, err := netlink.LinkByName(device)
+		if err == nil {
+			tso := link.Attrs().TSOMaxSize
+			tsoMax := int(tso)
+			if tsoMax > defaultGSOMaxSize && tsoMax < maxSize {
+				log.WithField("device", device).Infof("Lowering GRO/GSO max size from %d to %d", maxSize, tsoMax)
+				maxSize = tsoMax
+			}
+		}
+	}
+	return maxSize
 }
