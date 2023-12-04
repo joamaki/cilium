@@ -38,18 +38,25 @@ type retryObject[Obj any] struct {
 
 func (rq *retryQueue[Obj]) Clear(obj Obj) {
 	if robj, ok := rq.objs[obj]; ok {
-		if rq.queue[robj.index].object == obj {
-			// Remove the object from the queue.
+		// Remove the object from the queue if it is still there.
+		if robj.index >= 0 && robj.index < len(rq.queue) &&
+			rq.queue[robj.index].object == obj {
 			heap.Remove(&rq.queue, robj.index)
 		}
-		// Completely forget the object.
+		// Completely forget the object and its retry count.
 		delete(rq.objs, obj)
 	}
 }
 
 func (rq *retryQueue[Obj]) Wait() <-chan time.Time {
 	if _, _, _, retryAt, ok := rq.Top(); ok {
-		return time.After(time.Now().Sub(retryAt))
+		now := time.Now()
+		if now.After(retryAt) {
+			ch := make(chan time.Time)
+			close(ch)
+			return ch
+		}
+		return time.After(retryAt.Sub(now))
 	}
 	return nil
 }
@@ -78,12 +85,12 @@ func (rq *retryQueue[Obj]) Add(obj Obj, rev statedb.Revision, delete bool) {
 			object:     obj,
 			numRetries: 0,
 		}
+		rq.objs[obj] = retryObj
 	}
 	retryObj.revision = rev
 	retryObj.delete = delete
 	retryObj.numRetries += 1
 	retryObj.retryAt = time.Now().Add(rq.backoff.Duration(retryObj.numRetries))
-	rq.objs[obj] = retryObj
 	heap.Push(&rq.queue, retryObj)
 }
 
