@@ -270,6 +270,7 @@ func WithRetry(times int, backoff workqueue.RateLimiter) jobOneShotOpt {
 func WithAlwaysRetry() jobOneShotOpt {
 	return func(jos *jobOneShot) {
 		jos.retry = -1
+		jos.backoff = workqueue.DefaultItemBasedRateLimiter()
 	}
 }
 

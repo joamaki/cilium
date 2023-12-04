@@ -34,7 +34,8 @@ func New[Obj Reconcilable[Obj]](p params[Obj]) Reconciler[Obj] {
 	}
 
 	g := p.Jobs.NewGroup(p.Scope)
-	g.Add(job.OneShot("reconciler-loop", r.loop))
+
+	g.Add(job.OneShot("reconciler-loop", r.loop, job.WithAlwaysRetry()))
 	p.Lifecycle.Append(g)
 
 	return r
@@ -77,6 +78,11 @@ func (r *reconciler[Obj]) loop(ctx context.Context, health cell.HealthReporter) 
 	tableWatchChan := closedWatchChannel
 	revision := statedb.Revision(0)
 	fullReconciliation := false
+
+	// Initialize the target
+	if err := r.Target.Init(ctx); err != nil {
+		return fmt.Errorf("init: %w", err)
+	}
 
 	for {
 		// Wait for trigger
