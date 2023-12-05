@@ -23,10 +23,6 @@ type Reconciler[Obj any] interface {
 // Target captures the effectful operations for reconciling
 // an object.
 type Target[Obj any] interface {
-	// Init initializes the reconciliation target. This is invoked before any
-	// reconciliation operations and will be retried until it succeeds.
-	Init(context.Context) error
-
 	// Update the object in the target. If the operation is long-running it should
 	// abort if context is cancelled. Should return an error if the operation fails.
 	// The reconciler will retry the operation again at a later time, potentially

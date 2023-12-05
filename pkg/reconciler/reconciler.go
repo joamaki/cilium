@@ -80,11 +80,6 @@ func (r *reconciler[Obj]) loop(ctx context.Context, health cell.HealthReporter) 
 	revision := statedb.Revision(0)
 	fullReconciliation := false
 
-	// Initialize the target
-	if err := r.Target.Init(ctx); err != nil {
-		return fmt.Errorf("init: %w", err)
-	}
-
 	for {
 		// Wait for trigger
 		select {
