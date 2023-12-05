@@ -5,7 +5,7 @@ import (
 	"github.com/cilium/cilium/pkg/metrics/metric"
 )
 
-type reconcilerMetrics struct {
+type Metrics struct {
 	IncrementalReconciliationCount         metric.Vec[metric.Counter]
 	IncrementalReconciliationDuration      metric.Vec[metric.Observer]
 	IncrementalReconciliationTotalErrors   metric.Vec[metric.Counter]
@@ -30,8 +30,8 @@ const (
 // instantiated by the user with a configurable prefix (versus using a global
 // set of metrics with labels)?
 
-func newMetrics() *reconcilerMetrics {
-	return &reconcilerMetrics{
+func newMetrics() *Metrics {
+	return &Metrics{
 		IncrementalReconciliationCount: metric.NewCounterVec(metric.CounterOpts{
 			ConfigName: metrics.Namespace + "_reconciler_incremental_total",
 			Disabled:   false,

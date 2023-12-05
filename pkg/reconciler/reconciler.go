@@ -52,7 +52,7 @@ type params[Obj comparable] struct {
 	Table     statedb.RWTable[Obj]
 	Target    Target[Obj]
 	Jobs      job.Registry
-	Metrics   *reconcilerMetrics
+	Metrics   *Metrics
 	ModuleId  cell.ModuleID
 	Scope     cell.Scope
 }
