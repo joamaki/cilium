@@ -63,6 +63,12 @@ type Table[Obj any] interface {
 	// current revision. A WriteTxn against the target table is required to
 	// add the tracker to the table.
 	DeleteTracker(txn WriteTxn, trackerName string) (*DeleteTracker[Obj], error)
+
+	// PrimaryKey returns the raw primary key for the object.
+	PrimaryKey(Obj) []byte
+
+	// GetByPrimaryKey fetches the object by the raw primary key.
+	GetByPrimaryKey(ReadTxn, []byte) (obj Obj, rev Revision, ok bool)
 }
 
 // RWTable provides methods for modifying the table under a write transaction

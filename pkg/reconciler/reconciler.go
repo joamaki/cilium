@@ -26,7 +26,7 @@ func Register[Obj Reconcilable[Obj]](p params[Obj]) {
 func New[Obj Reconcilable[Obj]](p params[Obj]) Reconciler[Obj] {
 	r := &reconciler[Obj]{
 		params:              p,
-		retryQueue:          newRetryQueue[Obj](p.Config),
+		retries:             newRetries(p.Config),
 		externalFullTrigger: make(chan struct{}, 1),
 		labels: prometheus.Labels{
 			LabelModuleId: string(p.ModuleId),
@@ -59,7 +59,7 @@ type params[Obj Reconcilable[Obj]] struct {
 type reconciler[Obj Reconcilable[Obj]] struct {
 	params[Obj]
 
-	retryQueue          *retryQueue[Obj]
+	retries             *retries
 	externalFullTrigger chan struct{}
 	labels              prometheus.Labels
 }
@@ -95,7 +95,7 @@ func (r *reconciler[Obj]) loop(ctx context.Context, health cell.HealthReporter) 
 		case <-r.externalFullTrigger:
 			fullReconciliation = true
 
-		case <-r.retryQueue.Wait():
+		case <-r.retries.Wait():
 
 		case <-tableWatchChan:
 		}
@@ -157,10 +157,10 @@ func (r *reconciler[Obj]) incremental(
 	// the old object is skipped.
 	updateResults := make(map[Obj]targetOpResult)
 	toBeDeleted := make(map[Obj]statedb.Revision)
+	errs := []error{}
 
-	var errs []error
-
-	process := func(obj Obj, rev statedb.Revision, delete bool) error {
+	// Function to process the new&changed objects and retries.
+	process := func(obj Obj, rev statedb.Revision) error {
 		start := time.Now()
 
 		status := obj.GetStatus()
@@ -171,7 +171,7 @@ func (r *reconciler[Obj]) incremental(
 		}
 
 		var err error
-		if delete {
+		if status.Delete {
 			err = r.Target.Delete(ctx, txn, obj)
 			if err == nil {
 				toBeDeleted[obj] = rev
@@ -191,39 +191,51 @@ func (r *reconciler[Obj]) incremental(
 			float64(time.Since(start)) / float64(time.Second),
 		)
 
-		if err == nil {
-			r.retryQueue.Clear(obj)
-		} else {
-			r.retryQueue.Add(obj, rev, delete)
+		// Always clear any existing retries as the object has changed.
+		r.retries.Clear(r.Table.PrimaryKey(obj))
+
+		if err != nil {
+			// Reconciling the object failed, so add it to be retried.
+			r.retries.Add(r.Table.PrimaryKey(obj))
 		}
 
 		return err
 	}
 
-	newRevision := lastRev
-
 	// Iterate in revision order through new, changed or failed objects.
+	newRevision := lastRev
 	iter, watch := r.Table.LowerBound(txn, statedb.ByRevision[Obj](lastRev+1))
 	for obj, rev, ok := iter.Next(); ok; obj, rev, ok = iter.Next() {
 		newRevision = rev
-		status := obj.GetStatus()
-
-		err := process(obj, rev, status.Delete)
+		err := process(obj, rev)
 		if err != nil {
 			// FIXME: This probably becomes too big!
 			errs = append(errs, err)
 		}
 	}
 
-	// Process any objects that still need to be retried.
+	// Process objects that are ready to be retried.
 	for {
-		obj, rev, delete, retryAt, ok := r.retryQueue.Top()
+		key, retryAt, ok := r.retries.Top()
 		if !ok || retryAt.After(time.Now()) {
 			break
 		}
-		r.retryQueue.Pop()
+		r.retries.Pop()
 
-		err := process(obj, rev, delete)
+		obj, rev, ok := r.Table.GetByPrimaryKey(txn, key)
+		if !ok {
+			// Object has been deleted unexpectedly (e.g. from outside
+			// the reconciler). Shrug and carry on.
+			continue
+		}
+
+		kind := obj.GetStatus().Kind
+		if kind == StatusKindDone {
+			// Object does not need reconciliation.
+			continue
+		}
+
+		err := process(obj, rev)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -302,11 +314,10 @@ func (r *reconciler[Obj]) full(ctx context.Context, txn statedb.ReadTxn, lastRev
 		outOfSync = outOfSync || changed
 		if err == nil {
 			updateResults[obj] = targetOpResult{rev, StatusDone()}
-			r.retryQueue.Clear(obj)
+			r.retries.Clear(r.Table.PrimaryKey(obj))
 		} else {
 			updateResults[obj] = targetOpResult{rev, StatusError(false, err)}
 			updateErrors = append(updateErrors, err)
-			r.retryQueue.Add(obj, rev, false)
 		}
 	}
 
@@ -331,7 +342,12 @@ func (r *reconciler[Obj]) full(ctx context.Context, txn statedb.ReadTxn, lastRev
 	if len(updateResults) > 0 {
 		wtxn := r.DB.WriteTxn(r.Table)
 		for obj, result := range updateResults {
-			r.Table.CompareAndSwap(wtxn, result.rev, obj.WithStatus(result.status))
+			obj = obj.WithStatus(result.status)
+			_, _, err := r.Table.CompareAndSwap(wtxn, result.rev, obj)
+			if err == nil && result.status.Kind != StatusKindDone {
+				// Object had not changed in the meantime, queue the retry.
+				r.retries.Add(r.Table.PrimaryKey(obj))
+			}
 		}
 		wtxn.Commit()
 	}

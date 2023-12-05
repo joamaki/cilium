@@ -116,6 +116,19 @@ func (t *genTable[Obj]) Revision(txn ReadTxn) Revision {
 	return txn.getTxn().GetRevision(t.table)
 }
 
+func (t *genTable[Obj]) PrimaryKey(obj Obj) []byte {
+	return t.primaryAnyIndexer.fromObject(object{data: obj}).First()
+}
+
+func (t *genTable[Obj]) GetByPrimaryKey(txn ReadTxn, key []byte) (obj Obj, revision uint64, ok bool) {
+	indexTxn := txn.getTxn().mustIndexReadTxn(t.table, t.primaryAnyIndexer.name)
+	iobj, ok := indexTxn.txn.Get(key)
+	if ok {
+		return iobj.data.(Obj), iobj.revision, true
+	}
+	return
+}
+
 func (t *genTable[Obj]) First(txn ReadTxn, q Query[Obj]) (obj Obj, revision uint64, ok bool) {
 	obj, revision, _, ok = t.FirstWatch(txn, q)
 	return

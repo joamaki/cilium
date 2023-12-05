@@ -39,7 +39,7 @@ type Reconcilable[Obj comparable] interface {
 
 // Target captures the effectful operations for reconciling
 // an object.
-type Target[Obj Reconcilable[Obj]] interface {
+type Target[Obj any] interface {
 	// Init initializes the reconciliation target. This is invoked before any
 	// reconciliation operations and will be retried until it succeeds.
 	Init(context.Context) error
