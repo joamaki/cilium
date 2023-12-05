@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -170,8 +171,10 @@ func (r *reconciler[Obj]) incremental(
 			return nil
 		}
 
+		labels := maps.Clone(r.labels)
 		var err error
 		if status.Delete {
+			labels[LabelOperation] = OpDelete
 			err = r.Target.Delete(ctx, txn, obj)
 			if err == nil {
 				toBeDeleted[obj] = rev
@@ -179,6 +182,7 @@ func (r *reconciler[Obj]) incremental(
 				updateResults[obj] = targetOpResult{rev, StatusError(true, err)}
 			}
 		} else {
+			labels[LabelOperation] = OpUpdate
 			_, err = r.Target.Update(ctx, txn, obj)
 			if err == nil {
 				updateResults[obj] = targetOpResult{rev, StatusDone()}
@@ -186,8 +190,7 @@ func (r *reconciler[Obj]) incremental(
 				updateResults[obj] = targetOpResult{rev, StatusError(false, err)}
 			}
 		}
-
-		r.Metrics.IncrementalReconciliationDuration.With(r.labels).Observe(
+		r.Metrics.IncrementalReconciliationDuration.With(labels).Observe(
 			float64(time.Since(start)) / float64(time.Second),
 		)
 
@@ -295,8 +298,9 @@ func (r *reconciler[Obj]) full(ctx context.Context, txn statedb.ReadTxn, lastRev
 		outOfSync = true
 		errs = append(errs, fmt.Errorf("pruning failed: %w", err))
 	}
-	// FIXME: use label for Prune/Update/Delete?
-	r.Metrics.FullReconciliationDuration.With(r.labels).Observe(
+	labels := maps.Clone(r.labels)
+	labels[LabelOperation] = OpPrune
+	r.Metrics.FullReconciliationDuration.With(labels).Observe(
 		float64(time.Since(start)) / float64(time.Second),
 	)
 
@@ -307,7 +311,10 @@ func (r *reconciler[Obj]) full(ctx context.Context, txn statedb.ReadTxn, lastRev
 	for obj, rev, ok := iter.Next(); ok; obj, rev, ok = iter.Next() {
 		start := time.Now()
 		changed, err := r.Target.Update(ctx, txn, obj)
-		r.Metrics.FullReconciliationDuration.With(r.labels).Observe(
+
+		labels := maps.Clone(r.labels)
+		labels[LabelOperation] = OpUpdate
+		r.Metrics.FullReconciliationDuration.With(labels).Observe(
 			float64(time.Since(start)) / float64(time.Second),
 		)
 

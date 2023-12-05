@@ -17,7 +17,14 @@ type reconcilerMetrics struct {
 	FullReconciliationDuration       metric.Vec[metric.Observer]
 }
 
-const LabelModuleId = "module_id"
+const (
+	LabelModuleId  = "module_id"
+	LabelOperation = "op"
+
+	OpUpdate = "update"
+	OpDelete = "delete"
+	OpPrune  = "prune"
+)
 
 // TODO: Or would it be better if the metrics for reconciliation would be
 // instantiated by the user with a configurable prefix (versus using a global
@@ -41,7 +48,7 @@ func newMetrics() *reconcilerMetrics {
 			Subsystem:  "reconciler",
 			Name:       "incremental_duration_seconds",
 			Help:       "Histogram of per-operation duration during incremental reconciliation",
-		}, []string{LabelModuleId}),
+		}, []string{LabelModuleId, LabelOperation}),
 
 		IncrementalReconciliationTotalErrors: metric.NewCounterVec(metric.CounterOpts{
 			ConfigName: metrics.Namespace + "_reconciler_incremental_errors_total",
@@ -95,6 +102,6 @@ func newMetrics() *reconcilerMetrics {
 			Subsystem:  "reconciler",
 			Name:       "full_duration_seconds",
 			Help:       "Histogram of per-operation duration during full reconciliation",
-		}, []string{LabelModuleId}),
+		}, []string{LabelModuleId, LabelOperation}),
 	}
 }
