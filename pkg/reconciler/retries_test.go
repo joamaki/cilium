@@ -9,10 +9,7 @@ import (
 )
 
 func TestRetries(t *testing.T) {
-	rq := newRetries(Config{
-		RetryBackoffMinDuration: time.Millisecond,
-		RetryBackoffMaxDuration: time.Millisecond,
-	})
+	rq := newRetries(time.Millisecond, time.Millisecond)
 
 	key1, key2, key3 := []byte{1}, []byte{2}, []byte{3}
 

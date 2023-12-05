@@ -8,33 +8,16 @@ import (
 	"github.com/cilium/cilium/pkg/statedb"
 )
 
-type Config struct {
+type Config[Obj any] struct {
 	FullReconcilationInterval time.Duration
 	RetryBackoffMinDuration   time.Duration
 	RetryBackoffMaxDuration   time.Duration
+	GetObjectStatus           func(Obj) Status
+	WithObjectStatus          func(Obj, Status) Obj
 }
 
-var DefaultConfig = Config{
-	FullReconcilationInterval: 5 * time.Minute,
-	RetryBackoffMinDuration:   50 * time.Millisecond,
-	RetryBackoffMaxDuration:   time.Minute,
-}
-
-type Reconciler[Obj Reconcilable[Obj]] interface {
+type Reconciler[Obj any] interface {
 	TriggerFullReconciliation()
-}
-
-// Reconcilable objects are Go types that carry a reconciliation status.
-// The generic reconciler uses WithStatus() to update the status of each
-// reconciled object. This status can then be used to implement waiting.
-type Reconcilable[Obj comparable] interface {
-	comparable
-
-	GetStatus() Status
-
-	// WithStatus returns a clone of the object with the specified
-	// status.
-	WithStatus(Status) Obj
 }
 
 // Target captures the effectful operations for reconciling

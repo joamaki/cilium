@@ -18,15 +18,15 @@ import (
 // Register creates a new reconciler and registers to the application
 // lifecycle. To be used with cell.Invoke when the API of the reconciler
 // is not needed.
-func Register[Obj Reconcilable[Obj]](p params[Obj]) {
+func Register[Obj comparable](p params[Obj]) {
 	New(p)
 }
 
 // New creates and registers a new reconciler.
-func New[Obj Reconcilable[Obj]](p params[Obj]) Reconciler[Obj] {
+func New[Obj comparable](p params[Obj]) Reconciler[Obj] {
 	r := &reconciler[Obj]{
 		params:              p,
-		retries:             newRetries(p.Config),
+		retries:             newRetries(p.Config.RetryBackoffMinDuration, p.Config.RetryBackoffMaxDuration),
 		externalFullTrigger: make(chan struct{}, 1),
 		labels: prometheus.Labels{
 			LabelModuleId: string(p.ModuleId),
@@ -41,10 +41,10 @@ func New[Obj Reconcilable[Obj]](p params[Obj]) Reconciler[Obj] {
 	return r
 }
 
-type params[Obj Reconcilable[Obj]] struct {
+type params[Obj comparable] struct {
 	cell.In
 
-	Config    Config
+	Config    Config[Obj]
 	Lifecycle hive.Lifecycle
 	Log       logrus.FieldLogger
 	DB        *statedb.DB
@@ -56,7 +56,7 @@ type params[Obj Reconcilable[Obj]] struct {
 	Scope     cell.Scope
 }
 
-type reconciler[Obj Reconcilable[Obj]] struct {
+type reconciler[Obj comparable] struct {
 	params[Obj]
 
 	retries             *retries
@@ -163,7 +163,7 @@ func (r *reconciler[Obj]) incremental(
 	process := func(obj Obj, rev statedb.Revision) error {
 		start := time.Now()
 
-		status := obj.GetStatus()
+		status := r.Config.GetObjectStatus(obj)
 
 		// Ignore objects that have already been marked as reconciled.
 		if status.Kind == StatusKindDone {
@@ -229,7 +229,7 @@ func (r *reconciler[Obj]) incremental(
 			continue
 		}
 
-		kind := obj.GetStatus().Kind
+		kind := r.Config.GetObjectStatus(obj).Kind
 		if kind == StatusKindDone {
 			// Object does not need reconciliation.
 			continue
@@ -253,7 +253,7 @@ func (r *reconciler[Obj]) incremental(
 			// Update the object if it is unchanged. It may happen that the object has
 			// been updated in the meanwhile, in which case we ignore the status as the
 			// update will be picked up by next reconciliation round.
-			r.Table.CompareAndSwap(wtxn, result.rev, obj.WithStatus(result.status))
+			r.Table.CompareAndSwap(wtxn, result.rev, r.Config.WithObjectStatus(obj, result.status))
 		}
 
 		// Delete the objects that had been successfully deleted from target.
@@ -342,7 +342,7 @@ func (r *reconciler[Obj]) full(ctx context.Context, txn statedb.ReadTxn, lastRev
 	if len(updateResults) > 0 {
 		wtxn := r.DB.WriteTxn(r.Table)
 		for obj, result := range updateResults {
-			obj = obj.WithStatus(result.status)
+			obj = r.Config.WithObjectStatus(obj, result.status)
 			_, _, err := r.Table.CompareAndSwap(wtxn, result.rev, obj)
 			if err == nil && result.status.Kind != StatusKindDone {
 				// Object had not changed in the meantime, queue the retry.

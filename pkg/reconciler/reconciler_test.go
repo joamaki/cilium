@@ -3,6 +3,7 @@ package reconciler_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 type testObject struct {
 	id     uint64
 	x      int
+	faulty bool
 	status reconciler.Status
 }
 
@@ -44,18 +46,17 @@ func (t *testObject) WithStatus(status reconciler.Status) *testObject {
 }
 
 type mockTarget struct {
-	initialized bool
-	pruned      bool
-	updated     bool
-	deleted     bool
-
-	faulty bool
+	initialized atomic.Bool
+	pruned      atomic.Bool
+	updated     atomic.Bool
+	deleted     atomic.Bool
+	faulty      atomic.Bool
 }
 
 // Delete implements reconciler.Target.
 func (mt *mockTarget) Delete(context.Context, statedb.ReadTxn, *testObject) error {
-	mt.deleted = true
-	if mt.faulty {
+	mt.deleted.Store(true)
+	if mt.faulty.Load() {
 		return errors.New("oopsie")
 	}
 	return nil
@@ -63,20 +64,20 @@ func (mt *mockTarget) Delete(context.Context, statedb.ReadTxn, *testObject) erro
 
 // Init implements reconciler.Target.
 func (mt *mockTarget) Init(context.Context) error {
-	mt.initialized = true
+	mt.initialized.Store(true)
 	return nil
 }
 
 // Prune implements reconciler.Target.
 func (mt *mockTarget) Prune(context.Context, statedb.ReadTxn, statedb.Iterator[*testObject]) error {
-	mt.pruned = true
+	mt.pruned.Store(true)
 	return nil
 }
 
 // Update implements reconciler.Target.
-func (mt *mockTarget) Update(context.Context, statedb.ReadTxn, *testObject) (changed bool, err error) {
-	mt.updated = true
-	if mt.faulty {
+func (mt *mockTarget) Update(ctx context.Context, txn statedb.ReadTxn, o *testObject) (changed bool, err error) {
+	mt.updated.Store(true)
+	if mt.faulty.Load() || o.faulty {
 		return true, errors.New("oopsie")
 	}
 
@@ -109,11 +110,13 @@ func TestReconciler(t *testing.T) {
 					return mt, mt
 				},
 			),
-			cell.Provide(func() reconciler.Config {
-				return reconciler.Config{
+			cell.Provide(func() reconciler.Config[*testObject] {
+				return reconciler.Config[*testObject]{
 					FullReconcilationInterval: time.Millisecond,
 					RetryBackoffMinDuration:   time.Millisecond,
 					RetryBackoffMaxDuration:   time.Millisecond,
+					GetObjectStatus:           (*testObject).GetStatus,
+					WithObjectStatus:          (*testObject).WithStatus,
 				}
 			}),
 			cell.Invoke(reconciler.Register[*testObject]),
@@ -123,11 +126,11 @@ func TestReconciler(t *testing.T) {
 	require.NoError(t, hive.Start(context.TODO()), "Start")
 
 	assert.Eventually(t, func() bool {
-		return mt.initialized
+		return mt.initialized.Load()
 	}, 100*time.Millisecond, time.Millisecond, "initialized")
 
 	assert.Eventually(t, func() bool {
-		return mt.pruned
+		return mt.pruned.Load()
 	}, 100*time.Millisecond, time.Millisecond, "pruned")
 
 	// ---
@@ -141,7 +144,7 @@ func TestReconciler(t *testing.T) {
 	wtxn.Commit()
 
 	assert.Eventually(t, func() bool {
-		return mt.updated && !mt.deleted
+		return mt.updated.Load() && !mt.deleted.Load()
 	}, 100*time.Millisecond, time.Millisecond, "updated")
 
 	obj, _, ok := testObjects.First(db.ReadTxn(), idIndex.Query(1))
@@ -151,7 +154,7 @@ func TestReconciler(t *testing.T) {
 
 	// ---
 
-	mt.faulty = true // FIXME atomic
+	mt.faulty.Store(true)
 
 	wtxn = db.WriteTxn(testObjects)
 	testObjects.Insert(wtxn,
@@ -163,7 +166,7 @@ func TestReconciler(t *testing.T) {
 	wtxn.Commit()
 
 	assert.Eventually(t, func() bool {
-		return mt.updated && !mt.deleted
+		return mt.updated.Load() && !mt.deleted.Load()
 	}, 100*time.Millisecond, time.Millisecond, "updated")
 
 	obj, _, ok = testObjects.First(db.ReadTxn(), idIndex.Query(1))
@@ -172,17 +175,16 @@ func TestReconciler(t *testing.T) {
 		assert.Equal(t, obj.status.Error, "oopsie")
 	}
 
-	mt.faulty = false
+	mt.faulty.Store(false)
 
 	assert.Eventually(t, func() bool {
-		return mt.updated && !mt.deleted
+		obj, _, ok = testObjects.First(db.ReadTxn(), idIndex.Query(1))
+		if ok && obj.status.Kind == reconciler.StatusKindDone {
+			assert.Equal(t, obj.status.Error, "")
+			return true
+		}
+		return false
 	}, 100*time.Millisecond, time.Millisecond, "updated")
-
-	obj, _, ok = testObjects.First(db.ReadTxn(), idIndex.Query(1))
-	if assert.True(t, ok) {
-		assert.Equal(t, obj.status.Kind, reconciler.StatusKindDone)
-		assert.Equal(t, obj.status.Error, "")
-	}
 
 	// ---
 
@@ -191,8 +193,12 @@ func TestReconciler(t *testing.T) {
 	wtxn.Commit()
 
 	assert.Eventually(t, func() bool {
-		return mt.deleted
+		return mt.deleted.Load()
 	}, 100*time.Millisecond, time.Millisecond, "deleted")
 
 	require.NoError(t, hive.Stop(context.TODO()), "Stop")
+
+	// FIXME:
+	// - if object fails in full reconciliation it should be retried
+	// - if object changes retries are cleared
 }

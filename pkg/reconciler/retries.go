@@ -8,12 +8,12 @@ import (
 	"github.com/cilium/cilium/pkg/backoff"
 )
 
-func newRetries(cfg Config) *retries {
+func newRetries(minDuration, maxDuration time.Duration) *retries {
 	const prealloc = 64
 	return &retries{
 		backoff: backoff.Exponential{
-			Min: cfg.RetryBackoffMinDuration,
-			Max: cfg.RetryBackoffMaxDuration,
+			Min: minDuration,
+			Max: maxDuration,
 		},
 		queue: make([]*retryItem, 0, prealloc),
 		items: make(map[string]*retryItem, prealloc),
