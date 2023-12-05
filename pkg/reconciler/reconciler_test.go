@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 )
 
 type testObject struct {
@@ -84,6 +85,8 @@ func (mt *mockTarget) Update(ctx context.Context, txn statedb.ReadTxn, o *testOb
 var _ reconciler.Target[*testObject] = &mockTarget{}
 
 func TestReconciler(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
 	mt := &mockTarget{}
 
 	var (
