@@ -289,7 +289,10 @@ func (r *reconciler[Obj]) incremental(
 	r.Metrics.IncrementalReconciliationCurrentErrors.With(r.labels).Set(float64(len(errs)))
 	r.Metrics.IncrementalReconciliationCount.With(r.labels).Add(1)
 
-	return newRevision, watch, fmt.Errorf("incremental: %w", errors.Join(errs...))
+	if len(errs) > 0 {
+		return newRevision, watch, fmt.Errorf("incremental: %w", errors.Join(errs...))
+	}
+	return newRevision, watch, nil
 }
 
 func (r *reconciler[Obj]) full(ctx context.Context, txn statedb.ReadTxn, lastRev statedb.Revision) (statedb.Revision, error) {

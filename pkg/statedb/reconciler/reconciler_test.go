@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,239 @@ import (
 	"github.com/cilium/cilium/pkg/statedb/index"
 	"github.com/cilium/cilium/pkg/statedb/reconciler"
 )
+
+// Some constants so we don't use mysterious numbers in the test steps.
+const (
+	ID_1 = uint64(1)
+	ID_2 = uint64(2)
+	ID_3 = uint64(3)
+)
+
+func TestReconciler(t *testing.T) {
+	cell.SetReporterMinTimeoutForTest(10 * time.Millisecond)
+
+	defer goleak.VerifyNone(t)
+
+	var (
+		mt       = &mockTarget{}
+		db       *statedb.DB
+		registry *metricsPkg.Registry
+		r        reconciler.Reconciler[*testObject]
+		health   cell.Health
+	)
+
+	testObjects, err := statedb.NewTable[*testObject]("test-objects", idIndex)
+	require.NoError(t, err, "NewTable")
+
+	hive := hive.New(
+		statedb.Cell,
+		job.Cell,
+		reconciler.Cell,
+
+		cell.Group(
+			cell.Provide(func() *option.DaemonConfig { return option.Config }),
+			cell.Provide(func() metricsPkg.RegistryConfig { return metricsPkg.RegistryConfig{} }),
+			cell.Provide(metricsPkg.NewRegistry),
+		),
+
+		cell.Invoke(func(r *metricsPkg.Registry) {
+			registry = r
+		}),
+
+		cell.Module(
+			"test",
+			"Test",
+
+			cell.Provide(func(db_ *statedb.DB) (statedb.RWTable[*testObject], error) {
+				db = db_
+				return testObjects, db.RegisterTable(testObjects)
+			}),
+			cell.Provide(
+				func() (*mockTarget, reconciler.Target[*testObject]) {
+					return mt, mt
+				},
+			),
+			cell.Provide(func() reconciler.Config[*testObject] {
+				return reconciler.Config[*testObject]{
+					// Don't run the full reconciliation via timer, but rather explicitly so that the full
+					// reconciliation operations don't mix with incremental when not expected.
+					FullReconcilationInterval: time.Hour,
+
+					RetryBackoffMinDuration: time.Millisecond,
+					RetryBackoffMaxDuration: 10 * time.Millisecond,
+					GetObjectStatus:         (*testObject).GetStatus,
+					WithObjectStatus:        (*testObject).WithStatus,
+				}
+			}),
+			cell.Provide(reconciler.New[*testObject]),
+
+			cell.Invoke(func(r_ reconciler.Reconciler[*testObject], h cell.Health) {
+				r = r_
+				health = h
+			}),
+		),
+	)
+
+	require.NoError(t, hive.Start(context.TODO()), "Start")
+
+	h := testHelper{
+		t:      t,
+		db:     db,
+		tbl:    testObjects,
+		target: mt,
+		r:      r,
+		health: health,
+	}
+
+	numIterations := 10
+
+	t.Run("incremental", func(t *testing.T) {
+		h.t = t
+
+		for i := 0; i < numIterations; i++ {
+			t.Logf("Iteration %d", i)
+
+			// Insert some test objects and check that they're reconciled
+			t.Logf("Inserting test objects 1, 2 & 3")
+			h.insert(ID_1, NonFaulty, reconciler.StatusPending())
+			h.expectOp("update: 1")
+			h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+
+			h.insert(ID_2, NonFaulty, reconciler.StatusPending())
+			h.expectOp("update: 2")
+			h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+
+			h.insert(ID_3, NonFaulty, reconciler.StatusPending())
+			h.expectOp("update: 3")
+			h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+
+			h.expectHealthLevel(cell.StatusOK)
+
+			// Set one to be faulty => object will error
+			t.Log("Setting '1' faulty")
+			h.insert(ID_1, Faulty, reconciler.StatusPending())
+			h.expectOp("update fail: 1")
+			h.expectStatus(ID_1, reconciler.StatusKindError, "update fail")
+			h.expectRetried(ID_1)
+			h.expectHealthLevel(cell.StatusDegraded)
+
+			// Fix the object => object will reconcile again.
+			t.Log("Setting '1' non-faulty")
+			h.insert(ID_1, NonFaulty, reconciler.StatusPending())
+			h.expectOp("update: 1")
+			h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+			h.expectHealthLevel(cell.StatusOK)
+
+			t.Log("Delete 1 & 2")
+			h.markForDelete(ID_1)
+			h.expectOp("delete: 1")
+			h.expectNotFound(ID_1)
+
+			h.markForDelete(ID_2)
+			h.expectOp("delete: 2")
+			h.expectNotFound(ID_2)
+
+			t.Log("Try to delete '3' with faulty target")
+			h.setTargetFaulty(true)
+			h.markForDelete(ID_3)
+			h.expectOp("delete fail: 3")
+			h.expectStatus(ID_3, reconciler.StatusKindError, "delete fail")
+			h.expectHealthLevel(cell.StatusDegraded)
+
+			t.Log("Delete 3")
+			h.setTargetFaulty(false)
+			h.expectOp("delete: 3")
+			h.expectNotFound(ID_3)
+			h.expectHealthLevel(cell.StatusOK)
+
+		}
+	})
+
+	t.Run("full", func(t *testing.T) {
+		h.t = t
+
+		for i := 0; i < numIterations; i++ {
+			t.Logf("Iteration %d", i)
+
+			// Without any objects, we should only see prune.
+			t.Log("Full reconciliation without objects")
+			h.triggerFullReconciliation()
+			h.expectOp("prune: 0")
+			h.expectHealthLevel(cell.StatusOK)
+
+			// Add few objects and wait until incremental reconciliation is done.
+			t.Log("Insert test objects")
+			h.insert(ID_1, NonFaulty, reconciler.StatusPending())
+			h.insert(ID_2, NonFaulty, reconciler.StatusPending())
+			h.insert(ID_3, NonFaulty, reconciler.StatusPending())
+			h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+			h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+			h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+			h.expectHealthLevel(cell.StatusOK)
+
+			// Full reconciliation with functioning target.
+			t.Log("Full reconciliation with non-faulty target")
+			h.triggerFullReconciliation()
+			h.expectOps("prune: 3", "update: 1", "update: 2", "update: 3")
+			h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+			h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+			h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+			h.expectHealthLevel(cell.StatusOK)
+
+			// Make the target faulty and trigger the full reconciliation.
+			t.Log("Full reconciliation with faulty target")
+			h.setTargetFaulty(true)
+			h.triggerFullReconciliation()
+			h.expectOps("update fail: 1", "update fail: 2", "update fail: 3")
+			h.expectHealthLevel(cell.StatusDegraded)
+
+			// Expect the objects to be retried also after the full reconciliation.
+			h.expectRetried(ID_1)
+			h.expectRetried(ID_2)
+			h.expectRetried(ID_3)
+
+			// All should be marked as errored.
+			h.expectStatus(ID_1, reconciler.StatusKindError, "update fail")
+			h.expectStatus(ID_2, reconciler.StatusKindError, "update fail")
+			h.expectStatus(ID_3, reconciler.StatusKindError, "update fail")
+
+			// Make the target health again and check that the objects recover.
+			t.Log("Retries succeed after target is non-faulty")
+			h.setTargetFaulty(false)
+			h.expectOps("update: 1", "update: 2", "update: 3")
+			h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+			h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+			h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+			h.expectHealthLevel(cell.StatusOK)
+
+			// Cleanup.
+			h.markForDelete(ID_1)
+			h.markForDelete(ID_2)
+			h.markForDelete(ID_3)
+			h.triggerFullReconciliation()
+			h.expectOps("prune: 0", "delete: 1", "delete: 2", "delete: 3")
+			h.expectNotFound(ID_1)
+			h.expectNotFound(ID_2)
+			h.expectNotFound(ID_3)
+		}
+	})
+
+	// ---
+	// Validate that the metrics are populated and make some sense.
+	m := dumpMetrics(registry)
+	assertSensibleMetricDuration(t, m, "cilium_reconciler_full_duration_seconds/module_id=test,op=prune")
+	assertSensibleMetricDuration(t, m, "cilium_reconciler_full_duration_seconds/module_id=test,op=update")
+	assert.Greater(t, m["cilium_reconciler_full_out_of_sync_total/module_id=test"], 0.0)
+	assert.Greater(t, m["cilium_reconciler_full_total/module_id=test"], 0.0)
+
+	assertSensibleMetricDuration(t, m, "cilium_reconciler_incremental_duration_seconds/module_id=test,op=update")
+	assertSensibleMetricDuration(t, m, "cilium_reconciler_incremental_duration_seconds/module_id=test,op=delete")
+	assert.Equal(t, m["cilium_reconciler_incremental_errors_current/module_id=test"], 0.0)
+	assert.Greater(t, m["cilium_reconciler_incremental_errors_total/module_id=test"], 0.0)
+	assert.Greater(t, m["cilium_reconciler_incremental_total/module_id=test"], 0.0)
+
+	assert.NoError(t, hive.Stop(context.TODO()), "Stop")
+}
 
 type testObject struct {
 	id     uint64
@@ -70,7 +304,7 @@ func (o *opHistory) latest() string {
 	if len(o.history) > 0 {
 		return o.history[len(o.history)-1]
 	}
-	return ""
+	return "<empty history>"
 }
 
 func (o *opHistory) take(n int) []string {
@@ -141,6 +375,8 @@ func (mt *mockTarget) Update(ctx context.Context, txn statedb.ReadTxn, obj *test
 	mt.history.add("update: %d", obj.id)
 	return true, nil
 }
+
+var _ reconciler.Target[*testObject] = &mockTarget{}
 
 // testHelper defines a sort of mini-language for writing the test steps.
 type testHelper struct {
@@ -236,7 +472,20 @@ func (h testHelper) expectRetried(id uint64) {
 	require.Eventually(h.t, cond, time.Second, time.Millisecond, "expected %d to be retried", id)
 }
 
-func (h testHelper) expectHealthOK(s string) {
+func (h testHelper) expectHealthLevel(level cell.Level) {
+	cond := func() bool {
+		status, err := h.health.Get([]string{"test"})
+		return err == nil && level == status.Level()
+	}
+	if !assert.Eventually(h.t, cond, time.Second, time.Millisecond) {
+		status, _ := h.health.Get([]string{"test"})
+		// Since the current health provider API doesn't provide access to the sub-reporter
+		// status, just dump the full JSON out. Please refactor this to validate the actual
+		// contents (e.g. degraded error and so on) once it is possible.
+		bs, _ := status.JSON()
+		os.Stdout.Write(bs)
+		require.Failf(h.t, "health mismatch", "expected health level %q, got: %q (%s)", level, status.Level(), status.String())
+	}
 }
 
 func (h testHelper) setTargetFaulty(faulty bool) {
@@ -246,216 +495,6 @@ func (h testHelper) setTargetFaulty(faulty bool) {
 func (h testHelper) triggerFullReconciliation() {
 	h.r.TriggerFullReconciliation()
 }
-
-// Some constants so we don't use mysterious numbers in the test steps.
-const (
-	ID_1 = uint64(1)
-	ID_2 = uint64(2)
-	ID_3 = uint64(3)
-)
-
-var _ reconciler.Target[*testObject] = &mockTarget{}
-
-func TestReconciler(t *testing.T) {
-	defer goleak.VerifyNone(t)
-
-	var (
-		mt       = &mockTarget{}
-		db       *statedb.DB
-		registry *metricsPkg.Registry
-		r        reconciler.Reconciler[*testObject]
-		health   cell.Health
-	)
-
-	testObjects, err := statedb.NewTable[*testObject]("test-objects", idIndex)
-	require.NoError(t, err, "NewTable")
-
-	hive := hive.New(
-		statedb.Cell,
-		job.Cell,
-		reconciler.Cell,
-
-		cell.Group(
-			cell.Provide(func() *option.DaemonConfig { return option.Config }),
-			cell.Provide(func() metricsPkg.RegistryConfig { return metricsPkg.RegistryConfig{} }),
-			cell.Provide(metricsPkg.NewRegistry),
-		),
-
-		cell.Invoke(func(r *metricsPkg.Registry) {
-			registry = r
-		}),
-
-		cell.Module(
-			"test",
-			"Test",
-			cell.Provide(func(db_ *statedb.DB) (statedb.RWTable[*testObject], error) {
-				db = db_
-				return testObjects, db.RegisterTable(testObjects)
-			}),
-			cell.Provide(
-				func() (*mockTarget, reconciler.Target[*testObject]) {
-					return mt, mt
-				},
-			),
-			cell.Provide(func() reconciler.Config[*testObject] {
-				return reconciler.Config[*testObject]{
-					// Don't run the full reconciliation via timer, but rather explicitly so that the full
-					// reconciliation operations don't mix with incremental when not expected.
-					FullReconcilationInterval: time.Hour,
-
-					RetryBackoffMinDuration: time.Millisecond,
-					RetryBackoffMaxDuration: time.Millisecond,
-					GetObjectStatus:         (*testObject).GetStatus,
-					WithObjectStatus:        (*testObject).WithStatus,
-				}
-			}),
-			cell.Provide(reconciler.New[*testObject]),
-
-			cell.Invoke(func(r_ reconciler.Reconciler[*testObject], h cell.Health) {
-				r = r_
-				health = h
-			}),
-		),
-	)
-
-	require.NoError(t, hive.Start(context.TODO()), "Start")
-
-	h := testHelper{
-		t:      t,
-		db:     db,
-		tbl:    testObjects,
-		target: mt,
-		r:      r,
-		health: health,
-	}
-
-	t.Run("incremental", func(t *testing.T) {
-		h.t = t
-
-		// Insert some test objects and check that they're reconciled
-		t.Logf("Inserting test objects 1, 2 & 3")
-		h.insert(ID_1, NonFaulty, reconciler.StatusPending())
-		h.expectOp("update: 1")
-		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
-
-		h.insert(ID_2, NonFaulty, reconciler.StatusPending())
-		h.expectOp("update: 2")
-		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
-
-		h.insert(ID_3, NonFaulty, reconciler.StatusPending())
-		h.expectOp("update: 3")
-		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
-
-		// Set one to be faulty => object will error
-		t.Log("Setting '1' faulty")
-		h.insert(ID_1, Faulty, reconciler.StatusPending())
-		h.expectOp("update fail: 1")
-		h.expectStatus(ID_1, reconciler.StatusKindError, "update fail")
-		h.expectRetried(ID_1)
-
-		// Fix the object => object will reconcile again.
-		t.Log("Setting '1' non-faulty")
-		h.insert(ID_1, NonFaulty, reconciler.StatusPending())
-		h.expectOp("update: 1")
-		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
-
-		t.Log("Delete 1 & 2")
-		h.markForDelete(ID_1)
-		h.expectOp("delete: 1")
-		h.expectNotFound(ID_1)
-
-		h.markForDelete(ID_2)
-		h.expectOp("delete: 2")
-		h.expectNotFound(ID_2)
-
-		t.Log("Try to delete '3' with faulty target")
-		h.setTargetFaulty(true)
-		h.markForDelete(ID_3)
-		h.expectOp("delete fail: 3")
-		h.expectStatus(ID_3, reconciler.StatusKindError, "delete fail")
-
-		t.Log("Delete 3")
-		h.setTargetFaulty(false)
-		h.expectOp("delete: 3")
-		h.expectNotFound(ID_3)
-	})
-
-	t.Run("full", func(t *testing.T) {
-
-		// Without any objects, we should only see prune.
-		t.Log("Full reconciliation without objects")
-		h.triggerFullReconciliation()
-		h.expectOp("prune: 0")
-
-		// Add few objects and wait until incremental reconciliation is done.
-		t.Log("Insert test objects")
-		h.insert(ID_1, NonFaulty, reconciler.StatusPending())
-		h.insert(ID_2, NonFaulty, reconciler.StatusPending())
-		h.insert(ID_3, NonFaulty, reconciler.StatusPending())
-		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
-		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
-		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
-
-		// Full reconciliation with functioning target.
-		t.Log("Full reconciliation with non-faulty target")
-		h.triggerFullReconciliation()
-		h.expectOps("prune: 3", "update: 1", "update: 2", "update: 3")
-		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
-		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
-		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
-
-		// Make the target faulty and trigger the full reconciliation.
-		t.Log("Full reconciliation with faulty target")
-		h.setTargetFaulty(true)
-		h.triggerFullReconciliation()
-		h.expectOps("update fail: 1", "update fail: 2", "update fail: 3")
-
-		// Expect the objects to be retried also after the full reconciliation.
-		h.expectRetried(ID_1)
-		h.expectRetried(ID_2)
-		h.expectRetried(ID_3)
-
-		// All should be marked as errored.
-		h.expectStatus(ID_1, reconciler.StatusKindError, "update fail")
-		h.expectStatus(ID_2, reconciler.StatusKindError, "update fail")
-		h.expectStatus(ID_3, reconciler.StatusKindError, "update fail")
-
-		// Make the target health again and check that the objects recover.
-		t.Log("Retries succeed after target is non-faulty")
-		h.setTargetFaulty(false)
-		h.expectOps("update: 1", "update: 2", "update: 3")
-		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
-		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
-		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
-
-		// Cleanup.
-		h.markForDelete(ID_1)
-		h.markForDelete(ID_2)
-		h.markForDelete(ID_3)
-		h.triggerFullReconciliation()
-		h.expectOp("prune: 0")
-		h.expectNotFound(ID_1)
-		h.expectNotFound(ID_2)
-		h.expectNotFound(ID_3)
-	})
-
-	// ---
-	// Validate that the metrics are populated and make some sense.
-	m := dumpMetrics(registry)
-	assertSensibleMetricDuration(t, m, "cilium_reconciler_full_duration_seconds/module_id=test,op=prune")
-	assertSensibleMetricDuration(t, m, "cilium_reconciler_full_duration_seconds/module_id=test,op=update")
-	assert.Greater(t, m["cilium_reconciler_full_out_of_sync_total/module_id=test"], 0.0)
-	assert.Greater(t, m["cilium_reconciler_full_total/module_id=test"], 0.0)
-
-	assertSensibleMetricDuration(t, m, "cilium_reconciler_incremental_duration_seconds/module_id=test,op=update")
-	assertSensibleMetricDuration(t, m, "cilium_reconciler_incremental_duration_seconds/module_id=test,op=delete")
-	assert.Equal(t, m["cilium_reconciler_incremental_errors_current/module_id=test"], 0.0)
-	assert.Greater(t, m["cilium_reconciler_incremental_errors_total/module_id=test"], 0.0)
-	assert.Greater(t, m["cilium_reconciler_incremental_total/module_id=test"], 0.0)
-
-	assert.NoError(t, hive.Stop(context.TODO()), "Stop")
-}
-
 func assertSensibleMetricDuration(t *testing.T, metrics map[string]float64, metric string) {
 	assert.Less(t, metrics[metric], 1.0, "expected metric %q to be above zero", metric)
 

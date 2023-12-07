@@ -198,8 +198,9 @@ func (p *healthProvider) process(id FullModuleID, u Update) {
 		}
 
 		ns := Status{
-			Update:      u,
-			LastUpdated: t,
+			FullModuleID: id,
+			Update:       u,
+			LastUpdated:  t,
 		}
 
 		switch u.Level() {

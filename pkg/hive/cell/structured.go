@@ -37,6 +37,11 @@ type children sets.Set[string]
 // a structured view of the health of the system.
 var reporterMinTimeout = time.Millisecond * 500
 
+// FIXME(JM): Figure out proper solution to this. Maybe instead of timeout do backoff?
+func SetReporterMinTimeoutForTest(timeout time.Duration) {
+	reporterMinTimeout = timeout
+}
+
 // Scope provides a node in the structured health reporter tree that is
 // serves only as a parent for other nodes (scopes or reporters), and is
 // used to group related reporters together.
