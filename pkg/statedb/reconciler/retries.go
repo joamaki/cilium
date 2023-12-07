@@ -67,19 +67,19 @@ func (rq *retries) Pop() {
 
 func (rq *retries) Add(key []byte) {
 	var (
-		retryObj *retryItem
-		ok       bool
+		item *retryItem
+		ok   bool
 	)
-	if retryObj, ok = rq.items[string(key)]; !ok {
-		retryObj = &retryItem{
+	if item, ok = rq.items[string(key)]; !ok {
+		item = &retryItem{
 			key:        key,
 			numRetries: 0,
 		}
-		rq.items[string(key)] = retryObj
+		rq.items[string(key)] = item
 	}
-	retryObj.numRetries += 1
-	retryObj.retryAt = time.Now().Add(rq.backoff.Duration(retryObj.numRetries))
-	heap.Push(&rq.queue, retryObj)
+	item.numRetries += 1
+	item.retryAt = time.Now().Add(rq.backoff.Duration(item.numRetries))
+	heap.Push(&rq.queue, item)
 }
 
 func (rq *retries) Clear(key []byte) {

@@ -130,7 +130,7 @@ func (r *reconciler[Obj]) loop(ctx context.Context, health cell.HealthReporter) 
 
 		// TODO: stats in health, e.g. number of objects and so on.
 		if len(errs) == 0 {
-			health.OK("OK")
+			health.OK(fmt.Sprintf("OK, %d objects", r.Table.NumObjects(txn)))
 		} else {
 			health.Degraded("Reconciliation failed", errors.Join(errs...))
 		}
@@ -144,7 +144,7 @@ type targetOpResult struct {
 
 func (r *reconciler[Obj]) incremental(
 	ctx context.Context,
-	txn statedb.ReadTxn,
+	rtxn statedb.ReadTxn,
 	lastRev statedb.Revision,
 ) (statedb.Revision, <-chan struct{}, error) {
 	// In order to not lock the table while doing potentially expensive operations,
@@ -156,7 +156,7 @@ func (r *reconciler[Obj]) incremental(
 	errs := []error{}
 
 	// Function to process the new&changed objects and retries.
-	process := func(obj Obj, rev statedb.Revision) error {
+	process := func(key []byte, obj Obj, rev statedb.Revision) error {
 		start := time.Now()
 
 		status := r.Config.GetObjectStatus(obj)
@@ -170,7 +170,7 @@ func (r *reconciler[Obj]) incremental(
 		var err error
 		if status.Delete {
 			labels[LabelOperation] = OpDelete
-			err = r.Target.Delete(ctx, txn, obj)
+			err = r.Target.Delete(ctx, rtxn, obj)
 			if err == nil {
 				toBeDeleted[obj] = rev
 			} else {
@@ -178,7 +178,7 @@ func (r *reconciler[Obj]) incremental(
 			}
 		} else {
 			labels[LabelOperation] = OpUpdate
-			_, err = r.Target.Update(ctx, txn, obj)
+			_, err = r.Target.Update(ctx, rtxn, obj)
 			if err == nil {
 				updateResults[obj] = targetOpResult{rev, StatusDone()}
 			} else {
@@ -189,23 +189,37 @@ func (r *reconciler[Obj]) incremental(
 			float64(time.Since(start)) / float64(time.Second),
 		)
 
-		// Always clear any existing retries as the object has changed.
-		r.retries.Clear(r.Table.PrimaryKey(obj))
-
 		if err != nil {
 			// Reconciling the object failed, so add it to be retried.
-			r.retries.Add(r.Table.PrimaryKey(obj))
+			r.retries.Add(key)
+		} else {
+			// Reconciling succeeded, so clear the object.
+			r.retries.Clear(key)
 		}
 
 		return err
 	}
 
-	// Iterate in revision order through new, changed or failed objects.
+	// Iterate in revision order through new and changed objects.
 	newRevision := lastRev
-	iter, watch := r.Table.LowerBound(txn, statedb.ByRevision[Obj](lastRev+1))
+	iter, watch := r.Table.LowerBound(rtxn, statedb.ByRevision[Obj](lastRev+1))
 	for obj, rev, ok := iter.Next(); ok; obj, rev, ok = iter.Next() {
 		newRevision = rev
-		err := process(obj, rev)
+
+		status := r.Config.GetObjectStatus(obj)
+		if status.Kind != StatusKindPending {
+			// Only process objects that are pending reconciliation, e.g.
+			// changed from outside.
+			// Failures (e.g. StatusKindError) are processed via the retry queue.
+			continue
+		}
+
+		key := r.Table.PrimaryKey(obj)
+
+		// Clear an existing retry as the object has changed.
+		r.retries.Clear(key)
+
+		err := process(key, obj, rev)
 		if err != nil {
 			// FIXME: This probably becomes too big!
 			errs = append(errs, err)
@@ -220,7 +234,7 @@ func (r *reconciler[Obj]) incremental(
 		}
 		r.retries.Pop()
 
-		obj, rev, ok := r.Table.GetByPrimaryKey(txn, key)
+		obj, rev, ok := r.Table.GetByPrimaryKey(rtxn, key)
 		if !ok {
 			// Object has been deleted unexpectedly (e.g. from outside
 			// the reconciler). Shrug and carry on.
@@ -233,17 +247,17 @@ func (r *reconciler[Obj]) incremental(
 			continue
 		}
 
-		err := process(obj, rev)
+		err := process(key, obj, rev)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	// Commit status updates
+	// Commit status updates.
 	{
 		wtxn := r.DB.WriteTxn(r.Table)
 
-		oldRev := r.Table.Revision(txn)
+		oldRev := r.Table.Revision(rtxn)
 		newRev := r.Table.Revision(wtxn)
 
 		// Commit status for updated objects.
@@ -285,8 +299,6 @@ func (r *reconciler[Obj]) full(ctx context.Context, txn statedb.ReadTxn, lastRev
 	outOfSync := false
 
 	// First perform pruning to make room in the target.
-	// TODO: Some use-cases might want this other way around? Configurable?
-	// FIXME: The individual objects are retried, but pruning isn't.
 	iter, _ := r.Table.All(txn)
 	start := time.Now()
 	if err := r.Target.Prune(ctx, txn, iter); err != nil {

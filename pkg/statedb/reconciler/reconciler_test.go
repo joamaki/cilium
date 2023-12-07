@@ -3,10 +3,18 @@ package reconciler_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
+	"golang.org/x/exp/slices"
 
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -16,15 +24,10 @@ import (
 	"github.com/cilium/cilium/pkg/statedb"
 	"github.com/cilium/cilium/pkg/statedb/index"
 	"github.com/cilium/cilium/pkg/statedb/reconciler"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 )
 
 type testObject struct {
 	id     uint64
-	x      int
 	faulty bool
 	status reconciler.Status
 }
@@ -50,49 +53,218 @@ func (t *testObject) WithStatus(status reconciler.Status) *testObject {
 	return &t2
 }
 
+type opHistory struct {
+	mu      sync.Mutex
+	history []string
+}
+
+func (o *opHistory) add(format string, args ...any) {
+	o.mu.Lock()
+	o.history = append(o.history, fmt.Sprintf(format, args...))
+	o.mu.Unlock()
+}
+
+func (o *opHistory) latest() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.history) > 0 {
+		return o.history[len(o.history)-1]
+	}
+	return ""
+}
+
+func (o *opHistory) take(n int) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	out := []string{}
+	for n > 0 {
+		idx := len(o.history) - n
+		if idx >= 0 {
+			out = append(out, o.history[idx])
+		}
+		n--
+	}
+	return out
+}
+
+type intMap struct {
+	sync.Map
+}
+
+func (m *intMap) incr(key uint64) {
+	if n, ok := m.Load(key); ok {
+		m.Store(key, n.(int)+1)
+	} else {
+		m.Store(key, 1)
+	}
+}
+
+func (m *intMap) get(key uint64) int {
+	if n, ok := m.Load(key); ok {
+		return n.(int)
+	}
+	return 0
+}
+
 type mockTarget struct {
-	pruned  atomic.Bool
-	updated atomic.Bool
-	deleted atomic.Bool
+	history opHistory
 	faulty  atomic.Bool
+	updates intMap
 }
 
 // Delete implements reconciler.Target.
-func (mt *mockTarget) Delete(context.Context, statedb.ReadTxn, *testObject) error {
-	mt.deleted.Store(true)
-	if mt.faulty.Load() {
-		return errors.New("oopsie")
+func (mt *mockTarget) Delete(ctx context.Context, txn statedb.ReadTxn, obj *testObject) error {
+	if mt.faulty.Load() || obj.faulty {
+		mt.history.add("delete fail: %d", obj.id)
+		return errors.New("delete fail")
 	}
+	mt.history.add("delete: %d", obj.id)
+
 	return nil
 }
 
 // Prune implements reconciler.Target.
-func (mt *mockTarget) Prune(context.Context, statedb.ReadTxn, statedb.Iterator[*testObject]) error {
-	mt.pruned.Store(true)
+func (mt *mockTarget) Prune(ctx context.Context, txn statedb.ReadTxn, iter statedb.Iterator[*testObject]) error {
+	objs := statedb.Collect(iter)
+	mt.history.add("prune: %d", len(objs))
 	return nil
 }
 
 // Update implements reconciler.Target.
-func (mt *mockTarget) Update(ctx context.Context, txn statedb.ReadTxn, o *testObject) (changed bool, err error) {
-	mt.updated.Store(true)
-	if mt.faulty.Load() || o.faulty {
-		return true, errors.New("oopsie")
+func (mt *mockTarget) Update(ctx context.Context, txn statedb.ReadTxn, obj *testObject) (changed bool, err error) {
+	mt.updates.incr(obj.id)
+	if mt.faulty.Load() || obj.faulty {
+		mt.history.add("update fail: %d", obj.id)
+		return true, errors.New("update fail")
 	}
-
+	mt.history.add("update: %d", obj.id)
 	return true, nil
 }
+
+// testHelper defines a sort of mini-language for writing the test steps.
+type testHelper struct {
+	t      *testing.T
+	db     *statedb.DB
+	tbl    statedb.RWTable[*testObject]
+	target *mockTarget
+	r      reconciler.Reconciler[*testObject]
+	health cell.Health
+}
+
+const (
+	Faulty    = true
+	NonFaulty = false
+)
+
+func (h testHelper) insert(id uint64, faulty bool, status reconciler.Status) {
+	wtxn := h.db.WriteTxn(h.tbl)
+	_, _, err := h.tbl.Insert(wtxn, &testObject{
+		id:     id,
+		faulty: faulty,
+		status: status,
+	})
+	require.NoError(h.t, err, "insert failed")
+	wtxn.Commit()
+}
+
+func (h testHelper) markForDelete(id uint64) {
+	wtxn := h.db.WriteTxn(h.tbl)
+	_, _, err := h.tbl.Insert(wtxn, &testObject{
+		id:     id,
+		faulty: false,
+		status: reconciler.StatusPendingDelete(),
+	})
+	require.NoError(h.t, err, "delete failed")
+	wtxn.Commit()
+}
+
+func (h testHelper) expectStatus(id uint64, kind reconciler.StatusKind, err string) {
+	cond := func() bool {
+		obj, _, ok := h.tbl.First(h.db.ReadTxn(), idIndex.Query(id))
+		return ok && obj.status.Kind == kind && obj.status.Error == err
+	}
+	if !assert.Eventually(h.t, cond, time.Second, time.Millisecond) {
+		actual := "<not found>"
+		obj, _, ok := h.tbl.First(h.db.ReadTxn(), idIndex.Query(id))
+		if ok {
+			actual = string(obj.status.Kind)
+		}
+		require.Failf(h.t, "status mismatch", "expected object %d to be marked with status %q, but it was %q",
+			id, kind, actual)
+
+	}
+}
+
+func (h testHelper) expectNotFound(id uint64) {
+	cond := func() bool {
+		_, _, ok := h.tbl.First(h.db.ReadTxn(), idIndex.Query(id))
+		return !ok
+	}
+	require.Eventually(h.t, cond, time.Second, time.Millisecond, "expected object %d to not be found", id)
+}
+
+func (h testHelper) expectOp(op string) {
+	cond := func() bool {
+		return h.target.history.latest() == op
+	}
+	if !assert.Eventually(h.t, cond, time.Second, time.Millisecond) {
+		require.Failf(h.t, "operation mismatch", "expected last operation to be %q, it was %q", op, h.target.history.latest())
+	}
+}
+
+func (h testHelper) expectOps(ops ...string) {
+	sort.Strings(ops)
+	cond := func() bool {
+		actual := h.target.history.take(len(ops))
+		sort.Strings(actual)
+		return slices.Equal(ops, actual)
+	}
+	if !assert.Eventually(h.t, cond, time.Second, time.Millisecond) {
+		actual := h.target.history.take(len(ops))
+		sort.Strings(actual)
+		require.Failf(h.t, "operations mismatch", "expected operations to be %v, but they were %v", ops, actual)
+	}
+}
+
+func (h testHelper) expectRetried(id uint64) {
+	old := h.target.updates.get(id)
+	cond := func() bool {
+		new := h.target.updates.get(id)
+		return new > old
+	}
+	require.Eventually(h.t, cond, time.Second, time.Millisecond, "expected %d to be retried", id)
+}
+
+func (h testHelper) expectHealthOK(s string) {
+}
+
+func (h testHelper) setTargetFaulty(faulty bool) {
+	h.target.faulty.Store(faulty)
+}
+
+func (h testHelper) triggerFullReconciliation() {
+	h.r.TriggerFullReconciliation()
+}
+
+// Some constants so we don't use mysterious numbers in the test steps.
+const (
+	ID_1 = uint64(1)
+	ID_2 = uint64(2)
+	ID_3 = uint64(3)
+)
 
 var _ reconciler.Target[*testObject] = &mockTarget{}
 
 func TestReconciler(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	mt := &mockTarget{}
-
 	var (
+		mt       = &mockTarget{}
 		db       *statedb.DB
-		metrics  *reconciler.Metrics
 		registry *metricsPkg.Registry
+		r        reconciler.Reconciler[*testObject]
+		health   cell.Health
 	)
 
 	testObjects, err := statedb.NewTable[*testObject]("test-objects", idIndex)
@@ -109,9 +281,8 @@ func TestReconciler(t *testing.T) {
 			cell.Provide(metricsPkg.NewRegistry),
 		),
 
-		cell.Invoke(func(r *metricsPkg.Registry, m *reconciler.Metrics) {
+		cell.Invoke(func(r *metricsPkg.Registry) {
 			registry = r
-			metrics = m
 		}),
 
 		cell.Module(
@@ -128,147 +299,145 @@ func TestReconciler(t *testing.T) {
 			),
 			cell.Provide(func() reconciler.Config[*testObject] {
 				return reconciler.Config[*testObject]{
-					FullReconcilationInterval: 5 * time.Millisecond,
-					RetryBackoffMinDuration:   time.Millisecond,
-					RetryBackoffMaxDuration:   time.Millisecond,
-					GetObjectStatus:           (*testObject).GetStatus,
-					WithObjectStatus:          (*testObject).WithStatus,
+					// Don't run the full reconciliation via timer, but rather explicitly so that the full
+					// reconciliation operations don't mix with incremental when not expected.
+					FullReconcilationInterval: time.Hour,
+
+					RetryBackoffMinDuration: time.Millisecond,
+					RetryBackoffMaxDuration: time.Millisecond,
+					GetObjectStatus:         (*testObject).GetStatus,
+					WithObjectStatus:        (*testObject).WithStatus,
 				}
 			}),
-			cell.Invoke(reconciler.Register[*testObject]),
+			cell.Provide(reconciler.New[*testObject]),
+
+			cell.Invoke(func(r_ reconciler.Reconciler[*testObject], h cell.Health) {
+				r = r_
+				health = h
+			}),
 		),
 	)
 
 	require.NoError(t, hive.Start(context.TODO()), "Start")
 
-	numIterations := 10
-	for i := 0; i < numIterations; i++ {
-		mt.faulty.Store(false)
-		mt.updated.Store(false)
-		mt.pruned.Store(false)
-		mt.deleted.Store(false)
-
-		getStatus := func() reconciler.Status {
-			obj, _, ok := testObjects.First(db.ReadTxn(), idIndex.Query(uint64(i)))
-			if !ok {
-				return reconciler.Status{}
-			}
-			return obj.status
-		}
-
-		eventually := func(msg string, cond func() bool) {
-			assert.Eventually(t, cond, time.Second, time.Millisecond, msg)
-		}
-
-		// ---
-		// Check initial reconciliation.
-
-		wtxn := db.WriteTxn(testObjects)
-		testObjects.Insert(wtxn,
-			&testObject{
-				id:     uint64(i),
-				x:      0,
-				status: reconciler.StatusPending(),
-			})
-		wtxn.Commit()
-
-		// Wait until the object has been reconciled.
-		eventually(
-			"object has been reconciled and marked done",
-			func() bool {
-				isDone := getStatus().Kind == reconciler.StatusKindDone
-				return mt.updated.Load() && !mt.deleted.Load() && isDone
-			})
-
-		// ---
-		// Make the target faulty and modify the object. Check that
-		// it is retried and eventually recovers when target is healthy again.
-		mt.faulty.Store(true)
-
-		wtxn = db.WriteTxn(testObjects)
-		testObjects.Insert(wtxn,
-			&testObject{
-				id:     uint64(i),
-				x:      1,
-				status: reconciler.StatusPending(),
-			})
-		wtxn.Commit()
-
-		eventually(
-			"object has been marked with error",
-			func() bool {
-				s := getStatus()
-				return s.Kind == reconciler.StatusKindError && s.Error == "oopsie"
-			})
-
-		mt.faulty.Store(false)
-
-		eventually(
-			"object has been marked done",
-			func() bool {
-				s := getStatus()
-				return s.Kind == reconciler.StatusKindDone && s.Error == ""
-			})
-
-		// ---
-		// Validate that the full reconciliation has been run at least once and that the
-		// object has been poked.
-
-		mt.updated.Store(false)
-
-		eventually(
-			"full reconciliation has run",
-			func() bool {
-				countMetric, _ := metrics.FullReconciliationCount.GetMetricWith(prometheus.Labels{reconciler.LabelModuleId: "test"})
-				return mt.pruned.Load() && mt.updated.Load() && countMetric.Get() >= 1.0
-			})
-
-		// ---
-		// Validate that failed full reconciliation for an object will be retried.
-
-		mt.faulty.Store(true)
-
-		// Wait until the object has been marked error'd after full reconciliation
-		eventually(
-			"object has been marked with error",
-			func() bool {
-				s := getStatus()
-				return s.Kind == reconciler.StatusKindError &&
-					s.Error == "oopsie"
-			})
-
-		// Make things work again and wait for reconciliation.
-		mt.faulty.Store(false)
-
-		eventually(
-			"object has been marked done after full reconciliation",
-			func() bool {
-				s := getStatus()
-				return s.Kind == reconciler.StatusKindDone && s.Error == ""
-			})
-
-		// ---
-		// Mark the object for deletion and check that it's deleted.
-
-		wtxn = db.WriteTxn(testObjects)
-		testObjects.Insert(wtxn, &testObject{id: uint64(i), status: reconciler.StatusPendingDelete()})
-		wtxn.Commit()
-
-		eventually(
-			"object has been deleted",
-			func() bool {
-				s := getStatus()
-				return mt.deleted.Load() && s.Kind == "" /* proxy for missing object */
-			})
-
-		if t.Failed() {
-			break
-		}
+	h := testHelper{
+		t:      t,
+		db:     db,
+		tbl:    testObjects,
+		target: mt,
+		r:      r,
+		health: health,
 	}
 
-	// FIXME:
-	// - if object fails in full reconciliation it should be retried
-	// - if object changes retries are cleared
+	t.Run("incremental", func(t *testing.T) {
+		h.t = t
+
+		// Insert some test objects and check that they're reconciled
+		t.Logf("Inserting test objects 1, 2 & 3")
+		h.insert(ID_1, NonFaulty, reconciler.StatusPending())
+		h.expectOp("update: 1")
+		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+
+		h.insert(ID_2, NonFaulty, reconciler.StatusPending())
+		h.expectOp("update: 2")
+		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+
+		h.insert(ID_3, NonFaulty, reconciler.StatusPending())
+		h.expectOp("update: 3")
+		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+
+		// Set one to be faulty => object will error
+		t.Log("Setting '1' faulty")
+		h.insert(ID_1, Faulty, reconciler.StatusPending())
+		h.expectOp("update fail: 1")
+		h.expectStatus(ID_1, reconciler.StatusKindError, "update fail")
+		h.expectRetried(ID_1)
+
+		// Fix the object => object will reconcile again.
+		t.Log("Setting '1' non-faulty")
+		h.insert(ID_1, NonFaulty, reconciler.StatusPending())
+		h.expectOp("update: 1")
+		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+
+		t.Log("Delete 1 & 2")
+		h.markForDelete(ID_1)
+		h.expectOp("delete: 1")
+		h.expectNotFound(ID_1)
+
+		h.markForDelete(ID_2)
+		h.expectOp("delete: 2")
+		h.expectNotFound(ID_2)
+
+		t.Log("Try to delete '3' with faulty target")
+		h.setTargetFaulty(true)
+		h.markForDelete(ID_3)
+		h.expectOp("delete fail: 3")
+		h.expectStatus(ID_3, reconciler.StatusKindError, "delete fail")
+
+		t.Log("Delete 3")
+		h.setTargetFaulty(false)
+		h.expectOp("delete: 3")
+		h.expectNotFound(ID_3)
+	})
+
+	t.Run("full", func(t *testing.T) {
+
+		// Without any objects, we should only see prune.
+		t.Log("Full reconciliation without objects")
+		h.triggerFullReconciliation()
+		h.expectOp("prune: 0")
+
+		// Add few objects and wait until incremental reconciliation is done.
+		t.Log("Insert test objects")
+		h.insert(ID_1, NonFaulty, reconciler.StatusPending())
+		h.insert(ID_2, NonFaulty, reconciler.StatusPending())
+		h.insert(ID_3, NonFaulty, reconciler.StatusPending())
+		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+
+		// Full reconciliation with functioning target.
+		t.Log("Full reconciliation with non-faulty target")
+		h.triggerFullReconciliation()
+		h.expectOps("prune: 3", "update: 1", "update: 2", "update: 3")
+		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+
+		// Make the target faulty and trigger the full reconciliation.
+		t.Log("Full reconciliation with faulty target")
+		h.setTargetFaulty(true)
+		h.triggerFullReconciliation()
+		h.expectOps("update fail: 1", "update fail: 2", "update fail: 3")
+
+		// Expect the objects to be retried also after the full reconciliation.
+		h.expectRetried(ID_1)
+		h.expectRetried(ID_2)
+		h.expectRetried(ID_3)
+
+		// All should be marked as errored.
+		h.expectStatus(ID_1, reconciler.StatusKindError, "update fail")
+		h.expectStatus(ID_2, reconciler.StatusKindError, "update fail")
+		h.expectStatus(ID_3, reconciler.StatusKindError, "update fail")
+
+		// Make the target health again and check that the objects recover.
+		t.Log("Retries succeed after target is non-faulty")
+		h.setTargetFaulty(false)
+		h.expectOps("update: 1", "update: 2", "update: 3")
+		h.expectStatus(ID_1, reconciler.StatusKindDone, "")
+		h.expectStatus(ID_2, reconciler.StatusKindDone, "")
+		h.expectStatus(ID_3, reconciler.StatusKindDone, "")
+
+		// Cleanup.
+		h.markForDelete(ID_1)
+		h.markForDelete(ID_2)
+		h.markForDelete(ID_3)
+		h.triggerFullReconciliation()
+		h.expectOp("prune: 0")
+		h.expectNotFound(ID_1)
+		h.expectNotFound(ID_2)
+		h.expectNotFound(ID_3)
+	})
 
 	// ---
 	// Validate that the metrics are populated and make some sense.

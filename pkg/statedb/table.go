@@ -116,6 +116,11 @@ func (t *genTable[Obj]) Revision(txn ReadTxn) Revision {
 	return txn.getTxn().GetRevision(t.table)
 }
 
+func (t *genTable[Obj]) NumObjects(txn ReadTxn) int {
+	indexTxn := txn.getTxn().mustIndexReadTxn(t.table, t.primaryAnyIndexer.name)
+	return indexTxn.entry.tree.Len()
+}
+
 func (t *genTable[Obj]) PrimaryKey(obj Obj) []byte {
 	return t.primaryAnyIndexer.fromObject(object{data: obj}).First()
 }

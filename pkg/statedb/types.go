@@ -57,6 +57,9 @@ type Table[Obj any] interface {
 	// are not possible with a lower bound search.
 	LowerBound(ReadTxn, Query[Obj]) (iter Iterator[Obj], watch <-chan struct{})
 
+	// NumObjects returns the number of objects stored in the table.
+	NumObjects(ReadTxn) int
+
 	// DeleteTracker creates a new delete tracker for the table.
 	//
 	// It starts tracking deletions performed against the table from the
