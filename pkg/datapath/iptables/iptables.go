@@ -38,6 +38,8 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
+	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/rate"
 	"github.com/cilium/cilium/pkg/statedb"
 	"github.com/cilium/cilium/pkg/time"
 	"github.com/cilium/cilium/pkg/versioncheck"
@@ -1237,7 +1239,7 @@ func (m *Manager) RemoveFromNodeIpset(nodeIP net.IP) {
 	}
 }
 
-func (m *Manager) installMasqueradeRules(prog iptablesInterface, ifName, localDeliveryInterface,
+func (m *Manager) installMasqueradeRules(state *desiredState, prog iptablesInterface, ifName, localDeliveryInterface,
 	snatDstExclusionCIDR, allocRange, hostMasqueradeIP string) error {
 	if m.sharedCfg.NodeIpsetNeeded {
 		// Exclude traffic to nodes from masquerade.
@@ -1277,8 +1279,7 @@ func (m *Manager) installMasqueradeRules(prog iptablesInterface, ifName, localDe
 		var defaultRoutes []netlink.Route
 
 		// TODO reconcile on device changes
-		nativeDevices, _ := tables.SelectedDevices(m.devices, m.db.ReadTxn())
-		devices := tables.DeviceNames(nativeDevices)
+		devices := tables.DeviceNames(state.devices)
 
 		if len(m.sharedCfg.MasqueradeInterfaces) > 0 {
 			devices = m.sharedCfg.MasqueradeInterfaces
@@ -1558,9 +1559,53 @@ func (m *Manager) installHostTrafficMarkRule(prog iptablesInterface) error {
 		"-j", "MARK", "--set-xmark", markAsFromHost})
 }
 
+type desiredState struct {
+	devices   []*tables.Device
+	localNode node.LocalNode
+	// ...
+	//
+}
+
+type operations struct {
+}
+
+func (o *operations) apply(s *desiredState) error {
+
+}
+
+type ops interface {
+	apply(*desiredState) error
+}
+
+func (m *Manager) reconcilationLoop(ctx context.Context, health cell.HealthReporter) error {
+	limiter := rate.NewLimiter(10*time.Second, 1)
+	var localNodes <-chan node.LocalNode
+	var state desiredState
+	for {
+		txn := m.db.ReadTxn()
+		var devicesWatch <-chan struct{}
+		state.devices, devicesWatch = tables.SelectedDevices(m.devices, txn)
+
+		err := m.InstallRules(ctx, &state, defaults.HostDevice, false, option.Config.InstallIptRules)
+		if err != nil {
+			health.Degraded("InstallRules failed", err)
+		}
+
+		limiter.Wait(ctx)
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-devicesWatch:
+		case state.localNode = <-localNodes:
+		}
+	}
+
+}
+
 // InstallRules installs iptables rules for Cilium in specific use-cases
 // (most specifically, interaction with kube-proxy).
-func (m *Manager) InstallRules(ctx context.Context, ifName string, firstInitialization, install bool) error {
+func (m *Manager) InstallRules(ctx context.Context, state *desiredState, ifName string, firstInitialization, install bool) error {
 	backoff := backoff.Exponential{
 		Min:  20 * time.Second,
 		Max:  3 * time.Minute,
@@ -1572,7 +1617,7 @@ func (m *Manager) InstallRules(ctx context.Context, ifName string, firstInitiali
 
 	for {
 		attempt += 1
-		err := m.doInstallRules(ifName, firstInitialization, install)
+		err := m.doInstallRules(state, ifName, firstInitialization, install)
 		if err == nil {
 			log.Info("Iptables rules installed")
 			return nil
@@ -1587,7 +1632,7 @@ func (m *Manager) InstallRules(ctx context.Context, ifName string, firstInitiali
 	}
 }
 
-func (m *Manager) doInstallRules(ifName string, firstInitialization, install bool) error {
+func (m *Manager) doInstallRules(state *desiredState, ifName string, firstInitialization, install bool) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -1602,7 +1647,7 @@ func (m *Manager) doInstallRules(ifName string, firstInitialization, install boo
 
 	// install rules if needed
 	if install {
-		if err := m.installRules(ifName); err != nil {
+		if err := m.installRules(state, ifName); err != nil {
 			return err
 		}
 
@@ -1651,7 +1696,7 @@ func (m *Manager) doInstallRules(ifName string, firstInitialization, install boo
 
 // installRules installs iptables rules for Cilium in specific use-cases
 // (most specifically, interaction with kube-proxy).
-func (m *Manager) installRules(ifName string) error {
+func (m *Manager) installRules(state *desiredState, ifName string) error {
 	// Install new rules
 	for _, c := range ciliumChains {
 		if err := c.add(m.sharedCfg.EnableIPv4, m.sharedCfg.EnableIPv6); err != nil {
@@ -1687,8 +1732,8 @@ func (m *Manager) installRules(ifName string) error {
 		if m.sharedCfg.IptablesMasqueradingIPv4Enabled {
 			if err := m.installMasqueradeRules(ip4tables, ifName, localDeliveryInterface,
 				datapath.RemoteSNATDstAddrExclusionCIDRv4().String(),
-				node.GetIPv4AllocRange().String(),
-				node.GetHostMasqueradeIPv4().String(),
+				state.localNode.IPv4AllocCIDR.String(),
+				state.localNode.GetCiliumInternalIP(false).String(),
 			); err != nil {
 				return fmt.Errorf("cannot install masquerade rules: %w", err)
 			}
@@ -1701,7 +1746,7 @@ func (m *Manager) installRules(ifName string) error {
 		}
 
 		if m.sharedCfg.IptablesMasqueradingIPv6Enabled {
-			if err := m.installMasqueradeRules(ip6tables, ifName, localDeliveryInterface,
+			if err := m.installMasqueradeRules(state, ip6tables, ifName, localDeliveryInterface,
 				datapath.RemoteSNATDstAddrExclusionCIDRv6().String(),
 				node.GetIPv6AllocRange().String(),
 				node.GetHostMasqueradeIPv6().String(),
