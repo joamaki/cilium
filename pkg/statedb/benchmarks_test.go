@@ -162,7 +162,6 @@ func BenchmarkDB_DeleteTracker(b *testing.B) {
 	nDeleted := 0
 	dt.Process(
 		db.ReadTxn(),
-		0,
 		func(obj testObject, deleted bool, _ Revision) error {
 			nDeleted++
 			return nil
@@ -267,12 +266,6 @@ var (
 	}
 )
 
-func closedWatchChannel() <-chan struct{} {
-	ch := make(chan struct{})
-	close(ch)
-	return ch
-}
-
 // BenchmarkDB_PropagationDelay tests the propagation delay when changes from one
 // table are propagated to another.
 func BenchmarkDB_PropagationDelay(b *testing.B) {
@@ -304,7 +297,7 @@ func BenchmarkDB_PropagationDelay(b *testing.B) {
 
 	var (
 		revision = Revision(0)
-		watch1   = closedWatchChannel()
+		watch1   = closedWatchChannel
 	)
 
 	samples := []time.Duration{}
