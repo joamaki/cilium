@@ -16,7 +16,6 @@ import (
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/statedb"
@@ -29,9 +28,6 @@ var (
 
 func setupNodeAddressing(t *testing.T, addrs []DeviceAddress) (nodeAddressing types.NodeAddressing) {
 	h := hive.New(
-		job.Cell,
-		statedb.Cell,
-
 		// Table[*Device] infrastructure, to be filled with some fakes below.
 		cell.Provide(NewDeviceTable),
 		cell.Invoke(statedb.RegisterTable[*Device]),

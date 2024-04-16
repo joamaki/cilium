@@ -378,7 +378,7 @@ func (m *manager) backgroundSync(ctx context.Context) error {
 			m.metrics.DatapathValidations.Inc()
 		}
 
-		hr := cell.GetHealthReporter(m.healthScope, "background-sync")
+		hr := m.healthScope.NewScope("background-sync")
 		if errs != nil {
 			hr.Degraded("Failed to apply node validation", errs)
 		} else {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/pprof"
+	"time"
 
 	"github.com/cilium/cilium/pkg/bgpv1/agent/signaler"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -15,7 +16,6 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/util/workqueue"
 )
 
 // BGPCPResourceStore is a wrapper around the resource.Store for the BGP Control Plane reconcilers usage.
@@ -67,17 +67,20 @@ func NewBGPCPResourceStore[T k8sRuntime.Object](params bgpCPResourceStoreParams[
 	)
 
 	jobGroup.Add(
-		job.OneShot("bgpcp-resource-store-events", func(ctx context.Context, health cell.HealthReporter) (err error) {
-			s.store, err = s.resource.Store(ctx)
-			if err != nil {
-				return fmt.Errorf("error creating resource store: %w", err)
-			}
-			for event := range s.resource.Events(ctx) {
-				s.signaler.Event(struct{}{})
-				event.Done(nil)
-			}
-			return nil
-		}, job.WithRetry(3, workqueue.DefaultControllerRateLimiter()), job.WithShutdown()),
+		job.OneShot("bgpcp-resource-store-events",
+			func(ctx context.Context, health cell.HealthReporter) (err error) {
+				s.store, err = s.resource.Store(ctx)
+				if err != nil {
+					return fmt.Errorf("error creating resource store: %w", err)
+				}
+				for event := range s.resource.Events(ctx) {
+					s.signaler.Event(struct{}{})
+					event.Done(nil)
+				}
+				return nil
+			},
+			job.WithRetry(3, &job.ExponentialBackoff{Min: 100 * time.Millisecond, Max: time.Second}),
+			job.WithShutdown()),
 	)
 
 	params.Lifecycle.Append(jobGroup)

@@ -7,10 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
-	"github.com/cilium/cilium/pkg/hive/internal"
-	"github.com/cilium/cilium/pkg/lock"
+	"github.com/cilium/hive/internal"
 )
 
 // HookContext is a context passed to a lifecycle hook that is cancelled
@@ -19,12 +20,8 @@ import (
 // initialize) must abort any such operation if this context is cancelled.
 type HookContext context.Context
 
-// HookInterface mirrors the Hook interface from pkg/hive/lifecycle.go.
-// Because pkg/hive/cell depends on HookInterface then we need to have a
-// copy of it here.
-// Hive provides a "cell" version of this HookInterface interface that does
-// not depend on pkg/hive/lifecycle.go thus allowing the cell package to define
-// lifecycle hooks.
+// HookInterface wraps the Start and Stop methods that can be appended
+// to an application lifecycle.
 type HookInterface interface {
 	Start(HookContext) error
 	Stop(HookContext) error
@@ -57,8 +54,8 @@ func (h Hook) Stop(ctx HookContext) error {
 type Lifecycle interface {
 	Append(HookInterface)
 
-	Start(context.Context) error
-	Stop(context.Context) error
+	Start(*slog.Logger, context.Context) error
+	Stop(*slog.Logger, context.Context) error
 	PrintHooks()
 }
 
@@ -66,7 +63,7 @@ type Lifecycle interface {
 // to Lifecycle. It is exported for use in applications that have nested lifecycles
 // (e.g. operator).
 type DefaultLifecycle struct {
-	mu         lock.Mutex
+	mu         sync.Mutex
 	hooks      []augmentedHook
 	numStarted int
 }
@@ -83,7 +80,7 @@ func (lc *DefaultLifecycle) Append(hook HookInterface) {
 	lc.hooks = append(lc.hooks, augmentedHook{hook, nil})
 }
 
-func (lc *DefaultLifecycle) Start(ctx context.Context) error {
+func (lc *DefaultLifecycle) Start(log *slog.Logger, ctx context.Context) error {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 
@@ -102,21 +99,21 @@ func (lc *DefaultLifecycle) Start(ctx context.Context) error {
 			continue
 		}
 
-		l := log.WithField("function", fnName)
+		l := log.With("function", fnName)
 		l.Debug("Executing start hook")
 		t0 := time.Now()
 		if err := hook.Start(ctx); err != nil {
-			l.WithError(err).Error("Start hook failed")
+			l.Error("Start hook failed", "error", err)
 			return err
 		}
 		d := time.Since(t0)
-		l.WithField("duration", d).Info("Start hook executed")
+		l.Info("Start hook executed", "duration", d)
 		lc.numStarted++
 	}
 	return nil
 }
 
-func (lc *DefaultLifecycle) Stop(ctx context.Context) error {
+func (lc *DefaultLifecycle) Stop(log *slog.Logger, ctx context.Context) error {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 
@@ -137,15 +134,15 @@ func (lc *DefaultLifecycle) Stop(ctx context.Context) error {
 		if !exists {
 			continue
 		}
-		l := log.WithField("function", fnName)
+		l := log.With("function", fnName)
 		l.Debug("Executing stop hook")
 		t0 := time.Now()
 		if err := hook.Stop(ctx); err != nil {
-			l.WithError(err).Error("Stop hook failed")
+			l.Error("Stop hook failed", "error", err)
 			errs = errors.Join(errs, err)
 		} else {
 			d := time.Since(t0)
-			l.WithField("duration", d).Info("Stop hook executed")
+			l.Info("Stop hook executed", "duration", d)
 		}
 	}
 	return errs
@@ -201,6 +198,9 @@ func getHookFuncName(hook HookInterface, start bool) (name string, hasHook bool)
 	switch hook := hook.(type) {
 	case augmentedHook:
 		name, hasHook = getHookFuncName(hook.HookInterface, start)
+		if hasHook && len(hook.moduleID) > 0 {
+			name = name + " (" + hook.moduleID.String() + ")"
+		}
 		return
 	case Hook:
 		if start {

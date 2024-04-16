@@ -1619,9 +1619,7 @@ type daemonParams struct {
 	APILimiterSet        *rate.APILimiterSet
 	AuthManager          *auth.AuthManager
 	Settings             cellSettings
-	HealthProvider       cell.Health
 	HealthV2Provider     healthTypes.Provider
-	HealthScope          cell.Scope
 	DeviceManager        *linuxdatapath.DeviceManager `optional:"true"`
 	Devices              statedb.Table[*datapathTables.Device]
 	// Grab the GC object so that we can start the CT/NAT map garbage collection.

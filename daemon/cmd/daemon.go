@@ -450,7 +450,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		envoyXdsServer:       params.EnvoyXdsServer,
 		authManager:          params.AuthManager,
 		settings:             params.Settings,
-		healthProvider:       params.HealthProvider,
 		healthV2Provider:     params.HealthV2Provider,
 		bigTCPConfig:         params.BigTCPConfig,
 		tunnelConfig:         params.TunnelConfig,

@@ -22,7 +22,6 @@ import (
 	"github.com/cilium/cilium/pkg/healthv2/types"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	"github.com/cilium/cilium/pkg/lock"
 	metricsPkg "github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
@@ -67,11 +66,6 @@ func testReconciler(t *testing.T, batchOps bool) {
 	require.NoError(t, err, "NewTable")
 
 	hive := hive.New(
-		statedb.Cell,
-		healthv2.Cell,
-		job.Cell,
-		reconciler.Cell,
-
 		cell.Group(
 			cell.Provide(func() *option.DaemonConfig { return option.Config }),
 			cell.Provide(func() metricsPkg.RegistryConfig { return metricsPkg.RegistryConfig{} }),
@@ -552,7 +546,7 @@ func (h testHelper) expectHealthLevel(level cell.Level) {
 		tx := h.db.ReadTxn()
 		iter, _ := h.statusTable.LowerBound(tx,
 			healthv2.PrimaryIndex.QueryFromObject(types.Status{
-				ID: types.Identifier{Module: types.FullModuleID{"test"}},
+				ID: types.Identifier{Module: cell.FullModuleID{"test"}},
 			}))
 
 		ss := []types.Status{}
@@ -569,7 +563,7 @@ func (h testHelper) expectHealthLevel(level cell.Level) {
 		tx := h.db.ReadTxn()
 		iter, _ := h.statusTable.LowerBound(tx,
 			healthv2.PrimaryIndex.QueryFromObject(types.Status{
-				ID: types.Identifier{Module: types.FullModuleID{"test"}},
+				ID: types.Identifier{Module: cell.FullModuleID{"test"}},
 			}))
 
 		ss := []types.Status{}

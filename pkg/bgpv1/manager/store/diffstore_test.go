@@ -15,7 +15,6 @@ import (
 	"github.com/cilium/cilium/pkg/bgpv1/agent/signaler"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	slimv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
@@ -82,7 +81,6 @@ func newDiffStoreFixture() *DiffStoreFixture {
 
 		cell.Provide(NewDiffStore[*slimv1.Service]),
 
-		job.Cell,
 		cell.Provide(func() cell.Scope {
 			return cell.TestScope()
 		}),

@@ -21,7 +21,6 @@ import (
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	"github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/statedb"
@@ -551,8 +550,6 @@ func fixture(t *testing.T, addressScopeMax int, beforeStart func(*hive.Hive)) (*
 		nodeAddrs statedb.Table[NodeAddress]
 	)
 	h := hive.New(
-		job.Cell,
-		statedb.Cell,
 		NodeAddressCell,
 		cell.Provide(
 			NewDeviceTable,

@@ -18,7 +18,6 @@ import (
 	"github.com/cilium/cilium/pkg/bgpv1/agent"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	k8sPkg "github.com/cilium/cilium/pkg/k8s"
 	cilium_api_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
@@ -185,7 +184,6 @@ func newFixture(conf fixtureConfig) *fixture {
 		}),
 
 		metrics.Cell,
-		job.Cell,
 		bgpv1.Cell,
 	}
 	f.hive = hive.New(f.cells...)

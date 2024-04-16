@@ -14,7 +14,6 @@ import (
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/gops"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/pprof"
 )
@@ -50,7 +49,6 @@ var Cell = cell.Module(
 	}),
 	kvstoremesh.Cell,
 
-	job.Cell,
 	cell.Invoke(kvstoremesh.RegisterSyncWaiter),
 
 	cell.Invoke(func(*kvstoremesh.KVStoreMesh) {}),

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"runtime/pprof"
 
@@ -47,6 +48,7 @@ var Cell = cell.Module(
 type params struct {
 	cell.In
 
+	Slog                *slog.Logger
 	Lifecycle           cell.Lifecycle
 	Logger              logrus.FieldLogger
 	L2AnnouncementTable statedb.RWTable[*tables.L2AnnounceEntry]
@@ -76,7 +78,7 @@ func NewL2ResponderReconciler(params params) *l2ResponderReconciler {
 
 	group := params.JobRegistry.NewGroup(
 		params.Scope,
-		job.WithLogger(params.Logger),
+		job.WithLogger(params.Slog),
 		job.WithPprofLabels(pprof.Labels("cell", "l2-responder-reconciler")),
 	)
 	params.Lifecycle.Append(group)

@@ -38,8 +38,6 @@ func newFixture() *fixture {
 	)
 
 	hive.New(
-		statedb.Cell,
-		job.Cell,
 		cell.Provide(
 			tables.NewL2AnnounceTable,
 			statedb.RWTable[*tables.L2AnnounceEntry].ToTable,

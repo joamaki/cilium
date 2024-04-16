@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -64,6 +65,7 @@ type l2AnnouncerParams struct {
 
 	Lifecycle cell.Lifecycle
 	Logger    logrus.FieldLogger
+	Slog      *slog.Logger
 
 	DaemonConfig         *option.DaemonConfig
 	Clientset            k8sClient.Clientset
@@ -109,7 +111,7 @@ func NewL2Announcer(params l2AnnouncerParams) *L2Announcer {
 		params: params,
 		jobgroup: params.JobRegistry.NewGroup(
 			params.Scope,
-			job.WithLogger(params.Logger),
+			job.WithLogger(params.Slog),
 			job.WithPprofLabels(pprof.Labels("cell", "l2-announcer")),
 		),
 		selectedServices:  make(map[resource.Key]*selectedService),

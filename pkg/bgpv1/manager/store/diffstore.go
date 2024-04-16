@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/pprof"
+	"time"
 
 	"github.com/cilium/cilium/pkg/bgpv1/agent/signaler"
 	"github.com/cilium/cilium/pkg/hive/cell"
@@ -16,7 +17,6 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 
 	k8sRuntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/util/workqueue"
 )
 
 var ErrStoreUninitialized = errors.New("the store has not initialized yet")
@@ -80,16 +80,19 @@ func NewDiffStore[T k8sRuntime.Object](params diffStoreParams[T]) DiffStore[T] {
 	)
 
 	jobGroup.Add(
-		job.OneShot("diffstore-events", func(ctx context.Context, health cell.HealthReporter) (err error) {
-			ds.store, err = ds.resource.Store(ctx)
-			if err != nil {
-				return fmt.Errorf("error creating resource store: %w", err)
-			}
-			for event := range ds.resource.Events(ctx) {
-				ds.handleEvent(event)
-			}
-			return nil
-		}, job.WithRetry(3, workqueue.DefaultControllerRateLimiter()), job.WithShutdown()),
+		job.OneShot("diffstore-events",
+			func(ctx context.Context, health cell.HealthReporter) (err error) {
+				ds.store, err = ds.resource.Store(ctx)
+				if err != nil {
+					return fmt.Errorf("error creating resource store: %w", err)
+				}
+				for event := range ds.resource.Events(ctx) {
+					ds.handleEvent(event)
+				}
+				return nil
+			},
+			job.WithRetry(3, &job.ExponentialBackoff{Min: 100 * time.Millisecond, Max: time.Second}),
+			job.WithShutdown()),
 	)
 
 	params.Lifecycle.Append(jobGroup)

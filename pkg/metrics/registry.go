@@ -9,9 +9,10 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cilium/hive"
+	"github.com/cilium/hive/cell"
+
 	"github.com/cilium/cilium/api/v1/models"
-	"github.com/cilium/cilium/pkg/hive"
-	"github.com/cilium/cilium/pkg/hive/cell"
 	metricpkg "github.com/cilium/cilium/pkg/metrics/metric"
 	"github.com/cilium/cilium/pkg/option"
 

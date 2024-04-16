@@ -17,7 +17,6 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/statedb"
 )
@@ -53,8 +52,6 @@ func TestServiceReconciler(t *testing.T) {
 	)
 
 	h := hive.New(
-		job.Cell,
-		statedb.Cell,
 		cell.Module("test", "test",
 			cell.Provide(
 				tables.NewNodeAddressTable,

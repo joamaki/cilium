@@ -5,6 +5,7 @@ package auth
 
 import (
 	"fmt"
+	"log/slog"
 	"runtime/pprof"
 
 	"github.com/cilium/stream"
@@ -71,6 +72,7 @@ func (r config) Flags(flags *pflag.FlagSet) {
 type authManagerParams struct {
 	cell.In
 
+	Slog        *slog.Logger
 	Logger      logrus.FieldLogger
 	Lifecycle   cell.Lifecycle
 	JobRegistry job.Registry
@@ -120,7 +122,7 @@ func registerAuthManager(params authManagerParams) (*AuthManager, error) {
 
 	jobGroup := params.JobRegistry.NewGroup(
 		params.Scope,
-		job.WithLogger(params.Logger),
+		job.WithLogger(params.Slog),
 		job.WithPprofLabels(pprof.Labels("cell", "auth")),
 	)
 

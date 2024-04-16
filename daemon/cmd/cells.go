@@ -27,9 +27,7 @@ import (
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/gops"
-	"github.com/cilium/cilium/pkg/healthv2"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	ipamMetadata "github.com/cilium/cilium/pkg/ipam/metadata"
 	"github.com/cilium/cilium/pkg/k8s"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
@@ -50,7 +48,6 @@ import (
 	"github.com/cilium/cilium/pkg/redirectpolicy"
 	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/signal"
-	"github.com/cilium/cilium/pkg/statedb"
 	"github.com/cilium/cilium/pkg/statedb/reconciler"
 )
 
@@ -95,9 +92,6 @@ var (
 		// Provide option.Config via hive so cells can depend on the agent config.
 		cell.Provide(func() *option.DaemonConfig { return option.Config }),
 
-		// Provides a global job registry which cells can use to spawn job groups.
-		job.Cell,
-
 		// Cilium API served over UNIX sockets. Accessed by the 'cilium' utility (not cilium-cli).
 		server.Cell,
 		cell.Invoke(configureAPIServer),
@@ -110,10 +104,6 @@ var (
 		// the 'deletionQueue' provided by this cell.
 		deletionQueueCell,
 
-		// DB provides an extendable in-memory database with rich transactions
-		// and multi-version concurrency control through immutable radix trees.
-		statedb.Cell,
-
 		// Reconciler provides a general utility for reconciling a statedb table
 		// with a target defined via set of operations. This cell provides the
 		// common objects used by all reconcilers such as the shared metrics.
@@ -122,9 +112,6 @@ var (
 		// Store cell provides factory for creating watchStore/syncStore/storeManager
 		// useful for synchronizing data from/to kvstore.
 		store.Cell,
-
-		// Reconciler cell provides the shared metrics for all the reconcilers.
-		reconciler.Cell,
 	)
 
 	// ControlPlane implement the per-node control functions. These are pure
@@ -134,8 +121,6 @@ var (
 	ControlPlane = cell.Module(
 		"controlplane",
 		"Control Plane",
-
-		healthv2.Cell,
 
 		// LocalNodeStore holds onto the information about the local node and allows
 		// observing changes to it.

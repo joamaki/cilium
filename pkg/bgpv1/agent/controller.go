@@ -6,10 +6,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime/pprof"
+	"time"
 
 	"github.com/sirupsen/logrus"
-	"k8s.io/client-go/util/workqueue"
 
 	daemon_k8s "github.com/cilium/cilium/daemon/k8s"
 	"github.com/cilium/cilium/pkg/bgpv1/agent/signaler"
@@ -83,6 +84,7 @@ type Controller struct {
 type ControllerParams struct {
 	cell.In
 
+	Slog                    *slog.Logger
 	Lifecycle               cell.Lifecycle
 	Scope                   cell.Scope
 	JobRegistry             job.Registry
@@ -118,7 +120,7 @@ func NewController(params ControllerParams) (*Controller, error) {
 
 	jobGroup := params.JobRegistry.NewGroup(
 		params.Scope,
-		job.WithLogger(log),
+		job.WithLogger(params.Slog),
 		job.WithPprofLabels(pprof.Labels("cell", "bgp-cp")),
 	)
 
@@ -149,19 +151,22 @@ func NewController(params ControllerParams) (*Controller, error) {
 			return nil
 		}),
 
-		job.OneShot("bgp-controller", func(ctx context.Context, health cell.HealthReporter) (err error) {
-			// initialize PolicyLister used in the controller
-			policyStore, err := c.PolicyResource.Store(ctx)
-			if err != nil {
-				return fmt.Errorf("error creating CiliumBGPPeeringPolicy resource store: %w", err)
-			}
-			c.PolicyLister = policyListerFunc(func() ([]*v2alpha1api.CiliumBGPPeeringPolicy, error) {
-				return policyStore.List(), nil
-			})
-			// run the controller
-			c.Run(ctx)
-			return nil
-		}, job.WithRetry(3, workqueue.DefaultControllerRateLimiter()), job.WithShutdown()),
+		job.OneShot("bgp-controller",
+			func(ctx context.Context, health cell.HealthReporter) (err error) {
+				// initialize PolicyLister used in the controller
+				policyStore, err := c.PolicyResource.Store(ctx)
+				if err != nil {
+					return fmt.Errorf("error creating CiliumBGPPeeringPolicy resource store: %w", err)
+				}
+				c.PolicyLister = policyListerFunc(func() ([]*v2alpha1api.CiliumBGPPeeringPolicy, error) {
+					return policyStore.List(), nil
+				})
+				// run the controller
+				c.Run(ctx)
+				return nil
+			},
+			job.WithRetry(3, &job.ExponentialBackoff{Min: 100 * time.Millisecond, Max: time.Second}),
+			job.WithShutdown()),
 	)
 
 	params.Lifecycle.Append(jobGroup)

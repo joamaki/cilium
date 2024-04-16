@@ -5,9 +5,10 @@ package hivetest
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
-	"github.com/cilium/cilium/pkg/hive/cell"
+	"github.com/cilium/hive/cell"
 )
 
 // lifecycle implements [cell.Lifecycle] for testing purposes.
@@ -51,11 +52,11 @@ func (*lifecycle) PrintHooks() {
 }
 
 // Start implements cell.Lifecycle.
-func (*lifecycle) Start(context.Context) error {
+func (*lifecycle) Start(*slog.Logger, context.Context) error {
 	panic("unimplemented")
 }
 
 // Stop implements cell.Lifecycle.
-func (*lifecycle) Stop(context.Context) error {
+func (*lifecycle) Stop(*slog.Logger, context.Context) error {
 	panic("unimplemented")
 }

@@ -5,25 +5,43 @@ package cell
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
 	"go.uber.org/dig"
 
-	"github.com/cilium/cilium/pkg/hive/internal"
+	"github.com/cilium/hive/internal"
 )
 
 // provider is a set of constructors
 type provider struct {
-	ctors  []any
-	infos  []dig.ProvideInfo
-	export bool
+	ctors   []any
+	infosMu sync.Mutex
+	infos   []dig.ProvideInfo
+	export  bool
 }
 
-func (p *provider) Apply(c container) error {
-	p.infos = make([]dig.ProvideInfo, len(p.ctors))
+func (p *provider) Apply(log *slog.Logger, c container) error {
+	// Since the same Provide cell may be used multiple times
+	// in different hives we use a mutex to protect it and we
+	// fill the provide info only the first time.
+	p.infosMu.Lock()
+	defer p.infosMu.Unlock()
+
+	fillInfo := false
+	if p.infos == nil {
+		p.infos = make([]dig.ProvideInfo, len(p.ctors))
+		fillInfo = true
+	}
+
 	for i, ctor := range p.ctors {
-		if err := c.Provide(ctor, dig.Export(p.export), dig.FillProvideInfo(&p.infos[i])); err != nil {
+		opts := []dig.ProvideOption{dig.Export(p.export)}
+		if fillInfo {
+			opts = append(opts, dig.FillProvideInfo(&p.infos[i]))
+		}
+		if err := c.Provide(ctor, opts...); err != nil {
 			return err
 		}
 	}
@@ -31,6 +49,9 @@ func (p *provider) Apply(c container) error {
 }
 
 func (p *provider) Info(container) Info {
+	p.infosMu.Lock()
+	defer p.infosMu.Unlock()
+
 	n := &InfoNode{}
 	for i, ctor := range p.ctors {
 		info := p.infos[i]
@@ -44,11 +65,11 @@ func (p *provider) Info(container) Info {
 
 		var ins, outs []string
 		for _, input := range info.Inputs {
-			ins = append(ins, internal.TrimName(input.String()))
+			ins = append(ins, input.String())
 		}
 		sort.Strings(ins)
 		for _, output := range info.Outputs {
-			outs = append(outs, internal.TrimName(output.String()))
+			outs = append(outs, output.String())
 		}
 		sort.Strings(outs)
 		if len(ins) > 0 {

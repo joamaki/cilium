@@ -26,7 +26,6 @@ import (
 	"github.com/cilium/cilium/pkg/fqdn/restore"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
-	"github.com/cilium/cilium/pkg/hive/job"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/kvstore/store"
@@ -40,7 +39,6 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/proxy"
-	"github.com/cilium/cilium/pkg/statedb"
 	"github.com/cilium/cilium/pkg/testutils"
 	"github.com/cilium/cilium/pkg/types"
 )
@@ -155,8 +153,6 @@ func (ds *DaemonSuite) SetUpTest(c *C) {
 		fakeDatapath.Cell,
 		monitorAgent.Cell,
 		ControlPlane,
-		statedb.Cell,
-		job.Cell,
 		metrics.Cell,
 		store.Cell,
 		cell.Invoke(func(p promise.Promise[*Daemon]) {

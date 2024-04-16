@@ -6,15 +6,14 @@ package agentliveness
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/cilium/cilium/pkg/bpf"
+	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/hive/job"
 	"github.com/cilium/cilium/pkg/maps/configmap"
 	"github.com/cilium/cilium/pkg/time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 )
 
@@ -41,7 +40,6 @@ func (alc agentLivenessConfig) Flags(flags *pflag.FlagSet) {
 }
 
 func newAgentLivenessUpdater(
-	logger logrus.FieldLogger,
 	lifecycle cell.Lifecycle,
 	jobRegistry job.Registry,
 	scope cell.Scope,
@@ -49,9 +47,7 @@ func newAgentLivenessUpdater(
 	agentLivenessConfig agentLivenessConfig,
 ) {
 	// Discard even debug logs since this particular job is very noisy
-	log := logrus.New()
-	log.Out = io.Discard
-	group := jobRegistry.NewGroup(scope, job.WithLogger(log))
+	group := jobRegistry.NewGroup(scope, job.WithLogger(hive.NopLogger))
 
 	group.Add(job.Timer("agent-liveness-updater", func(_ context.Context) error {
 		mtime, err := bpf.GetMtime()

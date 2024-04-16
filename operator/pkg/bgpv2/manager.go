@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/pprof"
 
 	"github.com/sirupsen/logrus"
@@ -43,6 +44,7 @@ var (
 type BGPParams struct {
 	cell.In
 
+	Slog         *slog.Logger
 	Logger       logrus.FieldLogger
 	LC           cell.Lifecycle
 	Clientset    k8s_client.Clientset
@@ -59,6 +61,7 @@ type BGPParams struct {
 }
 
 type BGPResourceManager struct {
+	slog      *slog.Logger
 	logger    logrus.FieldLogger
 	clientset k8s_client.Clientset
 	lc        cell.Lifecycle
@@ -89,6 +92,7 @@ func registerBGPResourceManager(p BGPParams) *BGPResourceManager {
 	}
 
 	b := &BGPResourceManager{
+		slog:      p.Slog,
 		logger:    p.Logger,
 		clientset: p.Clientset,
 		jobs:      p.JobRegistry,
@@ -115,7 +119,7 @@ func registerBGPResourceManager(p BGPParams) *BGPResourceManager {
 func (b *BGPResourceManager) initializeJobs() job.Group {
 	jobGroup := b.jobs.NewGroup(
 		b.scope,
-		job.WithLogger(b.logger),
+		job.WithLogger(b.slog),
 		job.WithPprofLabels(pprof.Labels("cell", "bgpv2-cp-operator")),
 	)
 

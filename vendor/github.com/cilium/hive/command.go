@@ -4,10 +4,7 @@
 package hive
 
 import (
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-
-	"github.com/cilium/cilium/pkg/logging"
 )
 
 // Command constructs the cobra command for hive. The hive
@@ -17,8 +14,6 @@ func (h *Hive) Command() *cobra.Command {
 		Use:   "hive",
 		Short: "Inspect the hive",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Silence log messages from calling invokes and constructors.
-			logging.SetLogLevel(logrus.WarnLevel)
 			h.PrintObjects()
 		},
 		TraverseChildren: false,

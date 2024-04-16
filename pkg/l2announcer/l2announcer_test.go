@@ -54,9 +54,6 @@ func newFixture() *fixture {
 	)
 
 	hive.New(
-		statedb.Cell,
-		healthv2.Cell,
-		job.Cell,
 		cell.Provide(tables.NewL2AnnounceTable),
 		cell.Module("test", "test", cell.Invoke(func(d *statedb.DB, t statedb.RWTable[*tables.L2AnnounceEntry], s cell.Scope, j job.Registry) {
 			d.RegisterTable(t)

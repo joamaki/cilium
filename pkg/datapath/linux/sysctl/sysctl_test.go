@@ -137,10 +137,6 @@ func TestSysctl(t *testing.T) {
 	var sysctl Sysctl
 
 	hive := hive.New(
-		statedb.Cell,
-		job.Cell,
-		reconciler.Cell,
-
 		cell.Module(
 			"sysctl-test",
 			"sysctl-test",

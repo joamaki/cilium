@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"runtime/pprof"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/cilium/cilium/pkg/datapath/types"
 	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/hive/job"
@@ -30,7 +28,6 @@ var Cell = cell.Module(
 type custodianParameters struct {
 	cell.In
 
-	Logger         logrus.FieldLogger
 	Scope          cell.Scope
 	JobRegistry    job.Registry
 	LocalNodeStore *node.LocalNodeStore
@@ -39,7 +36,6 @@ type custodianParameters struct {
 func newKeyCustodian(lc cell.Lifecycle, p custodianParameters) types.IPsecKeyCustodian {
 	group := p.JobRegistry.NewGroup(
 		p.Scope,
-		job.WithLogger(p.Logger),
 		job.WithPprofLabels(pprof.Labels("cell", "ipsec-key-custodian")),
 	)
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -495,7 +496,7 @@ func NewStandaloneClientset(cfg Config) (Clientset, error) {
 		return nil, err
 	}
 
-	if err := lc.Start(context.Background()); err != nil {
+	if err := lc.Start(slog.Default(), context.Background()); err != nil {
 		return nil, err
 	}
 

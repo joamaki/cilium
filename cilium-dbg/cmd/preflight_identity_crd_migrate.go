@@ -61,7 +61,6 @@ func migrateIdentityCmd() *cobra.Command {
 			})
 		}),
 	)
-	hive.SetTimeouts(opTimeout, opTimeout)
 	hive.RegisterFlags(cmd.Flags())
 
 	cmd.Run = func(cmd *cobra.Command, args []string) {

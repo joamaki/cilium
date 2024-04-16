@@ -51,9 +51,6 @@ func TestManager(t *testing.T) {
 	tmpl := template.Must(template.New("ipsets").Parse(textTmpl))
 
 	hive := hive.New(
-		statedb.Cell,
-		job.Cell,
-		reconciler.Cell,
 
 		cell.Module(
 			"ipset-manager-test",

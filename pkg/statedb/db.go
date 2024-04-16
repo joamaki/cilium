@@ -15,7 +15,8 @@ import (
 	iradix "github.com/hashicorp/go-immutable-radix/v2"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/cilium/cilium/pkg/hive/cell"
+	"github.com/cilium/hive/cell"
+
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/time"
 )
