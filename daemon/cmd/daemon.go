@@ -127,6 +127,8 @@ type Daemon struct {
 
 	loader datapath.Loader
 
+	nodeNeighbors datapath.NodeNeighbors
+
 	nodeAddressing datapath.NodeAddressing
 
 	// nodeDiscovery defines the node discovery logic of the agent
@@ -403,6 +405,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		wireguardAgent:    params.WGAgent,
 		orchestrator:      params.Orchestrator,
 		iptablesManager:   params.IPTablesManager,
+		nodeNeighbors:     params.NodeNeighbors,
 	}
 
 	// Collect CIDR identities from the "old" bpf ipcache and restore them
