@@ -4,12 +4,14 @@
 package datapath
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"log/slog"
 	"path/filepath"
 
 	"github.com/cilium/hive/cell"
+	"github.com/cilium/hive/job"
 
 	"github.com/cilium/cilium/pkg/act"
 	"github.com/cilium/cilium/pkg/datapath/agentliveness"
@@ -145,8 +147,15 @@ var Cell = cell.Module(
 	// Provides node handler, which handles node events.
 	cell.Provide(linuxdatapath.NewNodeHandler),
 	cell.Provide(node.NewNodeIDApiHandler),
-	cell.Invoke(func(h types.NodeHandler, nm nodeManager.NodeManager) {
-		nm.Subscribe(h)
+	cell.Invoke(func(jg job.Group, h types.NodeHandler, nm nodeManager.NodeManager) {
+		// FIXME: Subscribe() sends to an unbuffered channel, so one can only
+		// subscribe when NodeManager is running. Rethink or just factor out the
+		// Subscribe() altogether.
+		jg.Add(job.OneShot("node-handler-subscribe",
+			func(context.Context, cell.Health) error {
+				nm.Subscribe(h)
+				return nil
+			}))
 	}),
 
 	// Provides Active Connection Tracking metrics based on counts of
