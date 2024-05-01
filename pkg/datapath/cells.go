@@ -6,9 +6,7 @@ package datapath
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
-	"path/filepath"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -19,7 +17,6 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/ipcache"
 	"github.com/cilium/cilium/pkg/datapath/iptables"
 	"github.com/cilium/cilium/pkg/datapath/l2responder"
-	"github.com/cilium/cilium/pkg/datapath/link"
 	linuxdatapath "github.com/cilium/cilium/pkg/datapath/linux"
 	"github.com/cilium/cilium/pkg/datapath/linux/bandwidth"
 	"github.com/cilium/cilium/pkg/datapath/linux/bigtcp"
@@ -42,10 +39,8 @@ import (
 	monitorAgent "github.com/cilium/cilium/pkg/monitor/agent"
 	"github.com/cilium/cilium/pkg/mtu"
 	nodeManager "github.com/cilium/cilium/pkg/node/manager"
-	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/testutils/mockmaps"
 	wg "github.com/cilium/cilium/pkg/wireguard/agent"
-	wgTypes "github.com/cilium/cilium/pkg/wireguard/types"
 )
 
 // Datapath provides the privileged operations to apply control-plane
@@ -80,8 +75,6 @@ var Cell = cell.Module(
 
 	cell.Invoke(initDatapath),
 
-	cell.Provide(newWireguardAgent),
-
 	cell.Provide(func(expConfig experimental.Config) types.LBMap {
 		if expConfig.EnableExperimentalLB {
 			// The experimental control-plane is enabled. Use a fake LBMap
@@ -91,6 +84,9 @@ var Cell = cell.Module(
 
 		return lbmap.New()
 	}),
+
+	// Wireguard agent
+	wg.Cell,
 
 	// Provides the Table[NodeAddress] and the controller that populates it from Table[*Device]
 	tables.NodeAddressCell,
@@ -163,34 +159,6 @@ var Cell = cell.Module(
 	// connections (from ctmap's GC).
 	act.Cell,
 )
-
-func newWireguardAgent(lc cell.Lifecycle, sysctl sysctl.Sysctl) *wg.Agent {
-	var wgAgent *wg.Agent
-	if option.Config.EnableWireguard {
-		if option.Config.EnableIPSec {
-			log.Fatalf("WireGuard (--%s) cannot be used with IPsec (--%s)",
-				option.EnableWireguard, option.EnableIPSecName)
-		}
-
-		var err error
-		privateKeyPath := filepath.Join(option.Config.StateDir, wgTypes.PrivKeyFilename)
-		wgAgent, err = wg.NewAgent(privateKeyPath, sysctl)
-		if err != nil {
-			log.Fatalf("failed to initialize WireGuard: %s", err)
-		}
-
-		lc.Append(cell.Hook{
-			OnStop: func(cell.HookContext) error {
-				wgAgent.Close()
-				return nil
-			},
-		})
-	} else {
-		// Delete WireGuard device from previous run (if such exists)
-		link.DeleteByName(wgTypes.IfaceName)
-	}
-	return wgAgent
-}
 
 func initDatapath(logger *slog.Logger, lifecycle cell.Lifecycle) {
 	lifecycle.Append(cell.Hook{
