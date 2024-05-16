@@ -19,6 +19,7 @@ import (
 	"github.com/cilium/statedb"
 
 	clientPkg "github.com/cilium/cilium/pkg/client"
+	"github.com/cilium/cilium/pkg/loadbalancer/experimental"
 
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/healthv2"
@@ -46,6 +47,11 @@ var statedbDumpCmd = &cobra.Command{
 		io.Copy(os.Stdout, resp.Body)
 		resp.Body.Close()
 	},
+}
+
+var statedbExperimentalCmd = &cobra.Command{
+	Use:   "experimental",
+	Short: "Experimental",
 }
 
 // StateDB HTTP handler is mounted at /statedb by configureAPIServer() in daemon/cmd/cells.go.
@@ -126,8 +132,13 @@ func statedbTableCommand[Obj statedb.TableWritable](tableName string) *cobra.Com
 }
 
 func init() {
+	statedbExperimentalCmd.AddCommand(
+		statedbTableCommand[*experimental.Frontend](experimental.FrontendsTableName),
+		statedbTableCommand[*experimental.Backend](experimental.BackendsTableName),
+	)
 	StatedbCmd.AddCommand(
 		statedbDumpCmd,
+		statedbExperimentalCmd,
 
 		statedbTableCommand[*tables.Device]("devices"),
 		statedbTableCommand[*tables.Route]("routes"),

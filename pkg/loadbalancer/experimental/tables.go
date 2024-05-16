@@ -27,7 +27,7 @@ import (
 // this reconciler is disabled and it can be enabled with the hidden "enable-new-services"
 // flag (by e.g. editing the cilium configmap)
 const (
-	BackendTableName = "backends"
+	BackendsTableName = "backends"
 )
 
 // Backend describes a backend for one or more services.
@@ -130,7 +130,7 @@ var (
 
 func NewBackendsTable(db *statedb.DB) (statedb.RWTable[*Backend], error) {
 	tbl, err := statedb.NewTable(
-		BackendTableName,
+		BackendsTableName,
 		BackendAddrIndex,
 		BackendServiceIndex,
 	)

@@ -36,9 +36,9 @@ Dockerfile
 Dockerfiles
 Donenfeld
 ECMP
+EKS
 ENI
 Efx
-EKS
 Engleder
 FIt
 Fastabend
@@ -328,6 +328,7 @@ fromCIDR
 fromCIDRSet
 fromEndpoints
 frontend
+frontends
 fs
 func
 gRPC
