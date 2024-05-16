@@ -15,5 +15,5 @@ func (def Config) Flags(flags *pflag.FlagSet) {
 }
 
 var DefaultConfig = Config{
-	EnableNewServices: false,
+	EnableNewServices: true, // FIXME: DO NOT MERGE ME
 }
