@@ -5,6 +5,7 @@ package suite
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -136,7 +137,12 @@ func (cpt *ControlPlaneTest) StartAgent(modConfig func(*agentOption.DaemonConfig
 
 	cpt.agentHandle.populateCiliumAgentOptions(cpt.tempDir, modConfig)
 
-	cpt.agentHandle.log = hivetest.Logger(cpt.t)
+	logLevel := slog.LevelInfo
+	if *FlagDebug {
+		logLevel = slog.LevelDebug
+	}
+
+	cpt.agentHandle.log = hivetest.Logger(cpt.t, hivetest.LogLevel(logLevel))
 	daemon, err := cpt.agentHandle.startCiliumAgent()
 	if err != nil {
 		cpt.t.Fatalf("Failed to start cilium agent: %s", err)
