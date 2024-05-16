@@ -503,7 +503,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		params.NodeManager,
 		&d,
 		d.policy,
-		d.svc,
+		params.NewServices.Wrapper(d.svc),
 		d.lrpManager,
 		d.bgpSpeaker,
 		option.Config,
