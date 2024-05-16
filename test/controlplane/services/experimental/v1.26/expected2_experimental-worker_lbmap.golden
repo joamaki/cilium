@@ -1,0 +1,39 @@
+ - Services --------------------------------------------------------------------------------------------------
+| ID |                                               Name |      Type |                Frontend | Backend IDs |
+|----+----------------------------------------------------+-----------+-------------------------+-------------
+|  0 |                                 default/kubernetes | ClusterIP |      10.96.0.1:443/NONE |           1 |
+|  1 |                                          test/echo | ClusterIP |    10.96.23.125:80/NONE |             |
+|  2 |                                       test/echo-lb | ClusterIP |   10.96.186.193:80/NONE |             |
+|  3 |                                    test/echo-local | ClusterIP |   10.96.186.170:80/NONE |             |
+|  4 |                             test/echo-ses-affinity | ClusterIP |    10.96.59.226:80/NONE |             |
+|  5 |                                   test/no-backends | ClusterIP | 10.96.15.117:12345/NONE |             |
+|  6 | test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080 |  HostPort |       0.0.0.0:8080/NONE |           0 |
+|  7 | test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080 |  HostPort |      10.0.0.2:8080/NONE |           0 |
+|  8 | test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080 |  HostPort |      10.0.0.3:8080/NONE |           0 |
+|  9 |                                          test/echo |  NodePort |      0.0.0.0:30552/NONE |             |
+| 10 |                                          test/echo |  NodePort |     10.0.0.2:30552/NONE |             |
+| 11 |                                          test/echo |  NodePort |     10.0.0.3:30552/NONE |             |
+| 12 |                                       test/echo-lb |  NodePort |      0.0.0.0:30130/NONE |             |
+| 13 |                                       test/echo-lb |  NodePort |     10.0.0.2:30130/NONE |             |
+| 14 |                                       test/echo-lb |  NodePort |     10.0.0.3:30130/NONE |             |
+| 15 |                                    test/echo-local |  NodePort |      0.0.0.0:31313/NONE |             |
+| 16 |                                    test/echo-local |  NodePort |    0.0.0.0:31313/NONE/i |             |
+| 17 |                                    test/echo-local |  NodePort |     10.0.0.2:31313/NONE |             |
+| 18 |                                    test/echo-local |  NodePort |   10.0.0.2:31313/NONE/i |             |
+| 19 |                                    test/echo-local |  NodePort |     10.0.0.3:31313/NONE |             |
+| 20 |                                    test/echo-local |  NodePort |   10.0.0.3:31313/NONE/i |             |
+| 21 |                             test/echo-ses-affinity |  NodePort |      0.0.0.0:31196/NONE |             |
+| 22 |                             test/echo-ses-affinity |  NodePort |     10.0.0.2:31196/NONE |             |
+| 23 |                             test/echo-ses-affinity |  NodePort |     10.0.0.3:31196/NONE |             |
+| 24 |                                   test/no-backends |  NodePort |      0.0.0.0:32321/NONE |             |
+| 25 |                                   test/no-backends |  NodePort |     10.0.0.2:32321/NONE |             |
+| 26 |                                   test/no-backends |  NodePort |     10.0.0.3:32321/NONE |             |
+ -------------------------------------------------------------------------------------------------------------
+
+ - Backends ------------------------------------------
+| ID |            L3n4Addr |  State | Linked Services |
+|----+---------------------+--------+-----------------
+|  0 | 10.244.1.111:80/TCP | active |         6, 7, 8 |
+|  1 | 172.19.0.2:6443/TCP | active |               0 |
+ -----------------------------------------------------
+

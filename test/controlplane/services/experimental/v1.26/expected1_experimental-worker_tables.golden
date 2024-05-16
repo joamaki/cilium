@@ -1,0 +1,35 @@
+--- Frontends ---
+Name                                                 ID non-zero   Address                  Type        Source   StatusKind
+test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080   true          0.0.0.0:8080/TCP         HostPort    k8s      Done
+test/echo-lb                                         true          0.0.0.0:30130/TCP        NodePort    k8s      Done
+test/echo                                            true          0.0.0.0:30552/TCP        NodePort    k8s      Done
+test/echo-ses-affinity                               true          0.0.0.0:31196/TCP        NodePort    k8s      Done
+test/echo-local                                      true          0.0.0.0:31313/TCP        NodePort    k8s      Done
+test/echo-local                                      true          0.0.0.0:31313/TCP/i      NodePort    k8s      Done
+test/no-backends                                     true          0.0.0.0:32321/TCP        NodePort    k8s      Done
+test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080   true          10.0.0.2:8080/TCP        HostPort    k8s      Done
+test/echo-lb                                         true          10.0.0.2:30130/TCP       NodePort    k8s      Done
+test/echo                                            true          10.0.0.2:30552/TCP       NodePort    k8s      Done
+test/echo-ses-affinity                               true          10.0.0.2:31196/TCP       NodePort    k8s      Done
+test/echo-local                                      true          10.0.0.2:31313/TCP       NodePort    k8s      Done
+test/echo-local                                      true          10.0.0.2:31313/TCP/i     NodePort    k8s      Done
+test/no-backends                                     true          10.0.0.2:32321/TCP       NodePort    k8s      Done
+test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080   true          10.0.0.3:8080/TCP        HostPort    k8s      Done
+test/echo-lb                                         true          10.0.0.3:30130/TCP       NodePort    k8s      Done
+test/echo                                            true          10.0.0.3:30552/TCP       NodePort    k8s      Done
+test/echo-ses-affinity                               true          10.0.0.3:31196/TCP       NodePort    k8s      Done
+test/echo-local                                      true          10.0.0.3:31313/TCP       NodePort    k8s      Done
+test/echo-local                                      true          10.0.0.3:31313/TCP/i     NodePort    k8s      Done
+test/no-backends                                     true          10.0.0.3:32321/TCP       NodePort    k8s      Done
+default/kubernetes                                   true          10.96.0.1:443/TCP        ClusterIP   k8s      Done
+test/no-backends                                     true          10.96.15.117:12345/TCP   ClusterIP   k8s      Done
+test/echo                                            true          10.96.23.125:80/TCP      ClusterIP   k8s      Done
+test/echo-ses-affinity                               true          10.96.59.226:80/TCP      ClusterIP   k8s      Done
+test/echo-local                                      true          10.96.186.170:80/TCP     ClusterIP   k8s      Done
+test/echo-lb                                         true          10.96.186.193:80/TCP     ClusterIP   k8s      Done
+--- Backends ---
+Address               Source   State   ReferencedBy
+10.244.1.111:80/TCP   k8s      0       test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080, test/echo-local
+10.244.1.155:80/TCP   k8s      0       test/echo, test/echo-lb, test/echo-ses-affinity
+10.244.1.237:80/TCP   k8s      0       test/echo, test/echo-lb, test/echo-ses-affinity
+172.19.0.2:6443/TCP   k8s      0       default/kubernetes

@@ -57,6 +57,32 @@ func ValidateLBMapGoldenFile(file string, datapath *fakeTypes.FakeDatapath) erro
 	}
 }
 
+func ValidateOutput(file string, actual string) error {
+	writeOutput := func() error {
+		return os.WriteFile(file, []byte(actual), 0644)
+	}
+
+	if _, err := os.Stat(file); err == nil {
+		bs, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		if diff, ok := diffStrings(file, string(bs), actual); !ok {
+			if *suite.FlagUpdate {
+				return writeOutput()
+			} else {
+				return fmt.Errorf("mismatch:\n%s", diff)
+			}
+		}
+		return nil
+	} else {
+		// Mark failed as the expected output was missing, but
+		// continue with the rest of the steps.
+		return writeOutput()
+	}
+
+}
+
 func diffStrings(file string, expected, actual string) (string, bool) {
 	diff := difflib.UnifiedDiff{
 		A:        difflib.SplitLines(expected),

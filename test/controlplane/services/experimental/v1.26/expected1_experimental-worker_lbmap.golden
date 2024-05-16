@@ -1,0 +1,41 @@
+ - Services --------------------------------------------------------------------------------------------------
+| ID |                                               Name |      Type |                Frontend | Backend IDs |
+|----+----------------------------------------------------+-----------+-------------------------+-------------
+|  0 |                                 default/kubernetes | ClusterIP |      10.96.0.1:443/NONE |           3 |
+|  1 |                                          test/echo | ClusterIP |    10.96.23.125:80/NONE |        1, 2 |
+|  2 |                                       test/echo-lb | ClusterIP |   10.96.186.193:80/NONE |        1, 2 |
+|  3 |                                    test/echo-local | ClusterIP |   10.96.186.170:80/NONE |           0 |
+|  4 |                             test/echo-ses-affinity | ClusterIP |    10.96.59.226:80/NONE |        1, 2 |
+|  5 |                                   test/no-backends | ClusterIP | 10.96.15.117:12345/NONE |             |
+|  6 | test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080 |  HostPort |       0.0.0.0:8080/NONE |           0 |
+|  7 | test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080 |  HostPort |      10.0.0.2:8080/NONE |           0 |
+|  8 | test/echo-hostport-79cfd67c9b-dbkzs/host-port/8080 |  HostPort |      10.0.0.3:8080/NONE |           0 |
+|  9 |                                          test/echo |  NodePort |      0.0.0.0:30552/NONE |        1, 2 |
+| 10 |                                          test/echo |  NodePort |     10.0.0.2:30552/NONE |        1, 2 |
+| 11 |                                          test/echo |  NodePort |     10.0.0.3:30552/NONE |        1, 2 |
+| 12 |                                       test/echo-lb |  NodePort |      0.0.0.0:30130/NONE |        1, 2 |
+| 13 |                                       test/echo-lb |  NodePort |     10.0.0.2:30130/NONE |        1, 2 |
+| 14 |                                       test/echo-lb |  NodePort |     10.0.0.3:30130/NONE |        1, 2 |
+| 15 |                                    test/echo-local |  NodePort |      0.0.0.0:31313/NONE |           0 |
+| 16 |                                    test/echo-local |  NodePort |    0.0.0.0:31313/NONE/i |           0 |
+| 17 |                                    test/echo-local |  NodePort |     10.0.0.2:31313/NONE |           0 |
+| 18 |                                    test/echo-local |  NodePort |   10.0.0.2:31313/NONE/i |           0 |
+| 19 |                                    test/echo-local |  NodePort |     10.0.0.3:31313/NONE |           0 |
+| 20 |                                    test/echo-local |  NodePort |   10.0.0.3:31313/NONE/i |           0 |
+| 21 |                             test/echo-ses-affinity |  NodePort |      0.0.0.0:31196/NONE |        1, 2 |
+| 22 |                             test/echo-ses-affinity |  NodePort |     10.0.0.2:31196/NONE |        1, 2 |
+| 23 |                             test/echo-ses-affinity |  NodePort |     10.0.0.3:31196/NONE |        1, 2 |
+| 24 |                                   test/no-backends |  NodePort |      0.0.0.0:32321/NONE |             |
+| 25 |                                   test/no-backends |  NodePort |     10.0.0.2:32321/NONE |             |
+| 26 |                                   test/no-backends |  NodePort |     10.0.0.3:32321/NONE |             |
+ -------------------------------------------------------------------------------------------------------------
+
+ - Backends ---------------------------------------------------------------------
+| ID |            L3n4Addr |  State |                            Linked Services |
+|----+---------------------+--------+--------------------------------------------
+|  0 | 10.244.1.111:80/TCP | active |         3, 6, 7, 8, 15, 16, 17, 18, 19, 20 |
+|  1 | 10.244.1.155:80/TCP | active | 1, 2, 4, 9, 10, 11, 12, 13, 14, 21, 22, 23 |
+|  2 | 10.244.1.237:80/TCP | active | 1, 2, 4, 9, 10, 11, 12, 13, 14, 21, 22, 23 |
+|  3 | 172.19.0.2:6443/TCP | active |                                          0 |
+ --------------------------------------------------------------------------------
+

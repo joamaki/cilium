@@ -1,0 +1,6 @@
+--- Frontends ---
+Name                 ID non-zero   Address             Type        Source   StatusKind
+default/kubernetes   true          10.96.0.1:443/TCP   ClusterIP   k8s      Done
+--- Backends ---
+Address               Source   State   ReferencedBy
+172.19.0.2:6443/TCP   k8s      0       default/kubernetes

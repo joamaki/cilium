@@ -26,6 +26,7 @@ import (
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/kvstore/store"
+	"github.com/cilium/cilium/pkg/labelsfilter"
 	"github.com/cilium/cilium/pkg/maps/ctmap/gc"
 	"github.com/cilium/cilium/pkg/metrics"
 	monitorAgent "github.com/cilium/cilium/pkg/monitor/agent"
@@ -96,6 +97,9 @@ func (h *agentHandle) setupCiliumAgentHive(clientset k8sClient.Clientset, extraC
 }
 
 func (h *agentHandle) populateCiliumAgentOptions(testDir string, modConfig func(*option.DaemonConfig)) {
+	// This is a hacky replication of initialization of horrible global state that's done in
+	// initEnv(). Whoever cleans up this and initEnv() is my hero.
+
 	option.Config.Populate(h.hive.Viper())
 
 	option.Config.RunDir = testDir
@@ -120,6 +124,10 @@ func (h *agentHandle) populateCiliumAgentOptions(testDir string, modConfig func(
 
 	// Apply the test-specific agent configuration modifier
 	modConfig(option.Config)
+
+	if err := labelsfilter.ParseLabelPrefixCfg(option.Config.Labels, option.Config.NodeLabels, option.Config.LabelPrefixFile); err != nil {
+		panic(err)
+	}
 
 	// Unlike global configuration options, cell-specific configuration options
 	// (i.e. the ones defined through cell.Config(...)) must be set to the *viper.Viper

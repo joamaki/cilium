@@ -55,6 +55,7 @@ type ControlPlaneTest struct {
 	tempDir           string
 	validationTimeout time.Duration
 
+	commandLineArgs     []string
 	nodeName            string
 	clients             *k8sClient.FakeClientset
 	trackers            []trackerAndDecoder
@@ -120,6 +121,11 @@ func (cpt *ControlPlaneTest) ClearEnvironment() {
 	os.RemoveAll(cpt.tempDir)
 }
 
+func (cpt *ControlPlaneTest) SetCommandLineArgs(args ...string) *ControlPlaneTest {
+	cpt.commandLineArgs = args
+	return cpt
+}
+
 func (cpt *ControlPlaneTest) StartAgent(modConfig func(*agentOption.DaemonConfig), extraCells ...cell.Cell) *ControlPlaneTest {
 	if cpt.agentHandle != nil {
 		cpt.t.Fatal("StartAgent() already called")
@@ -133,6 +139,10 @@ func (cpt *ControlPlaneTest) StartAgent(modConfig func(*agentOption.DaemonConfig
 
 	mockCmd := &cobra.Command{}
 	cpt.agentHandle.hive.RegisterFlags(mockCmd.Flags())
+	if err := mockCmd.ParseFlags(cpt.commandLineArgs); err != nil {
+		cpt.t.Fatalf("Failed to start parse the test case command-line args %v: %s", cpt.commandLineArgs, err)
+	}
+
 	agentCmd.InitGlobalFlags(mockCmd, cpt.agentHandle.hive.Viper())
 
 	cpt.agentHandle.populateCiliumAgentOptions(cpt.tempDir, modConfig)
@@ -301,6 +311,18 @@ func (cpt *ControlPlaneTest) UpdateObjectsFromFile(filename string) *ControlPlan
 		cpt.t.Fatalf("Failed to unmarshal objects from %s: %s", filename, err)
 	}
 	return cpt.UpdateObjects(objs...)
+}
+
+func (cpt *ControlPlaneTest) DeleteObjectsFromFile(filename string) *ControlPlaneTest {
+	bs, err := os.ReadFile(filename)
+	if err != nil {
+		cpt.t.Fatalf("Failed to read %s: %s", filename, err)
+	}
+	objs, err := unmarshalList(bs)
+	if err != nil {
+		cpt.t.Fatalf("Failed to unmarshal objects from %s: %s", filename, err)
+	}
+	return cpt.DeleteObjects(objs...)
 }
 
 func (cpt *ControlPlaneTest) DeleteObjects(objs ...k8sRuntime.Object) *ControlPlaneTest {

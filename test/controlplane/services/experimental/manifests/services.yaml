@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: test
+spec:
+  selector:
+    matchLabels:
+      name: echo
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        name: echo
+    spec:
+      containers:
+      - name: echo-container
+        image: quay.io/cilium/json-mock:v1.3.3@sha256:f26044a2b8085fcaa8146b6b8bb73556134d7ec3d5782c6a04a058c945924ca0
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-hostport
+  namespace: test
+spec:
+  selector:
+    matchLabels:
+      name: echo-hostport
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        name: echo-hostport
+    spec:
+      containers:
+      - name: echo-container
+        image: quay.io/cilium/json-mock:v1.3.3@sha256:f26044a2b8085fcaa8146b6b8bb73556134d7ec3d5782c6a04a058c945924ca0
+        ports:
+        - hostPort: 8080
+          containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    name: echo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-local
+  namespace: test
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    nodePort: 31313
+    protocol: TCP
+  selector:
+    name: echo-hostport
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-lb
+  namespace: test
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.16.0.1
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    name: echo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-ses-affinity
+  namespace: test
+spec:
+  type: NodePort
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 42
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    name: echo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: no-backends
+  namespace: test
+spec:
+  type: NodePort
+  ports:
+  - name: foo
+    port: 12345
+    targetPort: 12345
+    protocol: TCP
+  selector:
+    name: nothing

@@ -11,6 +11,7 @@ import (
 	_ "github.com/cilium/cilium/test/controlplane/node/ciliumnodes"
 	_ "github.com/cilium/cilium/test/controlplane/pod/hostport"
 	_ "github.com/cilium/cilium/test/controlplane/services/dualstack"
+	_ "github.com/cilium/cilium/test/controlplane/services/experimental"
 	_ "github.com/cilium/cilium/test/controlplane/services/graceful-termination"
 	_ "github.com/cilium/cilium/test/controlplane/services/nodeport"
 	"github.com/cilium/cilium/test/controlplane/suite"
