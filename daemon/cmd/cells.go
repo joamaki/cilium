@@ -37,6 +37,7 @@ import (
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
 	"github.com/cilium/cilium/pkg/kvstore/store"
 	"github.com/cilium/cilium/pkg/l2announcer"
+	loadbalancer_experimental "github.com/cilium/cilium/pkg/loadbalancer/experimental"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maps/metricsmap"
 	"github.com/cilium/cilium/pkg/metrics"
@@ -162,6 +163,9 @@ var (
 
 		// daemonCell wraps the legacy daemon initialization and provides Promise[*Daemon].
 		daemonCell,
+
+		// Experimental control-plane for configuring service load-balancing.
+		loadbalancer_experimental.Cell,
 
 		// Service is a datapath service handler. Its main responsibility is to reflect
 		// service-related changes into BPF maps used by datapath BPF programs.
