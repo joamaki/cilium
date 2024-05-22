@@ -11,6 +11,7 @@ import (
 
 	"github.com/cilium/statedb"
 	"github.com/cilium/statedb/index"
+	"github.com/cilium/statedb/part"
 	"github.com/cilium/statedb/reconciler"
 
 	"github.com/cilium/cilium/pkg/cidr"
@@ -39,6 +40,8 @@ const (
 // modifiable fields).
 type Backend struct {
 	loadbalancer.Backend
+
+	Props Props
 
 	// ActualState is the learned state for the backend based on health.
 	ActualState loadbalancer.BackendState
@@ -146,24 +149,77 @@ func GetBackendsForFrontend(txn statedb.ReadTxn, tbl statedb.Table[*Backend], sv
 	return tbl.List(txn, BackendServiceIndex.Query(svc.Name))
 }
 
-// FrontendParams defines a frontend. It is the only part of [Frontend] that can be updated
-// outside of this package.
-//
-// This is currently very close to [loadbalancer.SVC], but will eventually replace it.
-type FrontendParams struct {
-	Name                      loadbalancer.ServiceName      // Fully qualified service name
-	Source                    source.Source                 // Data source
-	Address                   loadbalancer.L3n4Addr         // Frontend address
-	Type                      loadbalancer.SVCType          // Service type
+type Prop interface {
+	fmt.Stringer
+}
+
+// Props is a schemaless set of information associated with a service, frontend or backend
+// that can be used to carry feature-specific information related to load-balancing. Its main
+// use-case is as an extension mechanism for projects that extend Cilium.
+type Props = part.Map[string, Prop]
+
+func NewProps() Props {
+	return part.NewStringMap[Prop]()
+}
+
+func ShowProps(p Props) string {
+	var b strings.Builder
+	iter := p.All()
+	k, v, ok := iter.Next()
+	for ok {
+		b.WriteString(k)
+		b.WriteRune('=')
+		b.WriteString(v.String())
+		k, v, ok = iter.Next()
+		if ok {
+			b.WriteRune(' ')
+		}
+	}
+	return b.String()
+}
+
+// Service defines the common properties for a load-balancing service. Associated with a
+// service are a set of frontends that receive the traffic, and a set of backends to which
+// the traffic is directed. A single frontend can map to a partial subset of backends depending
+// on its properties.
+type Service struct {
+	Name                      loadbalancer.ServiceName // Fully qualified service name
+	Source                    source.Source            // Data source
+	Props                     Props
+	Labels                    map[string]string
+	Selector                  map[string]string
+	Annotations               map[string]string
 	ExtTrafficPolicy          loadbalancer.SVCTrafficPolicy // Service external traffic policy
 	IntTrafficPolicy          loadbalancer.SVCTrafficPolicy // Service internal traffic policy
 	NatPolicy                 loadbalancer.SVCNatPolicy     // Service NAT 46/64 policy
 	SessionAffinity           bool
 	SessionAffinityTimeoutSec uint32
 	HealthCheckNodePort       uint16
-	LoadBalancerSourceRanges  []*cidr.CIDR
-	L7LBProxyPort             uint16 // Non-zero for L7 LB services
+	LoadBalancerSourceRanges  container.ImmSet[*cidr.CIDR]
 	LoopbackHostport          bool
+
+	// from k8s.Service
+	IncludeExternal bool
+	Shared          bool
+	ServiceAffinity string // TODO define new type
+
+	// L7ProxyPort if non-zero specifies to which L7 proxy to redirect the frontend
+	// traffic.
+	L7ProxyPort uint16
+
+	// L7Ports specifies by port which frontends should be redirected to L7 proxy.
+	// If empty then all are redirected.
+	L7Ports container.ImmSet[uint16]
+}
+
+// FrontendParams defines a frontend. It is the only part of [Frontend] that can be updated
+// outside of this package.
+type FrontendParams struct {
+	Name    loadbalancer.ServiceName // Fully qualified service name
+	Source  source.Source            // Data source
+	Address loadbalancer.L3n4Addr    // Frontend address
+	Type    loadbalancer.SVCType     // Service type
+	Props   Props
 }
 
 // Clone returns a shallow clone of ServiceParams.
@@ -173,6 +229,9 @@ func (p *FrontendParams) Clone() *FrontendParams {
 }
 
 // Frontend describes a frontend (FrontendParams) and its state.
+// This object is the primary object reconciled towards the BPF maps, with the
+// [Service] and [Backend] being queried during reconcilation. The revision fields
+// create the link between them.
 type Frontend struct {
 	// FrontendParams describes the frontend and is the outside updatable part
 	// of the frontend (rest of the fields are managed by Services).
@@ -181,57 +240,63 @@ type Frontend struct {
 	// This is immutable! If you want to update the frontend you must Clone() it first!
 	*FrontendParams
 
+	ServiceRevision statedb.Revision
+
+	// BackendsRevision is the backends table revision of the latest updated backend
+	// that references this service.
+	BackendsRevision statedb.Revision
+
 	// ID is the allocated numerical id for the service used in BPF
 	// maps to refer to this service.
 	ID loadbalancer.ID
-
-	// BackendRevision is the backends table revision of the latest updated backend
-	// that references this service. In other words, this field is updated every time
-	// a backend that refers to this service updates. This allows watching the changes
-	// to the service and its referenced backends by only watching the service table.
-	// The reconciler for the BPF maps only watches the service and queries for the
-	// backends during the reconciliation operation.
-	BackendRevision statedb.Revision
 
 	// Status is the reconciliation status of this service.
 	Status reconciler.Status
 }
 
-func (s *Frontend) TableHeader() []string {
+func (fe *Frontend) TableHeader() []string {
 	return []string{
 		"Name",
 		"ID",
 		"Address",
 		"Type",
 		"Source",
+		"Props",
 		"Status",
 	}
 }
 
-func (s *Frontend) TableRow() []string {
+func (fe *Frontend) TableRow() []string {
 	return []string{
-		s.Name.String(),
-		strconv.FormatUint(uint64(s.ID), 10),
-		s.Address.StringWithProtocol(),
-		string(s.Type),
-		string(s.Source),
-		s.Status.String(),
+		fe.Name.String(),
+		strconv.FormatUint(uint64(fe.ID), 10),
+		fe.Address.StringWithProtocol(),
+		string(fe.Type),
+		string(fe.Source),
+		ShowProps(fe.Props),
+		fe.Status.String(),
 	}
 }
 
 // Clone returns a shallow copy of the service.
-func (s *Frontend) Clone() *Frontend {
-	s2 := *s
-	return &s2
+func (fe *Frontend) Clone() *Frontend {
+	fe2 := *fe
+	return &fe2
 }
 
-func (s *Frontend) setStatus(status reconciler.Status) *Frontend {
-	s.Status = status
-	return s
+func (fe *Frontend) SetProp(key string, value Prop) *Frontend {
+	fe = fe.Clone()
+	fe.Props = fe.Props.Set(key, value)
+	return fe
 }
 
-func (s *Frontend) getStatus() reconciler.Status {
-	return s.Status
+func (fe *Frontend) setStatus(status reconciler.Status) *Frontend {
+	fe.Status = status
+	return fe
+}
+
+func (fe *Frontend) getStatus() reconciler.Status {
+	return fe.Status
 }
 
 var (
