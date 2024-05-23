@@ -106,16 +106,14 @@ func dumpServices(h *helper, to io.Writer) {
 	// Custom table dumping for services that doesn't include non-deterministic data.
 	w := tabwriter.NewWriter(to, 5, 0, 3, ' ', 0)
 
-	fmt.Fprintln(w, "--- Frontends ---")
-	fmt.Fprintln(w, "Name\tID non-zero\tAddress\tType\tSource\tStatusKind")
-	iter, _ := h.svcs.Frontends().All(txn)
+	fmt.Fprintln(w, "--- Services ---")
+	fmt.Fprintln(w, "Name\tSource\tFrontends\tStatusKind")
+	iter, _ := h.svcs.Services().All(txn)
 	for svc, _, ok := iter.Next(); ok; svc, _, ok = iter.Next() {
-		fmt.Fprintf(w, "%s\t%v\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			svc.Name.String(),
-			svc.ID != 0,
-			svc.Address.StringWithProtocol(),
-			svc.Type,
 			svc.Source,
+			loadbalancer_experimental.ShowFrontends(svc.Frontends),
 			svc.Status.Kind,
 		)
 	}

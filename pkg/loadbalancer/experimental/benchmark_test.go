@@ -28,13 +28,19 @@ func BenchmarkInsertService(b *testing.B) {
 		var addr1 [4]byte
 		binary.BigEndian.PutUint32(addr1[:], 0x02000000+uint32(i))
 		addrCluster, _ := types.AddrClusterFromIP(addr1[:])
-		p.Services.UpsertFrontend(
+		p.Services.UpsertService(
 			wtxn,
-			&experimental.FrontendParams{
-				Name:    name,
-				Address: *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster, 12345, loadbalancer.ScopeExternal),
-				Type:    loadbalancer.SVCTypeClusterIP,
-				Source:  source.Kubernetes,
+			&experimental.Service{
+				Name: name,
+				Frontends: experimental.NewFrontendsMap(
+					experimental.Frontend{
+						Address:  *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster, 12345, loadbalancer.ScopeExternal),
+						Type:     loadbalancer.SVCTypeClusterIP,
+						PortName: "",
+						Props:    experimental.EmptyProps,
+						ID:       0,
+					},
+				),
 			},
 		)
 	}
@@ -49,13 +55,19 @@ func BenchmarkInsertService(b *testing.B) {
 			var addr1 [4]byte
 			binary.BigEndian.PutUint32(addr1[:], 0x01000000+uint32(i))
 			addrCluster, _ := types.AddrClusterFromIP(addr1[:])
-			p.Services.UpsertFrontend(
+			p.Services.UpsertService(
 				wtxn,
-				&experimental.FrontendParams{
-					Name:    name,
-					Address: *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster, 12345, loadbalancer.ScopeExternal),
-					Type:    loadbalancer.SVCTypeClusterIP,
-					Source:  source.Kubernetes,
+				&experimental.Service{
+					Name: name,
+					Frontends: experimental.NewFrontendsMap(
+						experimental.Frontend{
+							Address:  *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster, 12345, loadbalancer.ScopeExternal),
+							Type:     loadbalancer.SVCTypeClusterIP,
+							PortName: "",
+							Props:    experimental.EmptyProps,
+							ID:       0,
+						},
+					),
 				},
 			)
 		}
@@ -76,13 +88,21 @@ func BenchmarkInsertBackend(b *testing.B) {
 
 	name := loadbalancer.ServiceName{Namespace: "test", Name: "svc"}
 	wtxn := p.Services.WriteTxn()
-	p.Services.UpsertFrontend(
+
+	p.Services.UpsertService(
 		wtxn,
-		&experimental.FrontendParams{
-			Name:    name,
-			Address: *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster1, 12345, loadbalancer.ScopeExternal),
-			Type:    loadbalancer.SVCTypeClusterIP,
-			Source:  source.Kubernetes,
+		&experimental.Service{
+			Name:   name,
+			Source: source.Kubernetes,
+			Frontends: experimental.NewFrontendsMap(
+				experimental.Frontend{
+					Address:  *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster1, 12345, loadbalancer.ScopeExternal),
+					Type:     loadbalancer.SVCTypeClusterIP,
+					PortName: "",
+					Props:    experimental.EmptyProps,
+					ID:       0,
+				},
+			),
 		},
 	)
 	wtxn.Commit()
@@ -138,13 +158,21 @@ func BenchmarkReplaceBackend(b *testing.B) {
 
 	name := loadbalancer.ServiceName{Namespace: "test", Name: "svc"}
 	wtxn := p.Services.WriteTxn()
-	p.Services.UpsertFrontend(
+
+	p.Services.UpsertService(
 		wtxn,
-		&experimental.FrontendParams{
-			Name:    name,
-			Address: *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster1, 12345, loadbalancer.ScopeExternal),
-			Type:    loadbalancer.SVCTypeClusterIP,
-			Source:  source.Kubernetes,
+		&experimental.Service{
+			Name:   name,
+			Source: source.Kubernetes,
+			Frontends: experimental.NewFrontendsMap(
+				experimental.Frontend{
+					Address:  *loadbalancer.NewL3n4Addr(loadbalancer.TCP, addrCluster1, 12345, loadbalancer.ScopeExternal),
+					Type:     loadbalancer.SVCTypeClusterIP,
+					PortName: "",
+					Props:    experimental.EmptyProps,
+					ID:       0,
+				},
+			),
 		},
 	)
 
@@ -189,15 +217,24 @@ func BenchmarkReplaceService(b *testing.B) {
 
 	name := loadbalancer.ServiceName{Namespace: "test", Name: "svc"}
 	wtxn := p.Services.WriteTxn()
-	p.Services.UpsertFrontend(
+
+	p.Services.UpsertService(
 		wtxn,
-		&experimental.FrontendParams{
-			Name:    name,
-			Address: l3n4Addr,
-			Type:    loadbalancer.SVCTypeClusterIP,
-			Source:  source.Kubernetes,
+		&experimental.Service{
+			Name:   name,
+			Source: source.Kubernetes,
+			Frontends: experimental.NewFrontendsMap(
+				experimental.Frontend{
+					Address:  l3n4Addr,
+					Type:     loadbalancer.SVCTypeClusterIP,
+					PortName: "",
+					Props:    experimental.EmptyProps,
+					ID:       0,
+				},
+			),
 		},
 	)
+
 	wtxn.Commit()
 
 	b.ResetTimer()
@@ -205,13 +242,20 @@ func BenchmarkReplaceService(b *testing.B) {
 	// Replace the service b.N times
 	wtxn = p.Services.WriteTxn()
 	for i := 0; i < b.N; i++ {
-		p.Services.UpsertFrontend(
+		p.Services.UpsertService(
 			wtxn,
-			&experimental.FrontendParams{
-				Name:    name,
-				Address: l3n4Addr,
-				Type:    loadbalancer.SVCTypeClusterIP,
-				Source:  source.Kubernetes,
+			&experimental.Service{
+				Name:   name,
+				Source: source.Kubernetes,
+				Frontends: experimental.NewFrontendsMap(
+					experimental.Frontend{
+						Address:  l3n4Addr,
+						Type:     loadbalancer.SVCTypeClusterIP,
+						PortName: "",
+						Props:    experimental.EmptyProps,
+						ID:       0,
+					},
+				),
 			},
 		)
 	}

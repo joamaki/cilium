@@ -133,8 +133,8 @@ func statedbTableCommand[Obj statedb.TableWritable](tableName string) *cobra.Com
 
 func init() {
 	statedbExperimentalCmd.AddCommand(
-		statedbTableCommand[*experimental.Frontend](experimental.FrontendsTableName),
-		statedbTableCommand[*experimental.Backend](experimental.BackendsTableName),
+		statedbTableCommand[*experimental.Service](experimental.ServiceTableName),
+		statedbTableCommand[*experimental.Backend](experimental.BackendTableName),
 	)
 	StatedbCmd.AddCommand(
 		statedbDumpCmd,

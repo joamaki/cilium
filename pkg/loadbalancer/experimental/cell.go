@@ -24,19 +24,19 @@ var ServicesCell = cell.Module(
 
 	cell.Config(DefaultConfig),
 
-	// Provide the RWTable[Frontend] and RWTable[Backend] privately to this
+	// Provide the RWTable[Service] and RWTable[Backend] privately to this
 	// module so that the tables are only modified via the Services API.
 	cell.ProvidePrivate(
-		NewFrontendsTable,
+		NewServicesTable,
 		NewBackendsTable,
 	),
 
 	cell.Provide(
 		NewServices,
 
-		// Provide Table[Frontend] and Table[Backend] to the outside for
+		// Provide Table[Service] and Table[Backend] to the outside for
 		// read access.
-		statedb.RWTable[*Frontend].ToTable,
+		statedb.RWTable[*Service].ToTable,
 		statedb.RWTable[*Backend].ToTable,
 	),
 )

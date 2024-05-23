@@ -4,9 +4,10 @@
 package experimental
 
 import (
+	"encoding/binary"
 	"fmt"
+	"net/netip"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/cilium/statedb"
@@ -15,6 +16,7 @@ import (
 	"github.com/cilium/statedb/reconciler"
 
 	"github.com/cilium/cilium/pkg/cidr"
+	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/container"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/source"
@@ -24,11 +26,11 @@ import (
 // configuring service load-balancing. The tables can be inspected with the hidden cilium-dbg
 // commands "cilium-dbg statedb services" and "cilium-dbg statedb backends".
 //
-// These tables are reconciled with the ServiceManager to push the changes to BPF. By default
+// The tables are reconciled with the ServiceManager to push the changes to BPF. By default
 // this reconciler is disabled and it can be enabled with the hidden "enable-new-services"
 // flag (by e.g. editing the cilium configmap)
 const (
-	BackendsTableName = "backends"
+	BackendTableName = "backends"
 )
 
 // Backend describes a backend for one or more services.
@@ -133,7 +135,7 @@ var (
 
 func NewBackendsTable(db *statedb.DB) (statedb.RWTable[*Backend], error) {
 	tbl, err := statedb.NewTable(
-		BackendsTableName,
+		BackendTableName,
 		BackendAddrIndex,
 		BackendServiceIndex,
 	)
@@ -143,7 +145,7 @@ func NewBackendsTable(db *statedb.DB) (statedb.RWTable[*Backend], error) {
 	return tbl, db.RegisterTable(tbl)
 }
 
-func GetBackendsForFrontend(txn statedb.ReadTxn, tbl statedb.Table[*Backend], svc *Frontend) statedb.Iterator[*Backend] {
+func GetBackendsForService(txn statedb.ReadTxn, tbl statedb.Table[*Backend], svc *Service) statedb.Iterator[*Backend] {
 	// TODO: Here we would filter out backends based on their state, and on frontend policies.
 	// For now since we use ServiceManager instead of directly reconciling to BPF maps we offload that logic there.
 	return tbl.List(txn, BackendServiceIndex.Query(svc.Name))
@@ -161,6 +163,8 @@ type Props = part.Map[string, Prop]
 func NewProps() Props {
 	return part.NewStringMap[Prop]()
 }
+
+var EmptyProps = NewProps()
 
 func ShowProps(p Props) string {
 	var b strings.Builder
@@ -186,16 +190,16 @@ type Service struct {
 	Name                      loadbalancer.ServiceName // Fully qualified service name
 	Source                    source.Source            // Data source
 	Props                     Props
-	Labels                    map[string]string
-	Selector                  map[string]string
-	Annotations               map[string]string
+	Labels                    map[string]string             // Immutable
+	Selector                  map[string]string             // Immutable
+	Annotations               map[string]string             // Immutable
 	ExtTrafficPolicy          loadbalancer.SVCTrafficPolicy // Service external traffic policy
 	IntTrafficPolicy          loadbalancer.SVCTrafficPolicy // Service internal traffic policy
 	NatPolicy                 loadbalancer.SVCNatPolicy     // Service NAT 46/64 policy
 	SessionAffinity           bool
 	SessionAffinityTimeoutSec uint32
 	HealthCheckNodePort       uint16
-	LoadBalancerSourceRanges  container.ImmSet[*cidr.CIDR]
+	LoadBalancerSourceRanges  []*cidr.CIDR
 	LoopbackHostport          bool
 
 	// from k8s.Service
@@ -207,132 +211,130 @@ type Service struct {
 	// traffic.
 	L7ProxyPort uint16
 
-	// L7Ports specifies by port which frontends should be redirected to L7 proxy.
+	// L7FrontendPorts specifies by port which frontends should be redirected to L7 proxy.
 	// If empty then all are redirected.
-	L7Ports container.ImmSet[uint16]
-}
+	L7FrontendPorts container.ImmSet[uint16]
 
-// FrontendParams defines a frontend. It is the only part of [Frontend] that can be updated
-// outside of this package.
-type FrontendParams struct {
-	Name    loadbalancer.ServiceName // Fully qualified service name
-	Source  source.Source            // Data source
-	Address loadbalancer.L3n4Addr    // Frontend address
-	Type    loadbalancer.SVCType     // Service type
-	Props   Props
-}
-
-// Clone returns a shallow clone of ServiceParams.
-func (p *FrontendParams) Clone() *FrontendParams {
-	p2 := *p
-	return &p2
-}
-
-// Frontend describes a frontend (FrontendParams) and its state.
-// This object is the primary object reconciled towards the BPF maps, with the
-// [Service] and [Backend] being queried during reconcilation. The revision fields
-// create the link between them.
-type Frontend struct {
-	// FrontendParams describes the frontend and is the outside updatable part
-	// of the frontend (rest of the fields are managed by Services).
-	// This is embedded by reference to avoid copying when updating just the other fields.
-	//
-	// This is immutable! If you want to update the frontend you must Clone() it first!
-	*FrontendParams
-
-	ServiceRevision statedb.Revision
+	Frontends part.Map[loadbalancer.L3n4Addr, Frontend]
 
 	// BackendsRevision is the backends table revision of the latest updated backend
 	// that references this service.
 	BackendsRevision statedb.Revision
 
-	// ID is the allocated numerical id for the service used in BPF
-	// maps to refer to this service.
-	ID loadbalancer.ID
-
-	// Status is the reconciliation status of this service.
 	Status reconciler.Status
 }
 
-func (fe *Frontend) TableHeader() []string {
+func (svc *Service) Clone() *Service {
+	svc2 := *svc
+	return &svc2
+}
+
+func (svc *Service) setStatus(status reconciler.Status) *Service {
+	svc.Status = status
+	return svc
+}
+
+func (svc *Service) getStatus() reconciler.Status {
+	return svc.Status
+}
+
+func (svc *Service) TableHeader() []string {
 	return []string{
 		"Name",
-		"ID",
-		"Address",
-		"Type",
 		"Source",
 		"Props",
+		"Frontends",
 		"Status",
 	}
 }
 
-func (fe *Frontend) TableRow() []string {
+func (svc *Service) TableRow() []string {
 	return []string{
-		fe.Name.String(),
-		strconv.FormatUint(uint64(fe.ID), 10),
-		fe.Address.StringWithProtocol(),
-		string(fe.Type),
-		string(fe.Source),
-		ShowProps(fe.Props),
-		fe.Status.String(),
+		svc.Name.String(),
+		string(svc.Source),
+		ShowProps(svc.Props),
+		ShowFrontends(svc.Frontends),
+		svc.Status.String(),
 	}
 }
 
-// Clone returns a shallow copy of the service.
-func (fe *Frontend) Clone() *Frontend {
-	fe2 := *fe
-	return &fe2
-}
-
-func (fe *Frontend) SetProp(key string, value Prop) *Frontend {
-	fe = fe.Clone()
-	fe.Props = fe.Props.Set(key, value)
-	return fe
-}
-
-func (fe *Frontend) setStatus(status reconciler.Status) *Frontend {
-	fe.Status = status
-	return fe
-}
-
-func (fe *Frontend) getStatus() reconciler.Status {
-	return fe.Status
-}
-
 var (
-	FrontendL3n4AddrIndex = statedb.Index[*Frontend, loadbalancer.L3n4Addr]{
-		Name: "addr",
-		FromObject: func(obj *Frontend) index.KeySet {
-			return index.NewKeySet(l3n4AddrKey(obj.Address))
+	ServiceNameIndex = statedb.Index[*Service, loadbalancer.ServiceName]{
+		Name: "name",
+		FromObject: func(obj *Service) index.KeySet {
+			return index.NewKeySet(index.Stringer(obj.Name))
+		},
+		FromKey: index.Stringer[loadbalancer.ServiceName],
+		Unique:  true,
+	}
+
+	ServiceFrontendsIndex = statedb.Index[*Service, loadbalancer.L3n4Addr]{
+		Name: "frontends",
+		FromObject: func(obj *Service) index.KeySet {
+			var keys []index.Key
+			iter := obj.Frontends.All()
+			for addr, _, ok := iter.Next(); ok; addr, _, ok = iter.Next() {
+				keys = append(keys, l3n4AddrKey(addr))
+			}
+			return index.NewKeySet(keys...)
 		},
 		FromKey: l3n4AddrKey,
 		Unique:  true,
 	}
-
-	FrontendNameIndex = statedb.Index[*Frontend, loadbalancer.ServiceName]{
-		Name: "name",
-		FromObject: func(obj *Frontend) index.KeySet {
-			return index.NewKeySet(index.Stringer(obj.Name))
-		},
-		FromKey: index.Stringer[loadbalancer.ServiceName],
-		Unique:  false,
-	}
 )
 
 const (
-	FrontendsTableName = "frontends"
+	ServiceTableName = "services"
 )
 
-func NewFrontendsTable(db *statedb.DB) (statedb.RWTable[*Frontend], error) {
+func NewServicesTable(db *statedb.DB) (statedb.RWTable[*Service], error) {
 	tbl, err := statedb.NewTable(
-		FrontendsTableName,
-		FrontendL3n4AddrIndex,
-		FrontendNameIndex,
+		ServiceTableName,
+		ServiceNameIndex,
+		ServiceFrontendsIndex,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return tbl, db.RegisterTable(tbl)
+}
+
+type Frontend struct {
+	Address  loadbalancer.L3n4Addr // Frontend address
+	Type     loadbalancer.SVCType  // Service type
+	PortName string
+	Props    Props
+
+	// ID is the allocated numerical id for the frontend used in BPF
+	// maps to refer to this service.
+	ID loadbalancer.ID
+}
+
+func NewFrontendsMap(fes ...Frontend) part.Map[loadbalancer.L3n4Addr, Frontend] {
+	m := part.NewMap[loadbalancer.L3n4Addr, Frontend](
+		func(addr loadbalancer.L3n4Addr) []byte { return []byte(l3n4AddrKey(addr)) },
+		l3n4AddrFromBytes,
+	)
+	for _, fe := range fes {
+		m = m.Set(fe.Address, fe)
+	}
+	return m
+}
+
+var EmptyFrontendsMap = NewFrontendsMap()
+
+func ShowFrontends(m part.Map[loadbalancer.L3n4Addr, Frontend]) string {
+	var b strings.Builder
+	iter := m.All()
+	_, fe, ok := iter.Next()
+	for ok {
+		b.WriteString(fe.Address.String() + "/" + string(fe.Type))
+		_, fe, ok = iter.Next()
+		if ok {
+			b.WriteString(", ")
+		}
+	}
+	return b.String()
 }
 
 // l3n4AddrKey computes the StateDB key to use for L3n4Addr.
@@ -344,4 +346,16 @@ func l3n4AddrKey(addr loadbalancer.L3n4Addr) index.Key {
 		index.Uint32(addr.AddrCluster.ClusterID()),
 		[]byte{addr.Scope},
 	)
+}
+
+// FIXME remove this once statedb bumped and don't need this
+// This is broken.
+func l3n4AddrFromBytes(bs []byte) loadbalancer.L3n4Addr {
+	var l3n4 loadbalancer.L3n4Addr
+	a16 := [16]byte(bs[0:16])
+	addr := netip.AddrFrom16(a16)
+	l3n4.AddrCluster = cmtypes.AddrClusterFrom(addr, 0)
+	l3n4.Port = binary.BigEndian.Uint16(bs[16:18])
+	l3n4.Protocol = string(bs[18:21])
+	return l3n4
 }

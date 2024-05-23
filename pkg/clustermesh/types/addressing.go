@@ -46,7 +46,7 @@ const AddrClusterLen = 20
 
 // MarshalJSON marshals the address as a string in the form
 // <addr>@<clusterID>, e.g. "1.2.3.4@1"
-func (a *AddrCluster) MarshalJSON() ([]byte, error) {
+func (a AddrCluster) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteByte('"')
 	if !a.addr.IsValid() {

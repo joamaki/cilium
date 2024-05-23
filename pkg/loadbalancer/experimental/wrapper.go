@@ -4,17 +4,14 @@
 package experimental
 
 import (
-	"github.com/cilium/statedb"
-
 	"github.com/cilium/cilium/pkg/loadbalancer"
-	"github.com/cilium/cilium/pkg/source"
 )
 
 func (s *Services) Wrapper(orig svcManager) svcManager {
 	if !s.IsEnabled() {
 		return orig
 	}
-	return &NewServicesWrapper{s.db, orig, s}
+	panic("TBD")
 }
 
 // svcManager is a clone of watchers.svcManager
@@ -23,6 +20,8 @@ type svcManager interface {
 	GetDeepCopyServiceByFrontend(frontend loadbalancer.L3n4Addr) (*loadbalancer.SVC, bool)
 	UpsertService(*loadbalancer.SVC) (bool, loadbalancer.ID, error)
 }
+
+/*
 
 // NewServicesWrapper implements enough of ServiceManager to work as a replacement in pkg/k8s/watchers.
 // This is not efficient at all since we do a single upsert/delete per transaction.
@@ -82,4 +81,4 @@ func (n *NewServicesWrapper) UpsertService(svc *loadbalancer.SVC) (bool, loadbal
 	return created, 0, nil
 }
 
-var _ svcManager = &NewServicesWrapper{}
+var _ svcManager = &NewServicesWrapper{}*/

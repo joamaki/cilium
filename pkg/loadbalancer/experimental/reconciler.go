@@ -5,6 +5,8 @@ package experimental
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/cilium/hive/cell"
@@ -30,7 +32,7 @@ var ReconcilerCell = cell.Module(
 		newServicesReconcilerConfig,
 	),
 	cell.Invoke(
-		func(cfg Config, rcfg reconciler.Config[*Frontend], rparams reconciler.Params) error {
+		func(cfg Config, rcfg reconciler.Config[*Service], rparams reconciler.Params) error {
 			if !cfg.EnableNewServices {
 				return nil
 			}
@@ -39,22 +41,22 @@ var ReconcilerCell = cell.Module(
 	),
 )
 
-func newServicesReconcilerConfig(cfg Config, s *Services, p serviceManagerOpsParams) reconciler.Config[*Frontend] {
+func newServicesReconcilerConfig(cfg Config, s *Services, p serviceManagerOpsParams) reconciler.Config[*Service] {
 	if !cfg.EnableNewServices {
-		return reconciler.Config[*Frontend]{}
+		return reconciler.Config[*Service]{}
 	}
 	ops := &serviceManagerOps{p}
-	return reconciler.Config[*Frontend]{
+	return reconciler.Config[*Service]{
 		FullReconcilationInterval: 0, // No full reconciliation for now.
 		RetryBackoffMinDuration:   100 * time.Millisecond,
 		RetryBackoffMaxDuration:   time.Minute,
 		IncrementalRoundSize:      300,
-		CloneObject:               (*Frontend).Clone,
-		GetObjectStatus:           (*Frontend).getStatus,
-		SetObjectStatus:           (*Frontend).setStatus,
+		CloneObject:               (*Service).Clone,
+		GetObjectStatus:           (*Service).getStatus,
+		SetObjectStatus:           (*Service).setStatus,
 		Operations:                ops,
 		BatchOperations:           nil,
-		Table:                     s.fes,
+		Table:                     s.svcs,
 	}
 }
 
@@ -62,6 +64,7 @@ type serviceManagerOpsParams struct {
 	cell.In
 
 	Log      *slog.Logger
+	Services statedb.Table[*Service]
 	Backends statedb.Table[*Backend]
 	Manager  service.ServiceManager
 }
@@ -71,14 +74,21 @@ type serviceManagerOps struct {
 }
 
 // Delete implements reconciler.Operations.
-func (ops *serviceManagerOps) Delete(ctx context.Context, txn statedb.ReadTxn, fe *Frontend) error {
-	_, err := ops.Manager.DeleteService(fe.Address)
-	ops.Log.Debug("Deleting service", "address", fe.Address, "error", err)
-	return err
+func (ops *serviceManagerOps) Delete(ctx context.Context, txn statedb.ReadTxn, svc *Service) error {
+	var errs []error
+	iter := svc.Frontends.All()
+	for _, fe, ok := iter.Next(); ok; _, fe, ok = iter.Next() {
+		_, err := ops.Manager.DeleteService(fe.Address)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		ops.Log.Debug("Deleting service", "address", fe.Address, "error", err)
+	}
+	return errors.Join(errs...)
 }
 
 // Prune implements reconciler.Operations.
-func (ops *serviceManagerOps) Prune(context.Context, statedb.ReadTxn, statedb.Iterator[*Frontend]) error {
+func (ops *serviceManagerOps) Prune(context.Context, statedb.ReadTxn, statedb.Iterator[*Service]) error {
 	ops.Log.Debug("Prune (no-op)")
 	// We cannot implement Prune() since this is an additional interface towards ServiceManager and thus not
 	// the only source. ServiceManager itself does the pruning when SyncWithK8sFinished() is invoked.
@@ -86,25 +96,36 @@ func (ops *serviceManagerOps) Prune(context.Context, statedb.ReadTxn, statedb.It
 }
 
 // Update implements reconciler.Operations.
-func (ops *serviceManagerOps) Update(ctx context.Context, txn statedb.ReadTxn, fe *Frontend) error {
+func (ops *serviceManagerOps) Update(ctx context.Context, txn statedb.ReadTxn, svc *Service) error {
+	svc, _, ok := ops.Services.Get(txn, ServiceNameIndex.Query(svc.Name))
+	if !ok {
+		return fmt.Errorf("TODO how to handle missing service?")
+	}
+
 	// Collect all backends for the service with matching protocols (L3&L4) and convert
 	// to the SVC type.
-	iter := GetBackendsForFrontend(txn, ops.Backends, fe)
-	bes := statedb.Collect(
-		statedb.Filter(iter, func(be *Backend) bool {
-			return fe.Address.ProtoEqual(&be.L3n4Addr)
-		}))
-	_, id, err := ops.Manager.UpsertService(toSVC(fe.Address, fe, bes))
-	ops.Log.Debug("Updated service", "address", fe.Address, "frontend-id", id, "frontend", fe.FrontendParams, "backends", bes, "error", err)
-	if err != nil {
-		return err
+	iter := GetBackendsForService(txn, ops.Backends, svc)
+
+	iterFe := svc.Frontends.All()
+	for _, fe, ok := iterFe.Next(); ok; _, fe, ok = iterFe.Next() {
+		bes := statedb.Collect(
+			statedb.Filter(iter, func(be *Backend) bool {
+				return fe.Address.ProtoEqual(&be.L3n4Addr)
+			}))
+		_, id, err := ops.Manager.UpsertService(toSVC(fe.Address, svc, &fe, bes))
+		ops.Log.Debug("Updated service", "address", fe.Address, "frontend-id", id, "type", fe.Type, "backends", bes, "error", err)
+		if err != nil {
+			return err
+		}
+		fe.ID = id
+
+		svc.Frontends = svc.Frontends.Set(fe.Address, fe)
 	}
-	fe.ID = id
 
 	return nil
 }
 
-var _ reconciler.Operations[*Frontend] = &serviceManagerOps{}
+var _ reconciler.Operations[*Service] = &serviceManagerOps{}
 
 func toBackends(bes []*Backend) []*loadbalancer.Backend {
 	out := make([]*loadbalancer.Backend, len(bes))
@@ -115,11 +136,11 @@ func toBackends(bes []*Backend) []*loadbalancer.Backend {
 	return out
 }
 
-func toSVC(addr loadbalancer.L3n4Addr, svc *Frontend, bes []*Backend) *loadbalancer.SVC {
+func toSVC(addr loadbalancer.L3n4Addr, svc *Service, fe *Frontend, bes []*Backend) *loadbalancer.SVC {
 	return &loadbalancer.SVC{
 		Frontend:                  loadbalancer.L3n4AddrID{L3n4Addr: addr},
 		Backends:                  toBackends(bes),
-		Type:                      svc.Type,
+		Type:                      fe.Type,
 		ExtTrafficPolicy:          svc.ExtTrafficPolicy,
 		IntTrafficPolicy:          svc.IntTrafficPolicy,
 		NatPolicy:                 svc.NatPolicy,
@@ -128,7 +149,7 @@ func toSVC(addr loadbalancer.L3n4Addr, svc *Frontend, bes []*Backend) *loadbalan
 		HealthCheckNodePort:       svc.HealthCheckNodePort,
 		Name:                      svc.Name,
 		LoadBalancerSourceRanges:  svc.LoadBalancerSourceRanges,
-		L7LBProxyPort:             svc.L7LBProxyPort,
+		L7LBProxyPort:             svc.L7ProxyPort,
 		LoopbackHostport:          svc.LoopbackHostport,
 	}
 }
