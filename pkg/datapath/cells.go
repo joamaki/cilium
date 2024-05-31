@@ -153,6 +153,7 @@ var Cell = cell.Module(
 				return nil
 			}))
 	}),
+	linuxdatapath.NodeReconcilerCell,
 
 	// Provides Active Connection Tracking metrics based on counts of
 	// opened (from BPF ACT map), closed (from BPF ACT map), and failed

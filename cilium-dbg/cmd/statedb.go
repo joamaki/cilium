@@ -225,7 +225,7 @@ func init() {
 		statedbTableCommand[*tables.IPSetEntry](tables.IPSetsTableName),
 		statedbTableCommand[bwmap.Edt](bwmap.EdtTableName),
 		statedbTableCommand[stats.NatMapStats](stats.TableName),
-		statedbTableCommand[node.Node](node.TableName),
+		statedbTableCommand[*node.TableNode](node.TableName),
 	)
 	RootCmd.AddCommand(StatedbCmd)
 }

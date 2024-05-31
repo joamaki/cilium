@@ -333,7 +333,7 @@ func (m *manager) nodeHandlerLoop(ctx context.Context, health cell.Health) error
 		case h := <-m.addHandler:
 			handlers.Insert(h)
 			for _, node := range currentNodes {
-				if err := h.NodeAdd(node.Node()); err != nil {
+				if err := h.NodeAdd(node.GetNode()); err != nil {
 					log.WithFields(logrus.Fields{
 						"handler": h.Name(),
 						"node":    node.Name,
@@ -360,7 +360,7 @@ func (m *manager) nodeHandlerLoop(ctx context.Context, health cell.Health) error
 			var errs []error
 			for _, node := range currentNodes {
 				for h := range handlers {
-					if err := h.NodeValidateImplementation(node.Node()); err != nil {
+					if err := h.NodeValidateImplementation(node.GetNode()); err != nil {
 						log.WithFields(logrus.Fields{
 							"handler": h.Name(),
 							"node":    node.Name,
@@ -390,7 +390,7 @@ func (m *manager) nodeHandlerLoop(ctx context.Context, health cell.Health) error
 			case change.Deleted:
 				delete(currentNodes, identity)
 				emit = func(h datapath.NodeHandler) error {
-					return h.NodeDelete(node.Node())
+					return h.NodeDelete(node.GetNode())
 				}
 				m.metrics.NumNodes.Dec()
 				m.metrics.ProcessNodeDeletion(node.Cluster(), node.Name())
@@ -398,13 +398,14 @@ func (m *manager) nodeHandlerLoop(ctx context.Context, health cell.Health) error
 			case oldNodeExists:
 				currentNodes[identity] = node
 				emit = func(h datapath.NodeHandler) error {
-					return h.NodeUpdate(oldNode.Node(), node.Node())
+					return h.NodeUpdate(oldNode.GetNode(), node.GetNode())
 				}
+
 			default:
 				m.metrics.NumNodes.Inc()
 				currentNodes[identity] = node
 				emit = func(h datapath.NodeHandler) error {
-					return h.NodeAdd(node.Node())
+					return h.NodeAdd(node.GetNode())
 				}
 			}
 			var lastError error
@@ -534,7 +535,7 @@ func (m *manager) checkpoint() error {
 	ns := statedb.Collect(
 		statedb.Map(
 			m.nodesTable.All(m.db.ReadTxn()),
-			node.Node.Node, // ode to node
+			node.Node.GetNode, // ode to node
 		))
 	if err := w.Encode(ns); err != nil {
 		return fmt.Errorf("failed to encode node checkpoint: %w", err)
@@ -605,7 +606,7 @@ func (m *manager) neighRefreshLoop(ctx context.Context, health cell.Health) erro
 				}
 				delete(neighToRefresh, id)
 
-				node, _, ok := m.nodesTable.Get(txn, node.NodeIdentityIndex.Query(id))
+				node, _, ok := m.nodesTable.Get(txn, node.ByIdentity(id))
 				if !ok {
 					// Node has been removed.
 					delete(refreshErrors, id)
@@ -613,7 +614,7 @@ func (m *manager) neighRefreshLoop(ctx context.Context, health cell.Health) erro
 				}
 
 				log.Debugf("Refreshing node neighbor link for %s", node.Name())
-				err := m.nodeNeighbors.NodeNeighborRefresh(ctx, node.Node(), false)
+				err := m.nodeNeighbors.NodeNeighborRefresh(ctx, node.GetNode(), false)
 				if err != nil {
 					refreshErrors[id] = err
 				} else {
@@ -838,7 +839,7 @@ func (m *manager) NodeUpdated(n nodeTypes.Node) {
 	txn := m.db.WriteTxn(m.nodesTable)
 	defer txn.Commit()
 
-	oldNode, _, oldNodeExists := m.nodesTable.Get(txn, node.NodeIdentityIndex.Query(nodeIdentifier))
+	oldNode, _, oldNodeExists := m.nodesTable.Get(txn, node.ByIdentity(nodeIdentifier))
 
 	if oldNodeExists {
 		m.metrics.EventsReceived.WithLabelValues("update", string(n.Source)).Inc()
@@ -859,7 +860,7 @@ func (m *manager) NodeUpdated(n nodeTypes.Node) {
 		}
 
 		if dpUpdate {
-			m.removeNodeFromIPCache(oldNode.Node(), resource, ipsetEntries, nodeIPsAdded, healthIPsAdded, ingressIPsAdded)
+			m.removeNodeFromIPCache(oldNode.GetNode(), resource, ipsetEntries, nodeIPsAdded, healthIPsAdded, ingressIPsAdded)
 		}
 	} else {
 		m.metrics.EventsReceived.WithLabelValues("add", string(n.Source)).Inc()
@@ -974,7 +975,7 @@ func (m *manager) NodeDeleted(n nodeTypes.Node) {
 
 	txn := m.db.WriteTxn(m.nodesTable)
 	defer txn.Commit()
-	oldNode, _, oldNodeExists := m.nodesTable.Get(txn, node.NodeIdentityIndex.Query(nodeIdentifier))
+	oldNode, _, oldNodeExists := m.nodesTable.Get(txn, node.ByIdentity(nodeIdentifier))
 	if !oldNodeExists {
 		return
 	}
@@ -995,7 +996,7 @@ func (m *manager) NodeDeleted(n nodeTypes.Node) {
 
 	// The ipcache is recreated from scratch on startup, no need to prune restored stale nodes.
 	resource := ipcacheTypes.NewResourceID(ipcacheTypes.ResourceKindNode, "", n.Name)
-	m.removeNodeFromIPCache(oldNode.Node(), resource, nil, nil, nil, nil)
+	m.removeNodeFromIPCache(oldNode.GetNode(), resource, nil, nil, nil, nil)
 
 	m.nodesTable.Delete(txn, oldNode)
 }
@@ -1057,7 +1058,7 @@ func (m *manager) GetNodes() map[nodeTypes.Identity]nodeTypes.Node {
 	iter := m.nodesTable.All(txn)
 	nodes := make(map[nodeTypes.Identity]nodeTypes.Node, numNodes)
 	for node, _, ok := iter.Next(); ok; node, _, ok = iter.Next() {
-		nodes[node.Identity()] = node.Node()
+		nodes[node.Identity()] = node.GetNode()
 	}
 	return nodes
 }
