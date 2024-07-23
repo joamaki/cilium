@@ -7,7 +7,9 @@ import (
 	"github.com/cilium/hive/cell"
 
 	"github.com/cilium/cilium/pkg/datapath/types"
+	"github.com/cilium/cilium/pkg/loadbalancer/experimental"
 	monitorAgent "github.com/cilium/cilium/pkg/monitor/agent"
+	"github.com/cilium/cilium/pkg/testutils/mockmaps"
 )
 
 // Cell provides access to the Service Manager.
@@ -26,6 +28,7 @@ var Cell = cell.Module(
 type serviceManagerParams struct {
 	cell.In
 
+	ExpConfig    experimental.Config
 	Datapath     types.Datapath
 	MonitorAgent monitorAgent.Agent
 
@@ -39,6 +42,11 @@ func newServiceInternal(params serviceManagerParams) *Service {
 			enabledHealthCheckers = append(enabledHealthCheckers, hc)
 		}
 	}
-
-	return newService(params.MonitorAgent, params.Datapath.LBMap(), params.Datapath.NodeNeighbors(), enabledHealthCheckers)
+	lbmap := params.Datapath.LBMap()
+	if params.ExpConfig.EnableExperimentalLB {
+		// The experimental control-plane is enabled. Use a fake LBMap
+		// to effectively disable this code path.
+		lbmap = mockmaps.NewLBMockMap()
+	}
+	return newService(params.MonitorAgent, lbmap, params.Datapath.NodeNeighbors(), enabledHealthCheckers)
 }

@@ -194,7 +194,7 @@ func (lbmap *LBBPFMap) UpsertMaglevLookupTable(svcID uint16, backends map[string
 	for i, id := range table {
 		lbmap.maglevBackendIDsBuffer[i] = loadbalancer.BackendID(id)
 	}
-	if err := updateMaglevTable(ipv6, svcID, lbmap.maglevBackendIDsBuffer); err != nil {
+	if err := UpdateMaglevTable(ipv6, svcID, lbmap.maglevBackendIDsBuffer); err != nil {
 		return err
 	}
 
@@ -223,7 +223,7 @@ func deleteServiceProto(svc loadbalancer.L3n4AddrID, backendCount int, useMaglev
 	}
 
 	if useMaglev {
-		if err := deleteMaglevTable(ipv6, uint16(svc.ID)); err != nil {
+		if err := DeleteMaglevTable(ipv6, uint16(svc.ID)); err != nil {
 			return fmt.Errorf("Unable to delete maglev lookup table %d: %w", svc.ID, err)
 		}
 	}
