@@ -34,6 +34,9 @@ var Cell = cell.Module(
 	// Reconcile tables to BPF maps
 	ReconcilerCell,
 
+	// Set the L7ProxyPort based on CiliumEnvoyConfigs
+	CECHandlerCell,
+
 	// Register a job to watch the Table[NodeAddress] and refresh NodePort/HostPort frontends
 	// when the addresses change.
 	//cell.Invoke(registerNodeAddressRefresh),
