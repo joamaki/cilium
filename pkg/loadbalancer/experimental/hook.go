@@ -13,4 +13,6 @@ import "github.com/cilium/statedb"
 //
 // For consistency the hook should only access StateDB tables via the provided
 // read transaction.
-type ServiceHook = func(txn statedb.ReadTxn, svc *Service)
+type ServiceHook func(txn statedb.ReadTxn, svc *Service)
+
+type FrontendHook func(txn statedb.ReadTxn, fe *Frontend)

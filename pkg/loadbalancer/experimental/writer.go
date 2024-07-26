@@ -31,6 +31,7 @@ type Writer struct {
 	bes       statedb.RWTable[*Backend]
 
 	svcHooks []ServiceHook
+	feHooks  []FrontendHook
 }
 
 type writerParams struct {
@@ -44,7 +45,8 @@ type writerParams struct {
 	Frontends     statedb.RWTable[*Frontend]
 	Backends      statedb.RWTable[*Backend]
 
-	ServiceHooks []ServiceHook `group:"service-hooks"`
+	ServiceHooks  []ServiceHook  `group:"service-hooks"`
+	FrontendHooks []FrontendHook `group:"frontend-hooks"`
 }
 
 func NewWriter(p writerParams) (*Writer, error) {
@@ -59,6 +61,7 @@ func NewWriter(p writerParams) (*Writer, error) {
 		svcs:      p.Services,
 		nodeAddrs: p.NodeAddresses,
 		svcHooks:  p.ServiceHooks,
+		feHooks:   p.FrontendHooks,
 	}
 	return w, nil
 }
@@ -139,6 +142,9 @@ func (w *Writer) UpsertFrontend(txn WriteTxn, params FrontendParams) (old *Front
 		return nil, ErrServiceNotFound
 	}
 	fe := w.newFrontend(txn, params, svc)
+	for _, hook := range w.feHooks {
+		hook(txn, fe)
+	}
 	old, _, err = w.fes.Insert(txn, fe)
 	return old, err
 }
@@ -160,6 +166,9 @@ func (w *Writer) UpsertServiceAndFrontends(txn WriteTxn, svc *Service, fes ...Fr
 		newAddrs.Insert(params.Address)
 		params.ServiceName = svc.Name
 		fe := w.newFrontend(txn, params, svc)
+		for _, hook := range w.feHooks {
+			hook(txn, fe)
+		}
 		if _, _, err := w.fes.Insert(txn, fe); err != nil {
 			return err
 		}
@@ -239,8 +248,13 @@ func (w *Writer) refreshFrontendsOfService(txn WriteTxn, name loadbalancer.Servi
 }
 
 func getBackendsForFrontend(txn statedb.ReadTxn, tbl statedb.Table[*Backend], fe *Frontend) []BackendWithRevision {
+	serviceName := fe.ServiceName
+	if fe.RedirectTo != nil {
+		serviceName = *fe.RedirectTo
+	}
+
 	out := []BackendWithRevision{}
-	iter := tbl.List(txn, BackendByServiceName(fe.ServiceName))
+	iter := tbl.List(txn, BackendByServiceName(serviceName))
 	for be, rev, ok := iter.Next(); ok; be, rev, ok = iter.Next() {
 		if be.L3n4Addr.IsIPv6() != fe.Address.IsIPv6() {
 			continue
@@ -248,7 +262,7 @@ func getBackendsForFrontend(txn statedb.ReadTxn, tbl statedb.Table[*Backend], fe
 		if fe.PortName != "" {
 			// A backend with specific port name requested. Look up what this backend
 			// is called for this service.
-			instance, found := be.Instances.Get(fe.ServiceName)
+			instance, found := be.Instances.Get(serviceName)
 			if !found {
 				continue
 			}
@@ -331,6 +345,26 @@ func (w *Writer) UpsertBackends(txn WriteTxn, serviceName loadbalancer.ServiceNa
 		}
 	}
 	return nil
+}
+
+func (w *Writer) SetRedirectToByName(txn WriteTxn, name loadbalancer.ServiceName, to *loadbalancer.ServiceName) {
+	fes := w.fes.List(txn, FrontendByServiceName(name))
+	for fe, _, ok := fes.Next(); ok; fe, _, ok = fes.Next() {
+		fe = fe.Clone()
+		fe.RedirectTo = to
+		w.refreshFrontend(txn, fe)
+		w.fes.Insert(txn, fe)
+	}
+}
+
+func (w *Writer) SetRedirectToByAddress(txn WriteTxn, addr loadbalancer.L3n4Addr, to *loadbalancer.ServiceName) {
+	fes := w.fes.List(txn, FrontendByAddress(addr))
+	for fe, _, ok := fes.Next(); ok; fe, _, ok = fes.Next() {
+		fe = fe.Clone()
+		fe.RedirectTo = to
+		w.refreshFrontend(txn, fe)
+		w.fes.Insert(txn, fe)
+	}
 }
 
 func (w *Writer) SetBackendHealth(txn WriteTxn, addr loadbalancer.L3n4Addr, healthy bool) error {
@@ -471,6 +505,17 @@ func (w *Writer) ReleaseBackend(txn WriteTxn, name loadbalancer.ServiceName, add
 		return statedb.ErrObjectNotFound
 	}
 
+	if err := w.removeBackendRef(txn, name, be); err != nil {
+		return err
+	}
+	return w.refreshFrontendsOfService(txn, name)
+}
+
+func (w *Writer) ReleaseBackendsForService(txn WriteTxn, name loadbalancer.ServiceName) error {
+	be, _, ok := w.bes.Get(txn, BackendByServiceName(name))
+	if !ok {
+		return statedb.ErrObjectNotFound
+	}
 	if err := w.removeBackendRef(txn, name, be); err != nil {
 		return err
 	}

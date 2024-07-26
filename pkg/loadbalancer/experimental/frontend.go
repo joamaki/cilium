@@ -41,6 +41,12 @@ type Frontend struct {
 	// Managed by [Writer].
 	Status reconciler.Status
 
+	// RedirectTo if set selects the backends from this service name instead
+	// of that of [FrontendParams.ServiceName]. This is used to implement the
+	// local redirect policies where traffic going to a specific service/frontend
+	// is redirected to a local pod instead.
+	RedirectTo *loadbalancer.ServiceName
+
 	// Backends associated with the frontend.
 	Backends []BackendWithRevision
 
