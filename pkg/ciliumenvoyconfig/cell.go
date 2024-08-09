@@ -22,6 +22,7 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
+	"github.com/cilium/cilium/pkg/proxy"
 	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -36,6 +37,7 @@ var Cell = cell.Module(
 	cell.ProvidePrivate(newCECManager),
 	cell.ProvidePrivate(newCECResourceParser),
 	cell.ProvidePrivate(newEnvoyServiceBackendSyncer),
+	cell.ProvidePrivate(newPortAllocator),
 	cell.Config(cecConfig{}),
 )
 
@@ -143,4 +145,8 @@ type managerParams struct {
 func newCECManager(params managerParams) ciliumEnvoyConfigManager {
 	return newCiliumEnvoyConfigManager(params.Logger, params.PolicyUpdater, params.ServiceManager, params.XdsServer,
 		params.BackendSyncer, params.ResourceParser, params.Config.EnvoyConfigTimeout, params.Services, params.Endpoints)
+}
+
+func newPortAllocator(proxy *proxy.Proxy) PortAllocator {
+	return proxy
 }
