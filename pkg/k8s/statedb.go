@@ -25,7 +25,7 @@ var errListerWatcherNil = errors.New("ReflectorConfig.ListerWatcher must be defi
 //
 // Intended to be used with [cell.Invoke] and the module's job group.
 // See [ExampleRegisterReflector] for example usage.
-func RegisterReflector[Obj any](jobGroup job.Group, db *statedb.DB, targetTable statedb.RWTable[Obj], cfg ReflectorConfig[Obj]) error {
+func RegisterReflector[Obj any](name string, jobGroup job.Group, db *statedb.DB, targetTable statedb.RWTable[Obj], cfg ReflectorConfig[Obj]) error {
 	if cfg.ListerWatcher == nil {
 		return errListerWatcherNil
 	}
@@ -36,13 +36,14 @@ func RegisterReflector[Obj any](jobGroup job.Group, db *statedb.DB, targetTable 
 		ReflectorConfig: cfg.withDefaults(),
 		db:              db,
 		table:           targetTable,
+		name:            name,
 	}
 	wtxn := db.WriteTxn(targetTable)
-	r.initDone = targetTable.RegisterInitializer(wtxn, "k8s-reflector")
+	r.initDone = targetTable.RegisterInitializer(wtxn, name)
 	wtxn.Commit()
 
 	jobGroup.Add(job.OneShot(
-		fmt.Sprintf("k8s-reflector-[%T]", *new(Obj)),
+		fmt.Sprintf("k8s-reflector-%s", name),
 		r.run))
 
 	return nil
@@ -111,6 +112,7 @@ func (cfg ReflectorConfig[Obj]) withDefaults() ReflectorConfig[Obj] {
 type k8sReflector[Obj any] struct {
 	ReflectorConfig[Obj]
 
+	name     string
 	initDone func(statedb.WriteTxn)
 	db       *statedb.DB
 	table    statedb.RWTable[Obj]
