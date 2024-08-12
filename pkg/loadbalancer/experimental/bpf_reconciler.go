@@ -69,7 +69,7 @@ func newBPFReconciler(p reconciler.Params, cfg Config, ops *bpfOps, w *Writer) (
 
 type bpfOps struct {
 	log    *slog.Logger
-	cfg    externalConfig
+	cfg    ExternalConfig
 	lbmaps lbmaps
 
 	serviceIDAlloc     idAllocator
@@ -102,7 +102,7 @@ type backendState struct {
 	id       loadbalancer.BackendID
 }
 
-func newBPFOps(lc cell.Lifecycle, log *slog.Logger, cfg Config, extCfg externalConfig, lbmaps lbmaps) *bpfOps {
+func newBPFOps(lc cell.Lifecycle, log *slog.Logger, cfg Config, extCfg ExternalConfig, lbmaps lbmaps) *bpfOps {
 	if !cfg.EnableExperimentalLB {
 		return nil
 	}
@@ -495,12 +495,17 @@ func (ops *bpfOps) updateFrontend(fe *Frontend) error {
 		svcVal = &lbmap.Service4Value{}
 	}
 
+	svcType := fe.Type
+	if fe.RedirectTo != nil {
+		svcType = loadbalancer.SVCTypeLocalRedirect
+	}
+
 	// isRoutable denotes whether this service can be accessed from outside the cluster.
 	isRoutable := !svcKey.IsSurrogate() &&
-		(fe.Type != loadbalancer.SVCTypeClusterIP || ops.cfg.ExternalClusterIP)
+		(svcType != loadbalancer.SVCTypeClusterIP || ops.cfg.ExternalClusterIP)
 	svc := fe.Service()
 	flag := loadbalancer.NewSvcFlag(&loadbalancer.SvcFlagParam{
-		SvcType:          fe.Type,
+		SvcType:          svcType,
 		SvcNatPolicy:     svc.NatPolicy,
 		SvcExtLocal:      svc.ExtTrafficPolicy == loadbalancer.SVCTrafficPolicyLocal,
 		SvcIntLocal:      svc.IntTrafficPolicy == loadbalancer.SVCTrafficPolicyLocal,

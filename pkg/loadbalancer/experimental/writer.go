@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/netip"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 
@@ -196,8 +197,8 @@ func (w *Writer) updateServiceReferences(txn WriteTxn, svc *Service) error {
 	iter := w.fes.List(txn, FrontendByServiceName(svc.Name))
 	for fe, _, ok := iter.Next(); ok; fe, _, ok = iter.Next() {
 		fe = fe.Clone()
+		fe.Status = reconciler.StatusPending()
 		fe.service = svc
-		w.refreshFrontend(txn, fe)
 		if _, _, err := w.fes.Insert(txn, fe); err != nil {
 			return err
 		}
@@ -217,6 +218,12 @@ func (w *Writer) newFrontend(txn statedb.ReadTxn, params FrontendParams, svc *Se
 func (w *Writer) refreshFrontend(txn statedb.ReadTxn, fe *Frontend) {
 	fe.Status = reconciler.StatusPending()
 	fe.Backends = getBackendsForFrontend(txn, w.bes, fe)
+
+	serviceName := fe.ServiceName
+	if fe.RedirectTo != nil {
+		serviceName = *fe.RedirectTo
+	}
+	fe.service, _, _ = w.svcs.Get(txn, ServiceByName(serviceName))
 
 	if fe.Type == loadbalancer.SVCTypeNodePort ||
 		fe.Type == loadbalancer.SVCTypeHostPort {
@@ -239,8 +246,13 @@ func (w *Writer) refreshFrontendsOfService(txn WriteTxn, name loadbalancer.Servi
 }
 
 func getBackendsForFrontend(txn statedb.ReadTxn, tbl statedb.Table[*Backend], fe *Frontend) []BackendWithRevision {
+	serviceName := fe.ServiceName
+	if fe.RedirectTo != nil {
+		serviceName = *fe.RedirectTo
+	}
+
 	out := []BackendWithRevision{}
-	iter := tbl.List(txn, BackendByServiceName(fe.ServiceName))
+	iter := tbl.List(txn, BackendByServiceName(serviceName))
 	for be, rev, ok := iter.Next(); ok; be, rev, ok = iter.Next() {
 		if be.L3n4Addr.IsIPv6() != fe.Address.IsIPv6() {
 			continue
@@ -248,7 +260,7 @@ func getBackendsForFrontend(txn statedb.ReadTxn, tbl statedb.Table[*Backend], fe
 		if fe.PortName != "" {
 			// A backend with specific port name requested. Look up what this backend
 			// is called for this service.
-			instance, found := be.Instances.Get(fe.ServiceName)
+			instance, found := be.Instances.Get(serviceName)
 			if !found {
 				continue
 			}
@@ -535,6 +547,37 @@ func (w *Writer) ReleaseBackendsFromSource(txn WriteTxn, name loadbalancer.Servi
 	return w.refreshFrontendsOfService(txn, name)
 }
 
+func (w *Writer) SetRedirectToByName(txn WriteTxn, name loadbalancer.ServiceName, to *loadbalancer.ServiceName) {
+	fes := w.fes.List(txn, FrontendByServiceName(name))
+	for fe, _, ok := fes.Next(); ok; fe, _, ok = fes.Next() {
+		fe = fe.Clone()
+		fe.RedirectTo = to
+		w.refreshFrontend(txn, fe)
+		w.fes.Insert(txn, fe)
+	}
+}
+
+func (w *Writer) SetRedirectToByAddress(txn WriteTxn, addr loadbalancer.L3n4Addr, to *loadbalancer.ServiceName) {
+	fes := w.fes.List(txn, FrontendByAddress(addr))
+	for fe, _, ok := fes.Next(); ok; fe, _, ok = fes.Next() {
+		fe = fe.Clone()
+		fe.RedirectTo = to
+		w.refreshFrontend(txn, fe)
+		w.fes.Insert(txn, fe)
+	}
+}
+
+func (w *Writer) ReleaseBackendsForService(txn WriteTxn, name loadbalancer.ServiceName) error {
+	be, _, ok := w.bes.Get(txn, BackendByServiceName(name))
+	if !ok {
+		return statedb.ErrObjectNotFound
+	}
+	if err := w.removeBackendRef(txn, name, be); err != nil {
+		return err
+	}
+	return w.refreshFrontendsOfService(txn, name)
+}
+
 func (w *Writer) DebugDump(txn statedb.ReadTxn, to io.Writer) {
 	tw := tabwriter.NewWriter(to, 5, 0, 3, ' ', 0)
 
@@ -560,4 +603,18 @@ func (w *Writer) DebugDump(txn statedb.ReadTxn, to io.Writer) {
 	}
 
 	tw.Flush()
+}
+
+var sanitizeRegex = regexp.MustCompile(`\([^\)]* ago\)`)
+
+// SanitizeTableDump clears non-deterministic data in the table output such as timestamps.
+func SanitizeTableDump(dump []byte) []byte {
+	return sanitizeRegex.ReplaceAllFunc(dump,
+		func(ago []byte) []byte {
+			// Replace ("123.45ms ago") with "(??? ago)    ".
+			// This way we don't mess alignment.
+			out := []byte(strings.Repeat(" ", len(ago)))
+			copy(out, []byte("(??? ago)"))
+			return out
+		})
 }
