@@ -20,6 +20,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	slim_discoveryv1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1"
 	"github.com/cilium/cilium/pkg/k8s/testutils"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/loadbalancer/experimental"
@@ -33,7 +34,13 @@ func TestCECController(t *testing.T) {
 	cecFiles := []string{
 		"testdata/experimental/ciliumenvoyconfig.yaml",
 	}
+	endpointSliceFiles := []string{
+		"testdata/experimental/endpointslice.yaml",
+	}
 
+	parseEndpoints := func(obj any) (*k8s.Endpoints, bool) {
+		return k8s.ParseEndpointSliceV1(obj.(*slim_discoveryv1.EndpointSlice)), true
+	}
 	// Test first that the test data can be decoded.
 	for _, files := range [][]string{serviceFiles, cecFiles} {
 		for _, file := range files {
@@ -69,18 +76,16 @@ func TestCECController(t *testing.T) {
 				statedb.RWTable[tables.NodeAddress].ToTable,
 
 				func() experimental.Config { return experimental.Config{EnableExperimentalLB: true} },
+				func() experimental.ExternalConfig { return experimental.ExternalConfig{} },
 				resource.EventStreamFromFiles[*slim_corev1.Service](serviceFiles),
 				resource.EventStreamFromFiles[*slim_corev1.Pod](nil),
-				resource.EventStreamFromFiles[*k8s.Endpoints](nil),
+				resource.EventStreamFromFiles[*k8s.Endpoints](endpointSliceFiles, parseEndpoints),
 			),
 
 			experimentalTableCells,
 			experimentalControllerCells,
 
 			cell.ProvidePrivate(
-				func() experimental.Config {
-					return experimental.Config{EnableExperimentalLB: true}
-				},
 				func() listerWatchers {
 					return listerWatchers{
 						cec:  cecLW,
