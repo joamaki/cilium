@@ -28,6 +28,9 @@ var Cell = cell.Module(
 	// using the [Writer].
 	ReflectorCell,
 
+	// kvstoreCell reflects the load-balancing state from KVStore.
+	kvstoreCell,
+
 	// Bridge Resource[XYZ] to Observable[Event[XYZ]]. Makes it easier to
 	// test [ReflectorCell].
 	cell.ProvidePrivate(resourcesToStreams),

@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/statedb/reconciler"
 
 	"github.com/cilium/cilium/pkg/loadbalancer"
+	"github.com/cilium/cilium/pkg/source"
 )
 
 // FrontendParams defines the static parameters of a frontend.
@@ -34,6 +35,8 @@ type FrontendParams struct {
 
 type Frontend struct {
 	FrontendParams
+
+	Source source.Source
 
 	// Status is the reconciliation status for this frontend and
 	// reflects whether or not the frontend and the associated backends
@@ -94,6 +97,7 @@ func (fe *Frontend) TableHeader() []string {
 		"ServiceName",
 		"PortName",
 		"Backends",
+		"Source",
 		"Status",
 		"RedirectTo",
 	}
@@ -110,6 +114,7 @@ func (fe *Frontend) TableRow() []string {
 		fe.ServiceName.String(),
 		string(fe.PortName),
 		showBackends(fe.Backends),
+		string(fe.Source),
 		fe.Status.String(),
 		redirectTo,
 	}

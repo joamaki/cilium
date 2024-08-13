@@ -305,7 +305,7 @@ func (h *lrpController) reconciler(ctx context.Context, health cell.Health) erro
 			toName := loadbalancer.ServiceName{Name: lrp.id.Name + "-local-redirect", Namespace: lrp.id.Namespace}
 
 			if change.Deleted {
-				err := h.p.Writer.DeleteServiceAndFrontends(wtxn, toName)
+				err := h.p.Writer.DeleteServiceAndFrontends(wtxn, toName, source.Kubernetes)
 				if err != nil {
 					h.p.Log.Error("DeleteServiceAndFrontends", "error", err)
 				}

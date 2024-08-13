@@ -43,7 +43,7 @@ import (
 // Also should the "RegisterInitializer" be separate, or should we register a data source and
 // get back a handle? E.g. is it too easy to miss that "RegisterInitializer" is required?
 var ReflectorCell = cell.Module(
-	"reflector",
+	"k8s-reflector",
 	"Reflects load-balancing state from Kubernetes",
 
 	cell.Invoke(registerK8sReflector),
@@ -174,7 +174,7 @@ func runResourceReflector(ctx context.Context, p reflectorParams, initComplete f
 				case resource.Delete:
 					name := loadbalancer.ServiceName{Namespace: obj.Namespace, Name: obj.Name}
 					delete(pendingServices, name)
-					if err := p.Writer.DeleteServiceAndFrontends(txn, name); err != nil {
+					if err := p.Writer.DeleteServiceAndFrontends(txn, name, source.Kubernetes); err != nil {
 						// NOTE: Opting to panic on these failures for now to catch issues early.
 						// The production version of this needs to handle potential validation or
 						// conflict issues correctly.
@@ -597,7 +597,7 @@ func upsertHostPort(params reflectorParams, wtxn WriteTxn, pod *slim_corev1.Pod)
 						Scope: loadbalancer.ScopeExternal,
 					},
 				}
-				if _, err := params.Writer.UpsertFrontend(wtxn, fe); err != nil {
+				if _, err := params.Writer.UpsertFrontend(wtxn, fe, source.Kubernetes); err != nil {
 					return fmt.Errorf("UpsertFrontend: %w", err)
 				}
 			}
@@ -618,7 +618,7 @@ func upsertHostPort(params reflectorParams, wtxn WriteTxn, pod *slim_corev1.Pod)
 
 		// Delete this orphaned service and associated frontends. The backends will be removed
 		// when they become unreferenced.
-		err := params.Writer.DeleteServiceAndFrontends(wtxn, svc.Name)
+		err := params.Writer.DeleteServiceAndFrontends(wtxn, svc.Name, source.Kubernetes)
 		if err != nil {
 			return fmt.Errorf("DeleteServiceAndFrontends: %w", err)
 		}
@@ -636,7 +636,7 @@ func deleteHostPort(params reflectorParams, wtxn WriteTxn, pod *slim_corev1.Pod)
 	for svc, _, ok := iter.Next(); ok; svc, _, ok = iter.Next() {
 		// Delete this orphaned servicea and associated frontends. The backends will be removed
 		// when they become unreferenced.
-		err := params.Writer.DeleteServiceAndFrontends(wtxn, svc.Name)
+		err := params.Writer.DeleteServiceAndFrontends(wtxn, svc.Name, source.Kubernetes)
 		if err != nil {
 			return fmt.Errorf("DeleteServiceAndFrontends: %w", err)
 		}

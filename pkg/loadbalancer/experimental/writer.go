@@ -132,14 +132,14 @@ func (w *Writer) UpsertService(txn WriteTxn, svc *Service) (old *Service, err er
 	return old, err
 }
 
-func (w *Writer) UpsertFrontend(txn WriteTxn, params FrontendParams) (old *Frontend, err error) {
+func (w *Writer) UpsertFrontend(txn WriteTxn, params FrontendParams, source source.Source) (old *Frontend, err error) {
 	// Lookup the service associated with the frontend. A frontend cannot be added
 	// without the service already existing.
 	svc, _, found := w.svcs.Get(txn, ServiceByName(params.ServiceName))
 	if !found {
 		return nil, ErrServiceNotFound
 	}
-	fe := w.newFrontend(txn, params, svc)
+	fe := w.newFrontend(txn, params, source, svc)
 	old, _, err = w.fes.Insert(txn, fe)
 	return old, err
 }
@@ -160,7 +160,7 @@ func (w *Writer) UpsertServiceAndFrontends(txn WriteTxn, svc *Service, fes ...Fr
 	for _, params := range fes {
 		newAddrs.Insert(params.Address)
 		params.ServiceName = svc.Name
-		fe := w.newFrontend(txn, params, svc)
+		fe := w.newFrontend(txn, params, svc.Source, svc)
 		if _, _, err := w.fes.Insert(txn, fe); err != nil {
 			return err
 		}
@@ -206,9 +206,10 @@ func (w *Writer) updateServiceReferences(txn WriteTxn, svc *Service) error {
 	return nil
 }
 
-func (w *Writer) newFrontend(txn statedb.ReadTxn, params FrontendParams, svc *Service) *Frontend {
+func (w *Writer) newFrontend(txn statedb.ReadTxn, params FrontendParams, source source.Source, svc *Service) *Frontend {
 	fe := &Frontend{
 		FrontendParams: params,
+		Source:         source,
 		service:        svc,
 	}
 	w.refreshFrontend(txn, fe)
@@ -273,19 +274,22 @@ func getBackendsForFrontend(txn statedb.ReadTxn, tbl statedb.Table[*Backend], fe
 	return out
 }
 
-func (w *Writer) DeleteServiceAndFrontends(txn WriteTxn, name loadbalancer.ServiceName) error {
+func (w *Writer) DeleteServiceAndFrontends(txn WriteTxn, name loadbalancer.ServiceName, source source.Source) error {
 	svc, _, found := w.svcs.Get(txn, ServiceByName(name))
 	if !found {
 		return statedb.ErrObjectNotFound
 	}
-	return w.deleteService(txn, svc)
+	return w.deleteService(txn, source, svc)
 }
 
-func (w *Writer) deleteService(txn WriteTxn, svc *Service) error {
+func (w *Writer) deleteService(txn WriteTxn, source source.Source, svc *Service) error {
 	// Delete the frontends
 	{
 		iter := w.fes.List(txn, FrontendByServiceName(svc.Name))
 		for fe, _, ok := iter.Next(); ok; fe, _, ok = iter.Next() {
+			if fe.Source != source {
+				continue
+			}
 			if _, _, err := w.fes.Delete(txn, fe); err != nil {
 				return err
 			}
@@ -296,6 +300,11 @@ func (w *Writer) deleteService(txn WriteTxn, svc *Service) error {
 	{
 		iter := w.bes.List(txn, BackendByServiceName(svc.Name))
 		for be, _, ok := iter.Next(); ok; be, _, ok = iter.Next() {
+			if inst, ok := be.Instances.Get(svc.Name); ok {
+				if inst.Source != source {
+					continue
+				}
+			}
 			be, orphan := be.release(svc.Name)
 			if orphan {
 				if _, _, err := w.bes.Delete(txn, be); err != nil {
@@ -310,8 +319,11 @@ func (w *Writer) deleteService(txn WriteTxn, svc *Service) error {
 	}
 
 	// And finally delete the service itself.
-	_, _, err := w.svcs.Delete(txn, svc)
-	return err
+	if svc.Source == source {
+		_, _, err := w.svcs.Delete(txn, svc)
+		return err
+	}
+	return nil
 }
 
 // DeleteServicesBySource deletes all services from the specific source. This is used to
@@ -322,10 +334,8 @@ func (w *Writer) DeleteServicesBySource(txn WriteTxn, source source.Source) erro
 	// to always index by source.
 	iter := w.svcs.All(txn)
 	for svc, _, ok := iter.Next(); ok; svc, _, ok = iter.Next() {
-		if svc.Source == source {
-			if err := w.deleteService(txn, svc); err != nil {
-				return err
-			}
+		if err := w.deleteService(txn, source, svc); err != nil {
+			return err
 		}
 	}
 	return nil

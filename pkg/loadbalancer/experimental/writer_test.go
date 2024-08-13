@@ -168,7 +168,7 @@ func TestWriter_Service_UpsertDelete(t *testing.T) {
 		wtxn := p.Writer.WriteTxn()
 		assert.Equal(t, 1, p.ServiceTable.NumObjects(wtxn))
 
-		err := p.Writer.DeleteServiceAndFrontends(wtxn, name)
+		err := p.Writer.DeleteServiceAndFrontends(wtxn, name, source.Kubernetes)
 		assert.NoError(t, err, "DeleteService failed")
 
 		_, _, found := p.ServiceTable.Get(wtxn, experimental.ServiceByName(name))
