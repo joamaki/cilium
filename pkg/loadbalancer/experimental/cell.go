@@ -81,7 +81,7 @@ type resourceIn struct {
 	PodsResource      daemonK8s.LocalPodResource
 }
 
-type streamsOut struct {
+type StreamsOut struct {
 	cell.Out
 	ServicesStream  stream.Observable[resource.Event[*slim_corev1.Service]]
 	EndpointsStream stream.Observable[resource.Event[*k8s.Endpoints]]
@@ -90,8 +90,8 @@ type streamsOut struct {
 
 // resourcesToStreams extracts the stream.Observable from resource.Resource.
 // This makes the reflector easier to test as its API surface is reduced.
-func resourcesToStreams(in resourceIn) streamsOut {
-	return streamsOut{
+func resourcesToStreams(in resourceIn) StreamsOut {
+	return StreamsOut{
 		ServicesStream:  in.ServicesResource,
 		EndpointsStream: in.EndpointsResource,
 		PodsStream:      in.PodsResource,

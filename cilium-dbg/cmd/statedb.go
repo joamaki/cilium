@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	cectypes "github.com/cilium/cilium/pkg/ciliumenvoyconfig/types"
 	clientPkg "github.com/cilium/cilium/pkg/client"
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/dynamicconfig"
@@ -65,6 +66,7 @@ func init() {
 		statedbTableCommand[*experimental.Frontend](experimental.FrontendTableName),
 		statedbTableCommand[*experimental.Backend](experimental.BackendTableName),
 		statedbTableCommand[dynamicconfig.DynamicConfig](dynamicconfig.TableName),
+		statedbTableCommand[*cectypes.CEC](cectypes.CECTableName),
 	)
 	StatedbCmd.AddCommand(
 		statedbDumpCmd,

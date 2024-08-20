@@ -126,8 +126,8 @@ func testIntegrationK8s(t *testing.T, testDataPath string) {
 				func() ExternalConfig { return extConfig },
 			),
 
-			cell.Provide(func() streamsOut {
-				return streamsOut{
+			cell.Provide(func() StreamsOut {
+				return StreamsOut{
 					ServicesStream:  stream.FromChannel(services),
 					EndpointsStream: stream.FromChannel(endpoints),
 					PodsStream:      stream.FromChannel(pods),

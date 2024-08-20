@@ -2,6 +2,8 @@ module github.com/cilium/cilium
 
 go 1.23.0
 
+replace github.com/cilium/statedb => ../statedb
+
 require (
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6
 	github.com/Azure/azure-sdk-for-go v68.0.0+incompatible
@@ -80,6 +82,7 @@ require (
 	github.com/prometheus/client_model v0.6.1
 	github.com/prometheus/common v0.59.1
 	github.com/prometheus/procfs v0.15.1
+	github.com/rogpeppe/go-internal v1.12.0
 	github.com/russross/blackfriday/v2 v2.1.0
 	github.com/sasha-s/go-deadlock v0.3.5
 	github.com/servak/go-fastping v0.0.0-20160802140958-5718d12e20a0

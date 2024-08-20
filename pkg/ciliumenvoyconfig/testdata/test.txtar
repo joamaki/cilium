@@ -1,0 +1,162 @@
+# Start with clean state.
+cmp_services services_empty.table
+cmp_cec cec_empty.table
+
+# Set up the services and endpoints
+upsert_service service.yaml
+upsert_endpoints endpointslice.yaml
+cmp_services -wait=1s services.table
+
+# Add the CiliumEnvoyConfig and wait for it to be ingested.
+upsert_cec cec.yaml
+cmp_cec -wait=1s cec.table
+
+# Check that right updates towards Envoy happened.
+cmp_envoy_update 1 L:test/envoy-lb-listener/envoy-lb-listener/1000 EP:
+cmp_envoy_upsert 1 L: EP:test/echo:*=10.244.1.1:8080,test/echo=10.244.1.1:8080
+
+# Check that both services are now redirected to proxy.
+cmp_services -wait=1s services_redirected.table
+
+# Test the processing other way around, e.g. CEC exists before
+# the service.
+delete_service service.yaml
+cmp_services -wait=1s services_empty.table
+upsert_service service.yaml
+cmp_services -wait=1s services_redirected.table
+
+# Cleanup
+delete_cec cec.yaml
+cmp_services -wait=1s services.table
+cmp_cec cec_empty.table
+
+delete_service service.yaml
+delete_endpoints endpointslice.yaml
+cmp_services -wait=1s services_empty.table
+
+# ---------------------------------------------
+
+-- services_empty.table --
+Name	ProxyRedirect
+
+-- services.table --
+Name	ProxyRedirect
+test/echo	
+
+-- services_redirected.table --
+Name	ProxyRedirect
+test/echo	1000
+
+-- cec_empty.table --
+Name	Services
+
+-- cec.table --
+Name	Services
+test/envoy-lb-listener	test/echo
+
+-- cec.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumEnvoyConfig
+metadata:
+  name: envoy-lb-listener
+  namespace: test
+spec:
+  services:
+    - name: echo
+      namespace: test
+      listener: envoy-lb-listener
+  resources:
+    - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+      name: envoy-lb-listener
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+  uid: a49fe99c-3564-4754-acc4-780f2331a49b
+spec:
+  clusterIP: 10.96.50.104
+  clusterIPs:
+  - 10.96.50.104
+  ports:
+  - name: http
+    nodePort: 30781
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    name: echo
+  type: NodePort
+status:
+  loadBalancer: {}
+
+-- service2.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo2
+  namespace: test
+  uid: b49fe99c-3564-4754-acc4-780f2331a49b
+spec:
+  clusterIP: 10.96.50.105
+  clusterIPs:
+  - 10.96.50.105
+  ports:
+  - name: http
+    nodePort: 30782
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    name: echo
+  type: NodePort
+status:
+  loadBalancer: {}
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: echo-eps1
+  namespace: test
+  uid: d1f517f6-ab88-4c76-9bd0-4906a17cdd75
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: nodeport-worker
+ports:
+- name: tcp
+  port: 8080
+  protocol: TCP
+
+-- endpointslice2.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo2
+  name: echo2-eps1
+  namespace: test
+  uid: d1f517f6-ab88-4c76-9bd0-4906a17cdd76
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.2
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: nodeport-worker
+ports:
+- name: tcp
+  port: 8081
+  protocol: TCP

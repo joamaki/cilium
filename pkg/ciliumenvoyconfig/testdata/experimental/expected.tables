@@ -1,0 +1,21 @@
+--- services ---
+Name         Source   NatPolicy   ExtTrafficPolicy   IntTrafficPolicy   SessionAffinity   ProxyRedirect   HealthCheckNodePort   LoopbackHostPort   SourceRanges
+test/echo    k8s                  Cluster            Cluster                              1026            0                     false              
+test/echo2   k8s                  Cluster            Cluster                              1025            0                     false              
+
+--- frontends ---
+Address               Type        ServiceName   PortName   Backends   Status
+0.0.0.0:30781/TCP     NodePort    test/echo     http                  Pending (??? ago)
+0.0.0.0:30782/TCP     NodePort    test/echo2    http                  Pending (??? ago)
+10.96.50.104:80/TCP   ClusterIP   test/echo     http                  Pending (??? ago)
+10.96.50.105:80/TCP   ClusterIP   test/echo2    http                  Pending (??? ago)
+
+--- backends ---
+Address               State    Instances          NodeName          ZoneID
+10.244.1.1:8080/TCP   active   test/echo (tcp)    nodeport-worker   0
+10.244.1.2:8080/TCP   active   test/echo2 (tcp)   nodeport-worker   0
+
+--- ciliumenvoyconfigs ---
+Name                     Selected   NodeSelector   Services     BackendServices   Listeners                                       Status
+/envoy-lb-listener-2     true                      test/echo2                     /envoy-lb-listener-2/envoy-lb-listener-2:1025   Done (??? ago)
+test/envoy-lb-listener   true                      test/echo                      test/envoy-lb-listener/envoy-lb-listener:1026   Done (??? ago)

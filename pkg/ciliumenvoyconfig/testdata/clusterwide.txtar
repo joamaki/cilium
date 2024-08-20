@@ -1,0 +1,125 @@
+# Start with clean state.
+cmp_cec cec_empty.table
+cmp_services services_empty.table
+
+# Set up the services and endpoints
+upsert_service service.yaml
+upsert_endpoints endpointslice.yaml
+cmp_services -wait=1s services.table
+
+# Add the CiliumClusterwideEnvoyConfig and wait for ingestion.
+upsert_cec ccec.yaml
+cmp_cec -wait=1s cec.table
+
+# Check updates towards envoy.
+cmp_envoy_update 1 L:/envoy-lb-listener-2/envoy-lb-listener-2/1000 EP:
+cmp_envoy_upsert 1 L: EP:test/echo2:*=10.244.1.2:8081,test/echo2=10.244.1.2:8081
+
+# Check that both services are now redirected to proxy.
+cmp_services -wait=1s services_redirected.table
+
+# Test the processing other way around, with service
+# after CEC.
+delete_service service.yaml
+delete_endpoints endpointslice.yaml
+cmp_services -wait=1s services_empty.table
+# On deletion the endpoints are removed.
+cmp_envoy_upsert 2 L: EP:test/echo2:*=,test/echo2=
+
+upsert_service service.yaml
+upsert_endpoints endpointslice.yaml
+cmp_services -wait=1s services_redirected.table
+cmp_envoy_upsert 3 L: EP:test/echo2:*=10.244.1.2:8081,test/echo2=10.244.1.2:8081
+
+# Cleanup CECs
+delete_cec ccec.yaml
+cmp_services -wait=1s services.table
+cmp_cec cec_empty.table
+
+# Listener is deleted
+cmp_envoy_delete 1 L:/envoy-lb-listener-2/envoy-lb-listener-2/1000 EP:
+
+# Cleanup the rest
+delete_service service.yaml
+delete_endpoints endpointslice.yaml
+
+cmp_services -wait=1s services_empty.table
+
+# ---------------------------------------------
+
+-- services_empty.table --
+Name	ProxyRedirect
+
+-- services.table --
+Name	ProxyRedirect
+test/echo2	
+
+-- services_redirected.table --
+Name	ProxyRedirect
+test/echo2	1000
+
+-- cec_empty.table --
+Name	Services
+
+-- cec.table --
+Name	Selected	Services	Listeners
+/envoy-lb-listener-2	true	test/echo2	/envoy-lb-listener-2/envoy-lb-listener-2:1000
+
+-- ccec.yaml --
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideEnvoyConfig
+metadata:
+  name: envoy-lb-listener-2
+spec:
+  services:
+    - name: echo2
+      namespace: test
+  resources:
+    - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+      name: envoy-lb-listener-2
+
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo2
+  namespace: test
+  uid: a49fe99c-3564-4754-acc4-780f2331a49b
+spec:
+  clusterIP: 10.96.50.104
+  clusterIPs:
+  - 10.96.50.104
+  ports:
+  - name: http
+    nodePort: 30781
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    name: echo2
+  type: NodePort
+status:
+  loadBalancer: {}
+
+-- endpointslice.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo2
+  name: echo2-eps1
+  namespace: test
+  uid: d1f517f6-ab88-4c76-9bd0-4906a17cdd76
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.2
+  conditions:
+    ready: true
+    serving: true
+    terminating: false
+  nodeName: nodeport-worker
+ports:
+- name: tcp
+  port: 8081
+  protocol: TCP
