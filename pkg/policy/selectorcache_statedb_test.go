@@ -1,7 +1,9 @@
 package policy
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/labels"
@@ -15,136 +17,51 @@ func TestSelectorTable(t *testing.T) {
 	tbl, err := NewSelectorTable(db)
 	require.NoError(t, err)
 
-	txn := db.WriteTxn(tbl)
+	wtxn := db.WriteTxn(tbl)
 
 	testSelector := api.NewESFromLabels(labels.NewLabel("app", "test", labels.LabelSourceAny))
+	testSelector2 := api.NewESFromLabels(labels.NewLabel("app", "test2", labels.LabelSourceAny))
 
-	tbl.Insert(txn, &Selector{
+	tbl.Insert(wtxn, &Selector{
 		EndpointSelector: testSelector,
-		Labels:           []labels.Label{},
-		Selections:       []identity.NumericIdentity{1, 2, 3},
+		Selections:       []identity.NumericIdentity{1, 3},
 	})
-	txn.Commit()
+	tbl.Insert(wtxn, &Selector{
+		EndpointSelector: testSelector2,
+		Selections:       []identity.NumericIdentity{2, 3, 4},
+	})
+	wtxn.Commit()
 
-	selector, revision, watch, found := tbl.GetWatch(db.ReadTxn(), SelectorByIdentity(1))
-	require.True(t, found)
-	require.NotNil(t, selector)
-	require.NotZero(t, revision)
+	// Take a snapshot of the state.
+	txn := db.ReadTxn()
 
-	select {
-	case <-watch:
-		t.Fatalf("watch channel closed")
-	default:
+	// Get all selectors that referenced id 2
+	id := identity.NumericIdentity(2)
+	iter, watch := tbl.ListWatch(txn, SelectorsByIdentity(id))
+
+	for sel, rev, ok := iter.Next(); ok; sel, rev, ok = iter.Next() {
+		fmt.Printf("1) %d -> %v (revision: %d)\n", id, sel, rev)
 	}
 
-	selector, revision, watch, found = tbl.GetWatch(db.ReadTxn(), SelectorByES(&testSelector))
-	require.True(t, found)
-	require.NotNil(t, selector)
-	require.NotZero(t, revision)
+	go func() {
+		time.Sleep(time.Second)
+		fmt.Printf("add id 2 to test\n")
+		wtxn = db.WriteTxn(tbl)
+		tbl.Insert(wtxn, &Selector{
+			EndpointSelector: testSelector,
+			Selections:       []identity.NumericIdentity{1, 2, 3},
+		})
+		wtxn.Commit()
+	}()
 
-	select {
-	case <-watch:
-		t.Fatalf("watch channel closed")
-	default:
+	// Wait until the selections for [id] change.
+	// (this may close on unrelated changes depending on radix tree structure)
+	<-watch
+
+	// Check again
+	txn = db.ReadTxn()
+	iter, watch = tbl.ListWatch(txn, SelectorsByIdentity(id))
+	for sel, rev, ok := iter.Next(); ok; sel, rev, ok = iter.Next() {
+		fmt.Printf("2) %d -> %v (revision: %d)\n", id, sel, rev)
 	}
-}
-
-func TestSelectorTable_CachedSelector(t *testing.T) {
-	db := statedb.New()
-	tbl, err := NewSelectorTable(db)
-	require.NoError(t, err)
-
-	testSelector := api.NewESFromLabels(labels.NewLabel("app", "test", labels.LabelSourceAny))
-
-	txn := db.WriteTxn(tbl)
-	tbl.Insert(txn, &Selector{
-		EndpointSelector: testSelector,
-		Labels:           []labels.Label{},
-		Selections:       []identity.NumericIdentity{1, 2, 3},
-	})
-	txn.Commit()
-
-	cs := GetDBCachedSelector(db.ReadTxn(), tbl, &testSelector)
-	require.NotNil(t, cs)
-
-	ts := cs.Get(db.ReadTxn())
-	require.NotNil(t, ts)
-	require.Len(t, ts.Selections, 3)
-
-	// Update the selections.
-	txn = db.WriteTxn(tbl)
-	tbl.Insert(txn, &Selector{
-		EndpointSelector: testSelector,
-		Labels:           []labels.Label{},
-		Selections:       []identity.NumericIdentity{1, 2, 3, 4},
-	})
-	txn.Commit()
-
-	// Get() will requery the selector if it is out-of-date.
-	ts = cs.Get(db.ReadTxn())
-	require.NotNil(t, ts)
-	require.Len(t, ts.Selections, 4)
-}
-
-func BenchmarkSelectorTable_CachedSelector(b *testing.B) {
-	db := statedb.New()
-	tbl, err := NewSelectorTable(db)
-	require.NoError(b, err)
-
-	txn := db.WriteTxn(tbl)
-
-	testSelector := api.NewESFromLabels(labels.NewLabel("app", "test", labels.LabelSourceAny))
-
-	tbl.Insert(txn, &Selector{
-		EndpointSelector: testSelector,
-		Labels:           []labels.Label{},
-		Selections:       []identity.NumericIdentity{1, 2, 3},
-	})
-	txn.Commit()
-
-	cs := GetDBCachedSelector(db.ReadTxn(), tbl, &testSelector)
-	require.NotNil(b, cs)
-
-	ts := cs.Get(db.ReadTxn())
-	require.NotNil(b, ts)
-	require.Len(b, ts.Selections, 3)
-
-	b.ResetTimer()
-
-	rtxn := db.ReadTxn()
-	for n := b.N; n > 0; n-- {
-		ts := cs.Get(rtxn)
-		if ts == nil {
-			b.Fatalf("nil selector returned")
-		}
-	}
-	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "gets/sec")
-}
-
-func BenchmarkSelectorTable_Uncached(b *testing.B) {
-	db := statedb.New()
-	tbl, err := NewSelectorTable(db)
-	require.NoError(b, err)
-
-	txn := db.WriteTxn(tbl)
-
-	testSelector := api.NewESFromLabels(labels.NewLabel("app", "test", labels.LabelSourceAny))
-
-	tbl.Insert(txn, &Selector{
-		EndpointSelector: testSelector,
-		Labels:           []labels.Label{},
-		Selections:       []identity.NumericIdentity{1, 2, 3},
-	})
-	txn.Commit()
-
-	rtxn := db.ReadTxn()
-
-	b.ResetTimer()
-	for n := b.N; n > 0; n-- {
-		cs := GetDBCachedSelector(rtxn, tbl, &testSelector)
-		if cs == nil {
-			b.Fatalf("nil selector returned")
-		}
-	}
-	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "gets/sec")
 }
