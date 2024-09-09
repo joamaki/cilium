@@ -8,8 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/netip"
-	"strings"
-	"text/tabwriter"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/statedb"
@@ -19,6 +17,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/source"
+	"github.com/cilium/cilium/pkg/testutils"
 )
 
 // Writer provides validated write access to the service load-balancing state.
@@ -521,25 +520,24 @@ func (w *Writer) ReleaseBackendsFromSource(txn WriteTxn, name loadbalancer.Servi
 }
 
 func (w *Writer) DebugDump(txn statedb.ReadTxn, to io.Writer) {
-	tw := tabwriter.NewWriter(to, 5, 0, 3, ' ', 0)
+	testutils.DumpTable(
+		txn,
+		w.svcs,
+		to,
+	)
+	fmt.Fprintln(to)
 
-	fmt.Fprintln(tw, "--- Services ---")
-	fmt.Fprintln(tw, strings.Join((*Service)(nil).TableHeader(), "\t"))
-	for svc := range w.svcs.All(txn) {
-		fmt.Fprintln(tw, strings.Join(svc.TableRow(), "\t"))
-	}
+	testutils.DumpTable(
+		txn,
+		w.fes,
+		to,
+	)
+	fmt.Fprintln(to)
 
-	fmt.Fprintln(tw, "\n--- Frontends ---")
-	fmt.Fprintln(tw, strings.Join((*Frontend)(nil).TableHeader(), "\t"))
-	for fe := range w.fes.All(txn) {
-		fmt.Fprintln(tw, strings.Join(fe.TableRow(), "\t"))
-	}
-
-	fmt.Fprintln(tw, "\n--- Backends ---")
-	fmt.Fprintln(tw, strings.Join((*Backend)(nil).TableHeader(), "\t"))
-	for be := range w.bes.All(txn) {
-		fmt.Fprintln(tw, strings.Join(be.TableRow(), "\t"))
-	}
-
-	tw.Flush()
+	testutils.DumpTable(
+		txn,
+		w.bes,
+		to,
+	)
+	fmt.Fprintln(to)
 }

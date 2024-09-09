@@ -326,6 +326,18 @@ func testIntegrationK8s(t *testing.T, testDataPath string) {
 	}
 }
 
+func frontendsReconciled(db *statedb.DB, writer *Writer) bool {
+	allDone := true
+	count := 0
+	for fe := range writer.Frontends().All(db.ReadTxn()) {
+		if fe.Status.Kind != reconciler.StatusKindDone {
+			allDone = false
+		}
+		count++
+	}
+	return count > 0 && allDone
+}
+
 func hasYamlFiles(path string) bool {
 	dirs, err := os.ReadDir(path)
 	if err != nil {
