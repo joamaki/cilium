@@ -5,6 +5,7 @@ package experimental_test
 
 import (
 	"context"
+	"flag"
 	"testing"
 
 	"github.com/cilium/hive/cell"
@@ -15,6 +16,8 @@ import (
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/loadbalancer/experimental"
 )
+
+var update = flag.Bool("update", false, "update txtar scripts")
 
 func TestScript(t *testing.T) {
 	setup := func(e *testscript.Env) error {
@@ -31,8 +34,9 @@ func TestScript(t *testing.T) {
 	}
 
 	testscript.Run(t, testscript.Params{
-		Dir:   "testdata/txtar",
-		Setup: setup,
-		Cmds:  experimental.TestScriptCommands,
+		Dir:           "testdata/txtar",
+		Setup:         setup,
+		Cmds:          experimental.TestScriptCommands,
+		UpdateScripts: *update,
 	})
 }

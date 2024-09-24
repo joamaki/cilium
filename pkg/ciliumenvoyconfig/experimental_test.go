@@ -39,8 +39,6 @@ func TestScript(t *testing.T) {
 		db   *statedb.DB
 		cecs statedb.Table[*types.CEC]
 
-		tof *experimental.TestObjectFeeder
-
 		fakeEnvoy   *fakeEnvoySyncer
 		fakeTrigger *fakePolicyTrigger
 	}
@@ -136,20 +134,18 @@ func TestScript(t *testing.T) {
 		"cmp_envoy_upsert": cmpEnvoy("upsert"),
 		"cmp_envoy_update": cmpEnvoy("update"),
 		"cmp_envoy_delete": cmpEnvoy("delete"),
-		"cmp_cec": func(ts *testscript.TestScript, neg bool, args []string) {
-			tctx := ts.Value(tctxKey).(*testContext)
-			statedbtest.CompareTableCmd(tctx.db, tctx.cecs)(ts, neg, args)
-		},
-		"show_cec": func(ts *testscript.TestScript, neg bool, args []string) {
-			tctx := ts.Value(tctxKey).(*testContext)
-			statedbtest.ShowTableCmd(tctx.db, tctx.cecs)(ts, neg, args)
-		},
 	}
 
 	// Add load-balancer script commands.
 	maps.Insert(
 		commands,
-		maps.All(experimental.TestScriptCommands()),
+		maps.All(experimental.TestScriptCommands),
+	)
+
+	// Add StateDB commands
+	maps.Insert(
+		commands,
+		maps.All(statedbtest.Commands),
 	)
 
 	setup := func(e *testscript.Env) error {
@@ -157,20 +153,18 @@ func TestScript(t *testing.T) {
 
 		tctx.fakeEnvoy = &fakeEnvoySyncer{}
 		tctx.fakeTrigger = &fakePolicyTrigger{}
-
 		tctx.cecLW, tctx.ccecLW = k8stestutils.NewFakeListerWatcher(), k8stestutils.NewFakeListerWatcher()
 
 		hive := hive.New(
 			experimental.TestCell,
+			node.LocalNodeStoreCell,
 
 			cell.Module("cec-test", "test",
-				// cecResourceParser and its friends.
 				cell.Group(
 					cell.Provide(
 						newCECResourceParser,
 						func() PortAllocator { return staticPortAllocator{} },
 					),
-					node.LocalNodeStoreCell,
 				),
 
 				experimentalTableCells,
@@ -196,6 +190,7 @@ func TestScript(t *testing.T) {
 					func(db *statedb.DB, cecs statedb.Table[*types.CEC], w *experimental.Writer) {
 						tctx.db = db
 						tctx.cecs = cecs
+						statedbtest.Setup(e, db)
 					},
 					experimental.TestScriptCommandsSetup(e),
 				),

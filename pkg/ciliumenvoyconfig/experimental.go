@@ -51,11 +51,19 @@ var (
 	)
 
 	experimentalControllerCells = cell.Group(
-		cell.Provide(
-			newCECController,
+		cell.Module(
+			"controller",
+			"CiliumEnvoyConfig controller",
+			cell.Provide(
+				newCECController,
+			),
+			cell.Invoke((*cecController).setWriter),
 		),
-		cell.Invoke((*cecController).setWriter),
-		cell.Invoke(registerEnvoyReconciler),
+		cell.Module(
+			"reconciler",
+			"Reconciles resources with Envoy",
+			cell.Invoke(registerEnvoyReconciler),
+		),
 	)
 
 	experimentalTableCells = cell.Group(
@@ -64,8 +72,9 @@ var (
 			statedb.RWTable[*types.CEC].ToTable,
 			newNodeLabels,
 		),
-		cell.Invoke(
-			registerCECReflector,
+		cell.Module("reflector",
+			"Reflects CiliumEnvoyConfig to table",
+			cell.Invoke(registerCECReflector),
 		),
 	)
 )

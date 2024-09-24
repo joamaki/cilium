@@ -5,6 +5,8 @@ package experimental
 
 import (
 	"context"
+	"os"
+	"strings"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -20,6 +22,7 @@ import (
 	slim_discovery_v1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1"
 	slim_discovery_v1beta1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/discovery/v1beta1"
 	k8stestutils "github.com/cilium/cilium/pkg/k8s/testutils"
+	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/rate"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -33,13 +36,15 @@ var TestCell = cell.Module(
 		func() Config {
 			return Config{
 				EnableExperimentalLB: true,
-				RetryBackoffMin:      0,
-				RetryBackoffMax:      0,
+				RetryBackoffMin:      time.Millisecond,
+				RetryBackoffMax:      time.Millisecond,
 			}
 		},
 		func() ExternalConfig {
 			return ExternalConfig{}
 		},
+
+		NewFakeLBMaps,
 	),
 
 	cell.Provide(NewTestObjectFeeder),
@@ -50,7 +55,7 @@ var TestCell = cell.Module(
 	// Add in the reflector to allow feeding in the inputs.
 	ReflectorCell,
 
-	cell.Invoke(registerFakeReconciliation),
+	ReconcilerCell,
 )
 
 type TestObjectFeeder struct {
@@ -139,9 +144,10 @@ func NewTestObjectFeeder() (*TestObjectFeeder, StreamsOut) {
 }
 
 const (
-	tsDBKey     = "db"
-	tsWriterKey = "writer"
-	tsTOFKey    = "tof"
+	tsDBKey     = "lb_db"
+	tsWriterKey = "lb_writer"
+	tsTOFKey    = "lb_tof"
+	tsLBMapsKey = "lb_lbmaps"
 )
 
 // TestScriptCommands are the testscript commands for comparing and showing
@@ -149,39 +155,6 @@ const (
 // The [dbKey] and [writerKey] are the keys in the testscript values map
 // for [*statedb.DB] and [*Writer].
 var TestScriptCommands = map[string]statedbtest.Cmd{
-	"show_services": func(ts *testscript.TestScript, neg bool, args []string) {
-		db := ts.Value(tsDBKey).(*statedb.DB)
-		w := ts.Value(tsWriterKey).(*Writer)
-		statedbtest.ShowTableCmd(db, w.Services())(ts, neg, args)
-	},
-	"cmp_services": func(ts *testscript.TestScript, neg bool, args []string) {
-		db := ts.Value(tsDBKey).(*statedb.DB)
-		w := ts.Value(tsWriterKey).(*Writer)
-		statedbtest.CompareTableCmd(db, w.Services())(ts, neg, args)
-	},
-
-	"show_frontends": func(ts *testscript.TestScript, neg bool, args []string) {
-		db := ts.Value(tsDBKey).(*statedb.DB)
-		w := ts.Value(tsWriterKey).(*Writer)
-		statedbtest.ShowTableCmd(db, w.Frontends())(ts, neg, args)
-	},
-	"cmp_frontends": func(ts *testscript.TestScript, neg bool, args []string) {
-		db := ts.Value(tsDBKey).(*statedb.DB)
-		w := ts.Value(tsWriterKey).(*Writer)
-		statedbtest.CompareTableCmd(db, w.Frontends())(ts, neg, args)
-	},
-
-	"show_backends": func(ts *testscript.TestScript, neg bool, args []string) {
-		db := ts.Value(tsDBKey).(*statedb.DB)
-		w := ts.Value(tsWriterKey).(*Writer)
-		statedbtest.ShowTableCmd(db, w.Backends())(ts, neg, args)
-	},
-	"cmp_backends": func(ts *testscript.TestScript, neg bool, args []string) {
-		db := ts.Value(tsDBKey).(*statedb.DB)
-		w := ts.Value(tsWriterKey).(*Writer)
-		statedbtest.CompareTableCmd(db, w.Backends())(ts, neg, args)
-	},
-
 	"upsert_service": func(ts *testscript.TestScript, neg bool, args []string) {
 		obj, err := k8stestutils.DecodeObject([]byte(ts.ReadFile(args[0])))
 		if err != nil {
@@ -237,13 +210,57 @@ var TestScriptCommands = map[string]statedbtest.Cmd{
 		}
 		tof.DeleteEndpoints(eps)
 	},
+
+	"write_maps": func(ts *testscript.TestScript, neg bool, args []string) {
+		if len(args) != 1 {
+			ts.Fatalf("expected filename")
+		}
+		maps := ts.Value(tsLBMapsKey).(LBMaps)
+		actualMaps := DumpLBMaps(maps, loadbalancer.L3n4Addr{}, false, nil)
+		path := ts.MkAbs(args[0])
+		os.WriteFile(
+			path,
+			[]byte(strings.Join(actualMaps, "\n")+"\n"),
+			0644,
+		)
+	},
+
+	"wait_for_reconciliation": func(ts *testscript.TestScript, neg bool, args []string) {
+		db := ts.Value(tsDBKey).(*statedb.DB)
+		w := ts.Value(tsWriterKey).(*Writer)
+		var lastRev uint64
+		notDone := map[loadbalancer.L3n4Addr]bool{}
+		for range 50 {
+			for fe, rev := range w.Frontends().LowerBound(db.ReadTxn(), statedb.ByRevision[*Frontend](lastRev)) {
+				lastRev = rev
+				if fe.Status.Kind != reconciler.StatusKindDone {
+					notDone[fe.Address] = true
+				} else {
+					delete(notDone, fe.Address)
+				}
+			}
+			if len(notDone) == 0 {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	},
+
+	"show_maps": func(ts *testscript.TestScript, neg bool, args []string) {
+		maps := ts.Value(tsLBMapsKey).(LBMaps)
+		actualMaps := DumpLBMaps(maps, loadbalancer.L3n4Addr{}, false, nil)
+		for _, line := range actualMaps {
+			ts.Logf("%s", line)
+		}
+	},
 }
 
-func TestScriptCommandsSetup(e *testscript.Env) func(db *statedb.DB, w *Writer, tof *TestObjectFeeder) {
-	return func(db *statedb.DB, w *Writer, tof *TestObjectFeeder) {
+func TestScriptCommandsSetup(e *testscript.Env) func(db *statedb.DB, w *Writer, tof *TestObjectFeeder, lbmaps LBMaps) {
+	return func(db *statedb.DB, w *Writer, tof *TestObjectFeeder, lbmaps LBMaps) {
 		e.Values[tsDBKey] = db
 		e.Values[tsWriterKey] = w
 		e.Values[tsTOFKey] = tof
+		e.Values[tsLBMapsKey] = lbmaps
 	}
 }
 

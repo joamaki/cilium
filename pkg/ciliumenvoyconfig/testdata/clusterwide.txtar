@@ -1,40 +1,43 @@
 # Start with clean state.
-cmp_cec cec_empty.table
-cmp_services services_empty.table
+db cmp ciliumenvoyconfigs cec_empty.table
+db cmp services services_empty.table
 
 # Set up the services and endpoints
 upsert_service service.yaml
 upsert_endpoints endpointslice.yaml
-cmp_services -wait=1s services.table
+db cmp services services.table
 
 # Add the CiliumClusterwideEnvoyConfig and wait for ingestion.
 upsert_cec ccec.yaml
-cmp_cec -wait=1s cec.table
+db cmp ciliumenvoyconfigs cec.table
 
 # Check updates towards envoy.
 cmp_envoy_update 1 L:/envoy-lb-listener-2/envoy-lb-listener-2/1000 EP:
 cmp_envoy_upsert 1 L: EP:test/echo2:*=10.244.1.2:8081,test/echo2=10.244.1.2:8081
 
 # Check that both services are now redirected to proxy.
-cmp_services -wait=1s services_redirected.table
+db cmp services services_redirected.table
+
+# Module health should be happy
+db cmp -grep=cec-test health health.table
 
 # Test the processing other way around, with service
 # after CEC.
 delete_service service.yaml
 delete_endpoints endpointslice.yaml
-cmp_services -wait=1s services_empty.table
+db cmp services services_empty.table
 # On deletion the endpoints are removed.
 cmp_envoy_upsert 2 L: EP:test/echo2:*=,test/echo2=
 
 upsert_service service.yaml
 upsert_endpoints endpointslice.yaml
-cmp_services -wait=1s services_redirected.table
+db cmp services services_redirected.table
 cmp_envoy_upsert 3 L: EP:test/echo2:*=10.244.1.2:8081,test/echo2=10.244.1.2:8081
 
 # Cleanup CECs
 delete_cec ccec.yaml
-cmp_services -wait=1s services.table
-cmp_cec cec_empty.table
+db cmp services services.table
+db cmp ciliumenvoyconfigs cec_empty.table
 
 # Listener is deleted
 cmp_envoy_delete 1 L:/envoy-lb-listener-2/envoy-lb-listener-2/1000 EP:
@@ -43,27 +46,35 @@ cmp_envoy_delete 1 L:/envoy-lb-listener-2/envoy-lb-listener-2/1000 EP:
 delete_service service.yaml
 delete_endpoints endpointslice.yaml
 
-cmp_services -wait=1s services_empty.table
+db cmp services services_empty.table
 
 # ---------------------------------------------
 
 -- services_empty.table --
-Name	ProxyRedirect
+Name ProxyRedirect
 
 -- services.table --
-Name	ProxyRedirect
+Name       ProxyRedirect
 test/echo2	
 
 -- services_redirected.table --
-Name	ProxyRedirect
-test/echo2	1000
+Name       ProxyRedirect
+test/echo2 1000
+
+-- health.table --
+Module               Component                                   Level  Error
+cec-test.controller  job-control-loop                            OK          
+cec-test.reconciler  job-reconcile                               OK          
+cec-test.reconciler  job-refresh                                 OK          
+cec-test.reflector   job-k8s-reflector-ciliumenvoyconfigs-ccec   OK          
+cec-test.reflector   job-k8s-reflector-ciliumenvoyconfigs-cec    OK
 
 -- cec_empty.table --
-Name	Services
+Name Services
 
 -- cec.table --
-Name	Selected	Services	Listeners
-/envoy-lb-listener-2	true	test/echo2	/envoy-lb-listener-2/envoy-lb-listener-2:1000
+Name                    Selected  Services    Listeners
+/envoy-lb-listener-2    true      test/echo2  /envoy-lb-listener-2/envoy-lb-listener-2:1000
 
 -- ccec.yaml --
 apiVersion: cilium.io/v2

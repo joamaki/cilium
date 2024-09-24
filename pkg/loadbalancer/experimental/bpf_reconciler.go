@@ -72,7 +72,7 @@ func newBPFReconciler(p reconciler.Params, cfg Config, ops *BPFOps, w *Writer) (
 type BPFOps struct {
 	LBMaps LBMaps
 	log    *slog.Logger
-	cfg    externalConfig
+	cfg    ExternalConfig
 
 	serviceIDAlloc     idAllocator
 	restoredServiceIDs sets.Set[loadbalancer.ID]

@@ -1,58 +1,72 @@
+# Show what tables we're working against.
+db tables
+
 # Start with clean state.
-cmp_services services_empty.table
-cmp_cec cec_empty.table
+db cmp services services_empty.table
+db cmp ciliumenvoyconfigs cec_empty.table
 
 # Set up the services and endpoints
 upsert_service service.yaml
 upsert_endpoints endpointslice.yaml
-cmp_services -wait=1s services.table
+db cmp services services.table
 
 # Add the CiliumEnvoyConfig and wait for it to be ingested.
 upsert_cec cec.yaml
-cmp_cec -wait=1s cec.table
+db cmp ciliumenvoyconfigs cec.table
 
 # Check that right updates towards Envoy happened.
 cmp_envoy_update 1 L:test/envoy-lb-listener/envoy-lb-listener/1000 EP:
 cmp_envoy_upsert 1 L: EP:test/echo:*=10.244.1.1:8080,test/echo=10.244.1.1:8080
 
 # Check that both services are now redirected to proxy.
-cmp_services -wait=1s services_redirected.table
+db cmp services services_redirected.table
+
+# Module health should be happy
+db cmp -grep=cec-test health health.table
 
 # Test the processing other way around, e.g. CEC exists before
 # the service.
 delete_service service.yaml
-cmp_services -wait=1s services_empty.table
+db cmp services services_empty.table
 upsert_service service.yaml
-cmp_services -wait=1s services_redirected.table
+db cmp services services_redirected.table
 
 # Cleanup
 delete_cec cec.yaml
-cmp_services -wait=1s services.table
-cmp_cec cec_empty.table
+db cmp services services.table
+db cmp ciliumenvoyconfigs cec_empty.table
 
 delete_service service.yaml
 delete_endpoints endpointslice.yaml
-cmp_services -wait=1s services_empty.table
+db cmp services services_empty.table
 
 # ---------------------------------------------
 
 -- services_empty.table --
-Name	ProxyRedirect
+Name ProxyRedirect
 
 -- services.table --
-Name	ProxyRedirect
-test/echo	
+Name       ProxyRedirect
+test/echo  
 
 -- services_redirected.table --
-Name	ProxyRedirect
-test/echo	1000
+Name       ProxyRedirect
+test/echo  1000
+
+-- health.table --
+Module               Component                                   Level  Error
+cec-test.controller  job-control-loop                            OK          
+cec-test.reconciler  job-reconcile                               OK          
+cec-test.reconciler  job-refresh                                 OK          
+cec-test.reflector   job-k8s-reflector-ciliumenvoyconfigs-ccec   OK          
+cec-test.reflector   job-k8s-reflector-ciliumenvoyconfigs-cec    OK
 
 -- cec_empty.table --
-Name	Services
+Name Services
 
 -- cec.table --
-Name	Services
-test/envoy-lb-listener	test/echo
+Name                    Services
+test/envoy-lb-listener  test/echo
 
 -- cec.yaml --
 apiVersion: cilium.io/v2

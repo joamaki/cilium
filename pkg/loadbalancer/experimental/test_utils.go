@@ -533,7 +533,7 @@ func TestHive(maps LBMaps,
 	db **statedb.DB,
 	bo **BPFOps,
 ) *hive.Hive {
-	extConfig := externalConfig{
+	extConfig := ExternalConfig{
 		ExternalClusterIP:     false,
 		EnableSessionAffinity: true,
 		NodePortMin:           option.NodePortMinDefault,
@@ -553,11 +553,11 @@ func TestHive(maps LBMaps,
 						RetryBackoffMax:      time.Millisecond,
 					}
 				},
-				func() externalConfig { return extConfig },
+				func() ExternalConfig { return extConfig },
 			),
 
-			cell.Provide(func() streamsOut {
-				return streamsOut{
+			cell.Provide(func() StreamsOut {
+				return StreamsOut{
 					ServicesStream:  stream.FromChannel(services),
 					EndpointsStream: stream.FromChannel(endpoints),
 					PodsStream:      stream.FromChannel(pods),
