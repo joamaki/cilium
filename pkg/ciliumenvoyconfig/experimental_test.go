@@ -5,6 +5,7 @@ package ciliumenvoyconfig
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"maps"
 	"sort"
@@ -27,11 +28,15 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/synced"
 	k8stestutils "github.com/cilium/cilium/pkg/k8s/testutils"
 	"github.com/cilium/cilium/pkg/loadbalancer/experimental"
+	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/promise"
 )
 
+var updateFlag = flag.Bool("update", false, "Update txtar files")
+
 func TestScript(t *testing.T) {
+
 	const tctxKey = "tctx"
 	type testContext struct {
 		cecLW, ccecLW *k8stestutils.FakeListerWatcher
@@ -134,6 +139,8 @@ func TestScript(t *testing.T) {
 		"cmp_envoy_upsert": cmpEnvoy("upsert"),
 		"cmp_envoy_update": cmpEnvoy("update"),
 		"cmp_envoy_delete": cmpEnvoy("delete"),
+
+		"metrics": metrics.DumpMetricsCmd,
 	}
 
 	// Add load-balancer script commands.
@@ -156,6 +163,8 @@ func TestScript(t *testing.T) {
 		tctx.cecLW, tctx.ccecLW = k8stestutils.NewFakeListerWatcher(), k8stestutils.NewFakeListerWatcher()
 
 		hive := hive.New(
+			metrics.TestCell,
+
 			experimental.TestCell,
 			node.LocalNodeStoreCell,
 
@@ -187,10 +196,11 @@ func TestScript(t *testing.T) {
 				),
 
 				cell.Invoke(
-					func(db *statedb.DB, cecs statedb.Table[*types.CEC], w *experimental.Writer) {
+					func(db *statedb.DB, reg *metrics.Registry, cecs statedb.Table[*types.CEC], w *experimental.Writer) {
 						tctx.db = db
 						tctx.cecs = cecs
 						statedbtest.Setup(e, db)
+						metrics.SetupTestScript(e, reg)
 					},
 					experimental.TestScriptCommandsSetup(e),
 				),
@@ -208,9 +218,10 @@ func TestScript(t *testing.T) {
 	}
 
 	testscript.Run(t, testscript.Params{
-		Dir:   "testdata",
-		Setup: setup,
-		Cmds:  commands,
+		Dir:           "testdata",
+		Setup:         setup,
+		Cmds:          commands,
+		UpdateScripts: *updateFlag,
 	})
 }
 

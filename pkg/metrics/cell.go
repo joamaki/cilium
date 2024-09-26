@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/cilium/hive"
 	"github.com/cilium/hive/cell"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 
+	metricpkg "github.com/cilium/cilium/pkg/metrics/metric"
 	pkgmetric "github.com/cilium/cilium/pkg/metrics/metric"
+	"github.com/cilium/cilium/pkg/option"
 )
 
 var Cell = cell.Module("metrics", "Metrics",
@@ -18,13 +22,52 @@ var Cell = cell.Module("metrics", "Metrics",
 	cell.Provide(NewRegistry),
 	Metric(NewLegacyMetrics),
 	cell.Config(defaultRegistryConfig),
-	cell.Invoke(func(_ *Registry) {
-		// This is a hack to ensure that errors/warnings collected in the pre hive initialization
-		// phase are emitted as metrics.
-		FlushLoggingMetrics()
-	}),
+	cell.Invoke(
+		func(reg *Registry) {
+			// Resolve the global registry variable for as long as we still have global functions
+			registryResolver.Resolve(reg)
+
+			// This is a hack to ensure that errors/warnings collected in the pre hive initialization
+			// phase are emitted as metrics.
+			FlushLoggingMetrics()
+		},
+		registerPrometheusServer,
+	),
 	cell.Provide(newMetricsRestApiHandler),
 )
+
+// TestCell provides the metrics registry, but does not include legacy metrics
+// nor mess with the global variables.
+var TestCell = cell.Module("metrics", "Metrics",
+	cell.Provide(newTestRegistry),
+	cell.Invoke(func(*Registry) {}),
+)
+
+func newTestRegistry(p testParams) *Registry {
+	params := RegistryParams{
+		Logger:      p.Logger,
+		Shutdowner:  p.Shutdowner,
+		Lifecycle:   p.Lifecycle,
+		AutoMetrics: p.AutoMetrics,
+		Config: RegistryConfig{
+			PrometheusServeAddr: "",
+			Metrics:             []string{},
+			EnableAllMetrics:    true,
+		},
+		DaemonConfig: &option.DaemonConfig{},
+	}
+	return NewRegistry(params)
+}
+
+type testParams struct {
+	cell.In
+
+	Logger     logrus.FieldLogger
+	Shutdowner hive.Shutdowner
+	Lifecycle  cell.Lifecycle
+
+	AutoMetrics []metricpkg.WithMetadata `group:"hive-metrics"`
+}
 
 // Metric constructs a new metric cell.
 //

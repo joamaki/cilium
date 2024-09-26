@@ -24,6 +24,10 @@ db cmp services services_redirected.table
 # Module health should be happy
 db cmp -grep=cec-test health health.table
 
+# There should be no reconciliation errors
+metrics -prefix=cilium_reconciler_errors metrics.out
+cmp metrics.out metrics.expected
+
 # Test the processing other way around, e.g. CEC exists before
 # the service.
 delete_service service.yaml
@@ -53,6 +57,9 @@ test/echo
 Name       ProxyRedirect
 test/echo  1000
 
+-- metrics.expected --
+cilium_reconciler_errors_current{module_id=cec-test.reconciler}: 0
+cilium_reconciler_errors_current{module_id=test.reconciler}: 0
 -- health.table --
 Module               Component                                   Level  Error
 cec-test.controller  job-control-loop                            OK          

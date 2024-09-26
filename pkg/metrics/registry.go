@@ -32,11 +32,16 @@ type RegistryConfig struct {
 	PrometheusServeAddr string
 	// This is a list of metrics to be enabled or disabled, format is `+`/`-` + `{metric name}`
 	Metrics []string
+
+	EnableAllMetrics bool
 }
 
 func (rc RegistryConfig) Flags(flags *pflag.FlagSet) {
 	flags.String("prometheus-serve-addr", rc.PrometheusServeAddr, "IP:Port on which to serve prometheus metrics (pass \":Port\" to bind on all interfaces, \"\" is off)")
 	flags.StringSlice("metrics", rc.Metrics, "Metrics that should be enabled or disabled from the default metric list. (+metric_foo to enable metric_foo, -metric_bar to disable metric_bar)")
+
+	flags.Bool("enable-all-metrics", rc.EnableAllMetrics, "Enable all the metrics")
+	flags.MarkHidden("enable-all-metrics")
 }
 
 // RegistryParams are the parameters needed to construct a Registry
@@ -47,9 +52,8 @@ type RegistryParams struct {
 	Shutdowner hive.Shutdowner
 	Lifecycle  cell.Lifecycle
 
-	AutoMetrics []metricpkg.WithMetadata `group:"hive-metrics"`
-	Config      RegistryConfig
-
+	AutoMetrics  []metricpkg.WithMetadata `group:"hive-metrics"`
+	Config       RegistryConfig
 	DaemonConfig *option.DaemonConfig
 }
 
@@ -66,12 +70,11 @@ func NewRegistry(params RegistryParams) *Registry {
 	reg := &Registry{
 		params: params,
 	}
-
 	reg.Reinitialize()
+	return reg
+}
 
-	// Resolve the global registry variable for as long as we still have global functions
-	registryResolver.Resolve(reg)
-
+func registerPrometheusServer(params RegistryParams, reg *Registry) {
 	if params.Config.PrometheusServeAddr != "" {
 		// The Handler function provides a default handler to expose metrics
 		// via an HTTP server. "/metrics" is the usual endpoint for that.
@@ -98,8 +101,6 @@ func NewRegistry(params RegistryParams) *Registry {
 			},
 		})
 	}
-
-	return reg
 }
 
 // Register registers a collector
@@ -172,6 +173,10 @@ func (r *Registry) Reinitialize() {
 	for _, m := range metrics {
 		if c, ok := m.(prometheus.Collector); ok {
 			r.MustRegister(c)
+		}
+
+		if r.params.Config.EnableAllMetrics {
+			m.SetEnabled(true)
 		}
 	}
 }
