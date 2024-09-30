@@ -20,11 +20,13 @@ import (
 	statedbtest "github.com/cilium/statedb/testutils"
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
+	daemonk8s "github.com/cilium/cilium/daemon/k8s"
 	"github.com/cilium/cilium/pkg/ciliumenvoyconfig/types"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/hive"
-	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/synced"
 	k8stestutils "github.com/cilium/cilium/pkg/k8s/testutils"
 	"github.com/cilium/cilium/pkg/loadbalancer/experimental"
@@ -36,44 +38,13 @@ import (
 var updateFlag = flag.Bool("update", false, "Update txtar files")
 
 func TestScript(t *testing.T) {
-
 	const tctxKey = "tctx"
 	type testContext struct {
-		cecLW, ccecLW *k8stestutils.FakeListerWatcher
-
 		db   *statedb.DB
 		cecs statedb.Table[*types.CEC]
 
 		fakeEnvoy   *fakeEnvoySyncer
 		fakeTrigger *fakePolicyTrigger
-	}
-
-	upsert := func(ts *testscript.TestScript, neg bool, args []string) {
-		if len(args) != 1 {
-			ts.Fatalf("expected filename")
-		}
-		obj, err := k8stestutils.DecodeObject([]byte(ts.ReadFile(args[0])))
-		if err != nil {
-			ts.Fatalf("DecodeObject: %s", err)
-		}
-		tctx := ts.Value(tctxKey).(*testContext)
-
-		switch obj := obj.(type) {
-		case *ciliumv2.CiliumEnvoyConfig:
-			if !neg {
-				tctx.cecLW.Upsert(obj)
-			} else {
-				tctx.cecLW.Delete(obj)
-			}
-		case *ciliumv2.CiliumClusterwideEnvoyConfig:
-			if !neg {
-				tctx.ccecLW.Upsert(obj)
-			} else {
-				tctx.ccecLW.Delete(obj)
-			}
-		default:
-			ts.Fatalf("unknown type %T", obj)
-		}
 	}
 
 	resourcesSummary := func(count int32, res *envoy.Resources) string {
@@ -132,15 +103,45 @@ func TestScript(t *testing.T) {
 	}
 
 	commands := map[string]statedbtest.Cmd{
-		"upsert_cec": upsert,
-		"delete_cec": func(ts *testscript.TestScript, neg bool, args []string) {
-			upsert(ts, true, args)
-		},
 		"cmp_envoy_upsert": cmpEnvoy("upsert"),
 		"cmp_envoy_update": cmpEnvoy("update"),
 		"cmp_envoy_delete": cmpEnvoy("delete"),
 
+		"node": func(ts *testscript.TestScript, neg bool, args []string) {
+			if len(args) < 1 {
+				ts.Fatalf("node (show|update) ...")
+			}
+			lns := ts.Value("localnodestore").(*node.LocalNodeStore)
+			switch args[0] {
+			case "show":
+				n, err := lns.Get(context.TODO())
+				if err != nil {
+					ts.Fatalf("LocalNodeStore.Get: %s", err)
+				}
+				b, err := yaml.Marshal(n)
+				if err != nil {
+					ts.Fatalf("Marshal(Node): %s", err)
+				}
+				ts.Logf("%s", b)
+
+			case "update":
+				if len(args) != 2 {
+					ts.Fatalf("node update <file>")
+				}
+				b := ts.ReadFile(args[1])
+				var err error
+				lns.Update(func(n *node.LocalNode) {
+					err = yaml.Unmarshal([]byte(b), n)
+				})
+				if err != nil {
+					ts.Fatalf("Unmarshal(%s) failed: %s", args[1], err)
+				}
+			}
+		},
+
 		"metrics": metrics.DumpMetricsCmd,
+
+		"k8s": k8stestutils.K8sCommand,
 	}
 
 	// Add load-balancer script commands.
@@ -160,10 +161,19 @@ func TestScript(t *testing.T) {
 
 		tctx.fakeEnvoy = &fakeEnvoySyncer{}
 		tctx.fakeTrigger = &fakePolicyTrigger{}
-		tctx.cecLW, tctx.ccecLW = k8stestutils.NewFakeListerWatcher(), k8stestutils.NewFakeListerWatcher()
 
 		hive := hive.New(
+			cell.Provide(func() *testscript.Env { return e }),
+
+			cell.Invoke(statedbtest.Setup),
+
 			metrics.TestCell,
+			cell.Invoke(metrics.SetupTestScript),
+
+			client.FakeClientCell,
+			cell.Invoke(k8stestutils.SetupK8sCommand),
+
+			daemonk8s.ResourcesCell,
 
 			experimental.TestCell,
 			node.LocalNodeStoreCell,
@@ -180,29 +190,23 @@ func TestScript(t *testing.T) {
 				experimentalControllerCells,
 
 				cell.ProvidePrivate(
-					func() listerWatchers {
-						return listerWatchers{
-							cec:  tctx.cecLW,
-							ccec: tctx.ccecLW,
-						}
-					},
 					func() promise.Promise[synced.CRDSync] {
 						r, p := promise.New[synced.CRDSync]()
 						r.Resolve(synced.CRDSync{})
 						return p
 					},
+					cecListerWatchers,
 					func() resourceMutator { return tctx.fakeEnvoy },
 					func() policyTrigger { return tctx.fakeTrigger },
 				),
 
 				cell.Invoke(
-					func(db *statedb.DB, reg *metrics.Registry, cecs statedb.Table[*types.CEC], w *experimental.Writer) {
+					func(db *statedb.DB, lns *node.LocalNodeStore, reg *metrics.Registry, cecs statedb.Table[*types.CEC], w *experimental.Writer) {
 						tctx.db = db
 						tctx.cecs = cecs
-						statedbtest.Setup(e, db)
-						metrics.SetupTestScript(e, reg)
+						e.Values["localnodestore"] = lns
 					},
-					experimental.TestScriptCommandsSetup(e),
+					experimental.TestScriptCommandsSetup,
 				),
 			),
 		)

@@ -1,24 +1,39 @@
 # Show what tables we're working against.
 db tables
 node show
-node update node.yaml
+node update node_nolabels.yaml
 
 # Start with clean state.
 db cmp services services_empty.table
 db cmp ciliumenvoyconfigs cec_empty.table
 
+# Wait for reflection to start.
+lb initialized
+
 # Set up the services and endpoints
-upsert_service service.yaml
-upsert_endpoints endpointslice.yaml
+k8s add service.yaml endpointslice.yaml
 db cmp services services.table
 
 # Add the CiliumEnvoyConfig and wait for it to be ingested.
-upsert_cec cec.yaml
-db cmp ciliumenvoyconfigs cec.table
+k8s add cec.yaml
+db cmp ciliumenvoyconfigs cec_notselected.table
+
+# Nothing updated towards envoy.
+cmp_envoy_update 0 <nil>
+cmp_envoy_upsert 0 <nil>
+
+# Update the node labels so that CEC gets selected.
+node update node_withlabels.yaml
+db cmp ciliumenvoyconfigs cec_selected.table
 
 # Check that right updates towards Envoy happened.
 cmp_envoy_update 1 L:test/envoy-lb-listener/envoy-lb-listener/1000 EP:
 cmp_envoy_upsert 1 L: EP:test/echo:*=10.244.1.1:8080,test/echo=10.244.1.1:8080
+
+# Check BPF map contents
+lb reconciled
+lb writemaps maps.out
+cmp maps.out maps.expected
 
 # Check that both services are now redirected to proxy.
 db cmp services services_redirected.table
@@ -32,18 +47,17 @@ cmp metrics.out metrics.expected
 
 # Test the processing other way around, e.g. CEC exists before
 # the service.
-delete_service service.yaml
+k8s delete service.yaml
 db cmp services services_empty.table
-upsert_service service.yaml
+k8s add service.yaml
 db cmp services services_redirected.table
 
 # Cleanup
-delete_cec cec.yaml
+k8s delete cec.yaml
 db cmp services services.table
 db cmp ciliumenvoyconfigs cec_empty.table
 
-delete_service service.yaml
-delete_endpoints endpointslice.yaml
+k8s delete service.yaml endpointslice.yaml
 db cmp services services_empty.table
 
 # ---------------------------------------------
@@ -73,9 +87,14 @@ cec-test.reflector   job-k8s-reflector-ciliumenvoyconfigs-cec    OK
 -- cec_empty.table --
 Name Services
 
--- cec.table --
-Name                    Services
-test/envoy-lb-listener  test/echo
+-- cec_notselected.table --
+Name                    Selected  Services
+test/envoy-lb-listener  false     test/echo
+
+-- cec_selected.table --
+Name                    Selected  Services
+test/envoy-lb-listener  true      test/echo
+
 
 -- cec.yaml --
 apiVersion: cilium.io/v2
@@ -91,6 +110,10 @@ spec:
   resources:
     - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
       name: envoy-lb-listener
+  nodeSelector:
+    matchLabels:
+      foo: bar
+    
 
 -- service.yaml --
 apiVersion: v1
@@ -185,8 +208,17 @@ ports:
   protocol: TCP
 
 
--- node.yaml --
+-- node_nolabels.yaml --
+node:
+  name: "test"
+  labels:
+
+-- node_withlabels.yaml --
 node:
   name: "test"
   labels:
     foo: bar
+
+-- maps.expected --
+REV: ID=1 ADDR=10.96.50.104:80
+SVC: ID=1 ADDR=10.96.50.104:80 SLOT=0 BEID=59395 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable+l7-load-balancer

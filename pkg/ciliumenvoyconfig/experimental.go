@@ -224,7 +224,7 @@ func (c *cecController) loop(ctx context.Context, health cell.Health) error {
 		cecChanges, cecWatch := cecs.Next(wtxn)
 		for change := range cecChanges {
 			cec := change.Object
-			if cec.Status.Kind != reconciler.StatusKindDone {
+			if !cec.SelectsLocalNode || cec.Status.Kind != reconciler.StatusKindDone {
 				// Only process the CEC once it has been reconciled towards Envoy.
 				continue
 			}
@@ -377,6 +377,7 @@ func (c *cecController) loop(ctx context.Context, health cell.Health) error {
 						if selects != cec.SelectsLocalNode {
 							cec = cec.Clone()
 							cec.SelectsLocalNode = selects
+							cec.Status = reconciler.StatusPending()
 							c.params.CECs.Insert(wtxn, cec)
 						}
 					}
@@ -423,8 +424,7 @@ func lookupProxyPort(cec *types.CEC, svcl *ciliumv2.ServiceListener) uint16 {
 func (c *cecController) onServiceUpsert(txn statedb.ReadTxn, svc *experimental.Service) {
 	// Look up if there is a CiliumEnvoyConfig that references this service.
 	cec, _, found := c.params.CECs.Get(txn, types.CECByServiceName(svc.Name))
-	if !found {
-		c.params.Log.Debug("onServiceUpsert: CEC not found", "name", svc.Name)
+	if !found || !cec.SelectsLocalNode {
 		svc.ProxyRedirect = nil
 		return
 	}

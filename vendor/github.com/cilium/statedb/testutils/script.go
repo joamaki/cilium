@@ -68,12 +68,12 @@ var (
 
 func DBCmd(ts *testscript.TestScript, neg bool, args []string) {
 	if len(args) < 1 {
-		ts.Fatalf("usage: db <command> args...\n<command> is one of %v", maps.Keys(SubCommands))
+		ts.Fatalf("usage: db <command> args...\n<command> is one of %v", slices.Collect(maps.Keys(SubCommands)))
 	}
 	if cmd, ok := SubCommands[args[0]]; ok {
 		cmd(ts, neg, args[1:])
 	} else {
-		ts.Fatalf("unknown db command %q, should be one of %v", args[0], maps.Keys(SubCommands))
+		ts.Fatalf("unknown db command %q, should be one of %v", args[0], slices.Collect(maps.Keys(SubCommands)))
 	}
 }
 
