@@ -38,16 +38,16 @@ var DefaultConfig = Config{
 	TestFaultInjectionProbability: 0.1,
 }
 
-// externalConfig are configuration options derived from external sources such as
+// ExternalConfig are configuration options derived from external sources such as
 // DaemonConfig. This avoids direct access of larger configuration structs.
-type externalConfig struct {
+type ExternalConfig struct {
 	ExternalClusterIP        bool
 	EnableSessionAffinity    bool
 	NodePortMin, NodePortMax uint16
 }
 
-func newExternalConfig(cfg *option.DaemonConfig) externalConfig {
-	return externalConfig{
+func newExternalConfig(cfg *option.DaemonConfig) ExternalConfig {
+	return ExternalConfig{
 		ExternalClusterIP:     cfg.ExternalClusterIP,
 		EnableSessionAffinity: cfg.EnableSessionAffinity,
 		NodePortMin:           uint16(cfg.NodePortMin),
