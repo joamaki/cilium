@@ -26,6 +26,7 @@ require (
 	github.com/cilium/linters v0.0.0-20230711081823-012f25fa2197
 	github.com/cilium/lumberjack/v2 v2.3.0
 	github.com/cilium/proxy v0.0.0-20231202123106-38b645b854f3
+	github.com/cilium/stream v0.0.0-20240816054136-71321e385273
 	github.com/cilium/workerpool v1.2.0
 	github.com/containernetworking/cni v1.1.2
 	github.com/containernetworking/plugins v1.3.0
@@ -92,7 +93,7 @@ require (
 	go.opentelemetry.io/otel v1.28.0
 	go.opentelemetry.io/otel/trace v1.28.0
 	go.uber.org/dig v1.17.0
-	go.uber.org/goleak v1.2.1
+	go.uber.org/goleak v1.3.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.24.0
 	go.universe.tf/metallb v0.11.0
@@ -104,7 +105,7 @@ require (
 	golang.org/x/sync v0.7.0
 	golang.org/x/sys v0.22.0
 	golang.org/x/term v0.22.0
-	golang.org/x/time v0.3.0
+	golang.org/x/time v0.5.0
 	golang.org/x/tools v0.23.0
 	golang.zx2c4.com/wireguard v0.0.0-20230325221338-052af4a8072b
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cilium/stream"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -293,6 +294,23 @@ type K8sWatcher struct {
 	cfg WatcherConfiguration
 
 	resources agentK8s.Resources
+
+	serviceEventDebounce serviceEventDebounce
+}
+
+type serviceEventDebounce struct {
+	bufferSize int
+	waitTime   time.Duration
+}
+
+var defaultServiceEventDebounce = serviceEventDebounce{
+	bufferSize: 128,
+	waitTime:   200 * time.Millisecond,
+}
+
+var disableServiceEventDebounce = serviceEventDebounce{
+	bufferSize: 1,
+	waitTime:   time.Second,
 }
 
 func NewK8sWatcher(
@@ -335,6 +353,7 @@ func NewK8sWatcher(
 		envoyConfigManager:    envoyConfigManager,
 		cfg:                   cfg,
 		resources:             resources,
+		serviceEventDebounce:  defaultServiceEventDebounce,
 	}
 }
 
@@ -612,94 +631,132 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 }
 
 func (k *K8sWatcher) k8sServiceHandler() {
-	eventHandler := func(event k8s.ServiceEvent) {
-		defer event.SWG.Done()
-
-		svc := event.Service
-
-		scopedLog := log.WithFields(logrus.Fields{
-			logfields.K8sSvcName:   event.ID.Name,
-			logfields.K8sNamespace: event.ID.Namespace,
-		})
-
-		scopedLog.WithFields(logrus.Fields{
-			"action":        event.Action.String(),
-			"service":       event.Service.String(),
-			"old-service":   event.OldService.String(),
-			"endpoints":     event.Endpoints.String(),
-			"old-endpoints": event.OldEndpoints.String(),
-		}).Debug("Kubernetes service definition changed")
-
-		switch event.Action {
-		case k8s.UpdateService:
-			if err := k.addK8sSVCs(event.ID, event.OldService, svc, event.Endpoints); err != nil {
-				scopedLog.WithError(err).Error("Unable to add/update service to implement k8s event")
-			}
-
-			// Normally, only services without a label selector (i.e. "bottomless" or empty services)
-			// are allowed as targets of a toServices rule.
-			// This is to minimize the chances of a pod IP being selected by this rule, which might
-			// cause conflicting entries in the ipcache.
-			//
-			// This requirement, however, is dropped for HighScale IPCache mode, because pod IPs are
-			// normally excluded from the ipcache regardless.
-			if !option.Config.EnableHighScaleIPcache && !svc.IsExternal() {
-				return
-			}
-
-			var oldEP k8s.Endpoints
-			if event.OldEndpoints != nil {
-				oldEP = *event.OldEndpoints
-			}
-			translator := k8s.NewK8sTranslator(event.ID, oldEP, *event.Endpoints, false, svc.Labels)
-			result, err := k.policyRepository.TranslateRules(translator)
-			if err != nil {
-				log.WithError(err).Error("Unable to repopulate egress policies from ToService rules")
-				break
-			} else if result.NumToServicesRules > 0 {
-				// Only trigger policy updates if ToServices rules are in effect
-				k.ipcache.ReleaseCIDRIdentitiesByCIDR(result.PrefixesToRelease)
-				_, err := k.ipcache.AllocateCIDRs(result.PrefixesToAdd, nil, nil)
-				if err != nil {
-					scopedLog.WithError(err).
-						Error("Unabled to allocate ipcache CIDR for toService rule")
-					break
-				}
-				k.policyManager.TriggerPolicyUpdates(true, "Kubernetes service endpoint added")
-			}
-
-		case k8s.DeleteService:
-			if err := k.delK8sSVCs(event.ID, event.Service, event.Endpoints); err != nil {
-				scopedLog.WithError(err).Error("Unable to delete service to implement k8s event")
-			}
-
-			if !option.Config.EnableHighScaleIPcache && !svc.IsExternal() {
-				return
-			}
-
-			// Use the current Endpoints object as the "old" object and "new"
-			// object due to deletion.
-			translator := k8s.NewK8sTranslator(event.ID, *event.Endpoints, *event.Endpoints, true, svc.Labels)
-			result, err := k.policyRepository.TranslateRules(translator)
-			if err != nil {
-				log.WithError(err).Error("Unable to depopulate egress policies from ToService rules")
-				break
-			} else if result.NumToServicesRules > 0 {
-				// Only trigger policy updates if ToServices rules are in effect
-				k.ipcache.ReleaseCIDRIdentitiesByCIDR(result.PrefixesToRelease)
-				k.policyManager.TriggerPolicyUpdates(true, "Kubernetes service endpoint deleted")
-			}
-		}
+	type event struct {
+		k8s.ServiceEvent
+		swgs []*lock.StoppableWaitGroup
 	}
+
+	bufferEvent := func(buf map[k8s.ServiceID]event, ev k8s.ServiceEvent) map[k8s.ServiceID]event {
+		if buf == nil {
+			buf = make(map[k8s.ServiceID]event)
+		}
+		event := event{ServiceEvent: ev, swgs: []*lock.StoppableWaitGroup{ev.SWG}}
+		old, ok := buf[ev.ID]
+		if ok {
+			// Older event existed, reuse the "old" structures so that the event describes
+			// the full delta.
+			event.OldEndpoints = old.OldEndpoints
+			event.OldService = old.OldService
+			event.swgs = append(event.swgs, old.swgs...)
+		}
+		buf[ev.ID] = event
+		return buf
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Collect events into a buffer to debounce repeated events for the same service.
+	// This has a big impact when there are many EndpointSlices for a single service as
+	// we'll collapse those into a single event and avoid the repeated service upserts.
+	src := stream.Buffer(
+		stream.FromChannel(k.K8sSvcCache.Events),
+		k.serviceEventDebounce.bufferSize,
+		k.serviceEventDebounce.waitTime,
+		bufferEvent,
+	)
+	eventsChan := stream.ToChannel(ctx, src)
 	for {
 		select {
 		case <-k.stop:
-			return
-		case event, ok := <-k.K8sSvcCache.Events:
+			cancel()
+		case buf, ok := <-eventsChan:
 			if !ok {
 				return
 			}
-			eventHandler(event)
+			for _, ev := range buf {
+				k.processServiceEvent(ev.ServiceEvent)
+				for _, swg := range ev.swgs {
+					swg.Done()
+				}
+			}
+		}
+	}
+}
+
+func (k *K8sWatcher) processServiceEvent(event k8s.ServiceEvent) {
+	svc := event.Service
+
+	scopedLog := log.WithFields(logrus.Fields{
+		logfields.K8sSvcName:   event.ID.Name,
+		logfields.K8sNamespace: event.ID.Namespace,
+	})
+
+	scopedLog.WithFields(logrus.Fields{
+		"action":        event.Action.String(),
+		"service":       event.Service.String(),
+		"old-service":   event.OldService.String(),
+		"endpoints":     event.Endpoints.String(),
+		"old-endpoints": event.OldEndpoints.String(),
+	}).Debug("Kubernetes service definition changed")
+
+	switch event.Action {
+	case k8s.UpdateService:
+		if err := k.addK8sSVCs(event.ID, event.OldService, svc, event.Endpoints); err != nil {
+			scopedLog.WithError(err).Error("Unable to add/update service to implement k8s event")
+		}
+
+		// Normally, only services without a label selector (i.e. "bottomless" or empty services)
+		// are allowed as targets of a toServices rule.
+		// This is to minimize the chances of a pod IP being selected by this rule, which might
+		// cause conflicting entries in the ipcache.
+		//
+		// This requirement, however, is dropped for HighScale IPCache mode, because pod IPs are
+		// normally excluded from the ipcache regardless.
+		if !option.Config.EnableHighScaleIPcache && !svc.IsExternal() {
+			return
+		}
+
+		var oldEP k8s.Endpoints
+		if event.OldEndpoints != nil {
+			oldEP = *event.OldEndpoints
+		}
+		translator := k8s.NewK8sTranslator(event.ID, oldEP, *event.Endpoints, false, svc.Labels)
+		result, err := k.policyRepository.TranslateRules(translator)
+		if err != nil {
+			log.WithError(err).Error("Unable to repopulate egress policies from ToService rules")
+			break
+		} else if result.NumToServicesRules > 0 {
+			// Only trigger policy updates if ToServices rules are in effect
+			k.ipcache.ReleaseCIDRIdentitiesByCIDR(result.PrefixesToRelease)
+			_, err := k.ipcache.AllocateCIDRs(result.PrefixesToAdd, nil, nil)
+			if err != nil {
+				scopedLog.WithError(err).
+					Error("Unabled to allocate ipcache CIDR for toService rule")
+				break
+			}
+			k.policyManager.TriggerPolicyUpdates(true, "Kubernetes service endpoint added")
+		}
+
+	case k8s.DeleteService:
+		if err := k.delK8sSVCs(event.ID, event.Service, event.Endpoints); err != nil {
+			scopedLog.WithError(err).Error("Unable to delete service to implement k8s event")
+		}
+
+		if !option.Config.EnableHighScaleIPcache && !svc.IsExternal() {
+			return
+		}
+
+		// Use the current Endpoints object as the "old" object and "new"
+		// object due to deletion.
+		translator := k8s.NewK8sTranslator(event.ID, *event.Endpoints, *event.Endpoints, true, svc.Labels)
+		result, err := k.policyRepository.TranslateRules(translator)
+		if err != nil {
+			log.WithError(err).Error("Unable to depopulate egress policies from ToService rules")
+			break
+		} else if result.NumToServicesRules > 0 {
+			// Only trigger policy updates if ToServices rules are in effect
+			k.ipcache.ReleaseCIDRIdentitiesByCIDR(result.PrefixesToRelease)
+			k.policyManager.TriggerPolicyUpdates(true, "Kubernetes service endpoint deleted")
 		}
 	}
 }
