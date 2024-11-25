@@ -4,7 +4,10 @@
 package v2
 
 import (
+	"bytes"
+	"encoding/json"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"unique"
@@ -167,6 +170,44 @@ func (lbls Labels) String() string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+func (lbls Labels) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteRune('{')
+	remaining := lbls.Len()
+	for l := range lbls.All() {
+		kb, err := json.Marshal(l.Key())
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(kb)
+		buf.WriteRune(':')
+		lb, err := l.MarshalJSON()
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(lb)
+		remaining--
+		if remaining > 0 {
+			buf.WriteRune(',')
+		}
+	}
+	buf.WriteRune('}')
+	return buf.Bytes(), nil
+}
+
+func (lbls *Labels) UnmarshalJSON(b []byte) error {
+	// Unmarshalling the labels is not as much on the critical path
+	// as marshalling as it's mostly done when restoring endpoints.
+	// Hence we're just doing the straightforward thing and unmarshalling
+	// into a map first.
+	var m map[string]Label
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	*lbls = NewLabels(slices.AppendSeq(make([]Label, 0, len(m)), maps.Values(m))...)
+	return nil
 }
 
 const smallLabelsSize = 7 // 7*8+1 < 64 => fits in cache line
