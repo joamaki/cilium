@@ -23,7 +23,6 @@ import (
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/metrics/metric"
 	"github.com/cilium/cilium/pkg/option"
-	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/time"
 )
 
@@ -127,13 +126,12 @@ func NewACT(in struct {
 	Jobs      job.Group
 	Source    act.ActiveConnectionTrackingMap
 	Metrics   ActiveConnectionTrackingMetrics
-	Service   service.ServiceManager
 }) *ACT {
 	if !in.Conf.EnableActiveConnectionTracking {
 		// Active Connection Tracking is disabled.
 		return nil
 	}
-	a := newAct(in.Log, in.Source, in.Metrics, in.Service, option.Config)
+	a := newAct(in.Log, in.Source, in.Metrics, option.Config)
 	a.trig = job.NewTrigger()
 
 	in.Jobs.Add(job.Timer("act-metrics-update", a.update, metricsUpdateInterval))
@@ -152,7 +150,7 @@ func NewACT(in struct {
 	return a
 }
 
-func newAct(log *slog.Logger, src act.ActiveConnectionTrackingMap, metrics ActiveConnectionTrackingMetrics, svcMgr service.ServiceManager, opts *option.DaemonConfig) *ACT {
+func newAct(log *slog.Logger, src act.ActiveConnectionTrackingMap, metrics ActiveConnectionTrackingMetrics, opts *option.DaemonConfig) *ACT {
 	tracker := make(map[uint8]map[uint16]*actMetric, len(opts.FixedZoneMapping))
 	for zone := range opts.ReverseFixedZoneMapping {
 		tracker[zone] = make(map[uint16]*actMetric)
@@ -163,11 +161,14 @@ func newAct(log *slog.Logger, src act.ActiveConnectionTrackingMap, metrics Activ
 			return "", "", fmt.Errorf("resolve zone id: %w", err)
 		}
 
-		ref, err := service.GetID(uint32(byteorder.NetworkToHost16(key.SvcID)))
-		if err != nil || ref == nil {
-			return "", "", fmt.Errorf("resolve svc id: %w", err)
-		}
-		svc = ref.String()
+		/*
+			ref, err := service.GetID(uint32(byteorder.NetworkToHost16(key.SvcID)))
+			if err != nil || ref == nil {
+				return "", "", fmt.Errorf("resolve svc id: %w", err)
+			}
+			svc = ref.String()
+		*/
+		panic("FIXME(jm): Implement")
 		return
 	}
 	return &ACT{
@@ -175,9 +176,10 @@ func newAct(log *slog.Logger, src act.ActiveConnectionTrackingMap, metrics Activ
 		src:          src,
 		metrics:      metrics,
 		keyToStrings: kts,
-		svcIDs:       svcMgr.GetServiceIDs,
-		mux:          new(lock.Mutex),
-		tracker:      tracker,
+		//svcIDs:       svcMgr.GetServiceIDs,
+		// FIXME(jm) ^
+		mux:     new(lock.Mutex),
+		tracker: tracker,
 	}
 }
 
@@ -326,64 +328,68 @@ func (a *ACT) cleanup(ctx context.Context) error {
 // CountFailed4 increments a counter of new failed connections
 // for a given (svc, backend) pair.
 func (a *ACT) CountFailed4(svc uint16, backend uint32) {
-	key := lbmap.NewBackend4KeyV3(loadbalancer.BackendID(backend))
-	a.countFailed(svc, key)
+	panic("FIXME(jm): Implement")
+	/*key := lbmap.NewBackend4KeyV3(loadbalancer.BackendID(backend))
+	a.countFailed(svc, key)*/
 }
 
 // CountFailed6 increments a counter of new failed connections
 // for a given (svc, backend) pair.
 func (a *ACT) CountFailed6(svc uint16, backend uint32) {
-	key := lbmap.NewBackend6KeyV3(loadbalancer.BackendID(backend))
-	a.countFailed(svc, key)
+	panic("FIXME(jm): Implement")
+	/*key := lbmap.NewBackend6KeyV3(loadbalancer.BackendID(backend))
+	a.countFailed(svc, key)*/
 }
 
 // countFailed looks up zone information in the backend map and then increments
 // a counter of new failed connection for a constructed (svc, zone) pair.
 func (a *ACT) countFailed(svc uint16, key lbmap.BackendKey) {
-	scopedLog := a.log.With("svc", byteorder.NetworkToHost16(svc), "backend", key.GetID())
+	panic("FIXME(jm): Implement")
+	/*
+		scopedLog := a.log.With("svc", byteorder.NetworkToHost16(svc), "backend", key.GetID())
 
-	val, err := key.Map().Lookup(key)
-	if err != nil {
-		msg := "lookup of purged entry failed"
-		errMetric := a.metrics.Errors.WithLabelValues(msg)
-		errMetric.Inc()
-		// Print an error message to logs only the first time and then every 100 occurrences.
-		if int(errMetric.Get())%100 != 1 {
+		val, err := key.Map().Lookup(key)
+		if err != nil {
+			msg := "lookup of purged entry failed"
+			errMetric := a.metrics.Errors.WithLabelValues(msg)
+			errMetric.Inc()
+			// Print an error message to logs only the first time and then every 100 occurrences.
+			if int(errMetric.Get())%100 != 1 {
+				return
+			}
+			scopedLog.Error("Skipping processing",
+				"msg", msg,
+				"key", key.String(),
+				"err", err,
+			)
 			return
 		}
-		scopedLog.Error("Skipping processing",
-			"msg", msg,
-			"key", key.String(),
-			"err", err,
-		)
-		return
-	}
-	zone := val.(lbmap.BackendValue).GetZone()
-	if zone == 0 {
-		scopedLog.Debug("Ignoring backend without zone")
-		return
-	}
-
-	a.mux.Lock()
-	defer a.mux.Unlock()
-
-	old, ok := a.tracker[zone][svc]
-	if !ok {
-		msg := "purged entry is already deleted from metrics"
-		errMetric := a.metrics.Errors.WithLabelValues(msg)
-		errMetric.Inc()
-		// Print an error message to logs only the first time and then every 100 occurrences.
-		if int(errMetric.Get())%100 != 1 {
+		zone := val.(lbmap.BackendValue).GetZone()
+		if zone == 0 {
+			scopedLog.Debug("Ignoring backend without zone")
 			return
 		}
-		scopedLog.Error("Skipping processing",
-			"msg", msg,
-			"key", key.String(),
-			"err", err,
-		)
-		return
-	}
-	old.newFailed++
+
+		a.mux.Lock()
+		defer a.mux.Unlock()
+
+		old, ok := a.tracker[zone][svc]
+		if !ok {
+			msg := "purged entry is already deleted from metrics"
+			errMetric := a.metrics.Errors.WithLabelValues(msg)
+			errMetric.Inc()
+			// Print an error message to logs only the first time and then every 100 occurrences.
+			if int(errMetric.Get())%100 != 1 {
+				return
+			}
+			scopedLog.Error("Skipping processing",
+				"msg", msg,
+				"key", key.String(),
+				"err", err,
+			)
+			return
+		}
+		old.newFailed++*/
 }
 
 // trackerLen is the total number of metric series held by ACT.

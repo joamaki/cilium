@@ -22,7 +22,6 @@ import (
 	"github.com/cilium/cilium/api/v1/models"
 	observerpb "github.com/cilium/cilium/api/v1/observer"
 	"github.com/cilium/cilium/pkg/cgroups/manager"
-	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/crypto/certloader"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	"github.com/cilium/cilium/pkg/endpointmanager"
@@ -50,13 +49,11 @@ import (
 	"github.com/cilium/cilium/pkg/ipcache"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
-	"github.com/cilium/cilium/pkg/loadbalancer"
 	monitorAgent "github.com/cilium/cilium/pkg/monitor/agent"
 	"github.com/cilium/cilium/pkg/node"
 	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/recorder"
-	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/time"
 )
 
@@ -71,7 +68,6 @@ type hubbleIntegration struct {
 	identityAllocator identitycell.CachingIdentityAllocator
 	endpointManager   endpointmanager.EndpointManager
 	ipcache           *ipcache.IPCache
-	serviceManager    service.ServiceManager
 	cgroupManager     manager.CGroupManager
 	clientset         k8sClient.Clientset
 	k8sWatcher        *watchers.K8sWatcher
@@ -94,7 +90,6 @@ func new(
 	identityAllocator identitycell.CachingIdentityAllocator,
 	endpointManager endpointmanager.EndpointManager,
 	ipcache *ipcache.IPCache,
-	serviceManager service.ServiceManager,
 	cgroupManager manager.CGroupManager,
 	clientset k8sClient.Clientset,
 	k8sWatcher *watchers.K8sWatcher,
@@ -118,7 +113,6 @@ func new(
 		identityAllocator: identityAllocator,
 		endpointManager:   endpointManager,
 		ipcache:           ipcache,
-		serviceManager:    serviceManager,
 		cgroupManager:     cgroupManager,
 		clientset:         clientset,
 		k8sWatcher:        k8sWatcher,
@@ -235,24 +229,26 @@ func (h *hubbleIntegration) GetNamesOf(sourceEpID uint32, ip netip.Addr) []strin
 // GetServiceByAddr implements ServiceGetter. It looks up service by IP/port.
 // Hubble uses this function to annotate flows with service information.
 func (h *hubbleIntegration) GetServiceByAddr(ip netip.Addr, port uint16) *flowpb.Service {
-	if !ip.IsValid() {
-		return nil
-	}
-	addrCluster := cmtypes.AddrClusterFrom(ip, 0)
-	addr := loadbalancer.L3n4Addr{
-		AddrCluster: addrCluster,
-		L4Addr: loadbalancer.L4Addr{
-			Port: port,
-		},
-	}
-	namespace, name, ok := h.serviceManager.GetServiceNameByAddr(addr)
-	if !ok {
-		return nil
-	}
-	return &flowpb.Service{
-		Namespace: namespace,
-		Name:      name,
-	}
+	panic("FIXME(jm): Implement")
+	/*
+		if !ip.IsValid() {
+			return nil
+		}
+		addrCluster := cmtypes.AddrClusterFrom(ip, 0)
+		addr := loadbalancer.L3n4Addr{
+			AddrCluster: addrCluster,
+			L4Addr: loadbalancer.L4Addr{
+				Port: port,
+			},
+		}
+		namespace, name, ok := h.serviceManager.GetServiceNameByAddr(addr)
+		if !ok {
+			return nil
+		}
+		return &flowpb.Service{
+			Namespace: namespace,
+			Name:      name,
+		}*/
 }
 
 func (h *hubbleIntegration) launch(ctx context.Context) {

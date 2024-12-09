@@ -21,9 +21,6 @@ type ServiceKey interface {
 	// IsSurrogate returns true on zero-address
 	IsSurrogate() bool
 
-	// Return the BPF map matching the key type
-	Map() *bpf.Map
-
 	// Set backend slot for the key
 	SetBackendSlot(slot int)
 
@@ -47,9 +44,6 @@ type ServiceKey interface {
 
 	// Returns a RevNatValue matching a ServiceKey
 	RevNatValue() RevNatValue
-
-	// Delete entry identified with the key from the matching map
-	MapDelete() error
 
 	// ToNetwork converts fields to network byte order.
 	ToNetwork() ServiceKey
@@ -118,9 +112,6 @@ type ServiceValue interface {
 type BackendKey interface {
 	bpf.MapKey
 
-	// Return the BPF map matching the type
-	Map() *bpf.Map
-
 	// Set backend identifier
 	SetID(loadbalancer.BackendID)
 
@@ -159,9 +150,6 @@ type BackendValue interface {
 
 // Backend is the interface describing protocol independent backend used by services v2.
 type Backend interface {
-	// Return the BPF map matching the type
-	Map() *bpf.Map
-
 	// Get key of the backend entry
 	GetKey() BackendKey
 
@@ -171,9 +159,6 @@ type Backend interface {
 
 type RevNatKey interface {
 	bpf.MapKey
-
-	// Returns the BPF map matching the key type
-	Map() *bpf.Map
 
 	// ToNetwork converts fields to network byte order.
 	ToNetwork() RevNatKey
@@ -205,18 +190,4 @@ func svcFrontend(svcKey ServiceKey, svcValue ServiceValue) *loadbalancer.L3n4Add
 		ID:       loadbalancer.ID(svcValue.GetRevNat()),
 	}
 	return feL3n4AddrID
-}
-
-func svcBackend(backendID loadbalancer.BackendID, backend BackendValue, backendFlags loadbalancer.ServiceFlags) *loadbalancer.Backend {
-	beIP := backend.GetAddress()
-	beAddrCluster := cmtypes.MustAddrClusterFromIP(beIP)
-	bePort := backend.GetPort()
-	beProto := loadbalancer.NewL4TypeFromNumber(backend.GetProtocol())
-	beState := loadbalancer.GetBackendStateFromFlags(backend.GetFlags())
-	beZone := backend.GetZone()
-	if beState == loadbalancer.BackendStateActive && backendFlags.SVCSlotQuarantined() {
-		beState = loadbalancer.BackendStateQuarantined
-	}
-	beBackend := loadbalancer.NewBackendWithState(backendID, beProto, beAddrCluster, bePort, beZone, beState)
-	return beBackend
 }

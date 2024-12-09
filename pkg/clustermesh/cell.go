@@ -11,12 +11,13 @@ import (
 	"github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/clustermesh/wait"
 	"github.com/cilium/cilium/pkg/ipcache"
-	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/kvstore"
+	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/metrics"
 	nodemanager "github.com/cilium/cilium/pkg/node/manager"
 	nodeStore "github.com/cilium/cilium/pkg/node/store"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/service/store"
 )
 
 var Cell = cell.Module(
@@ -26,7 +27,6 @@ var Cell = cell.Module(
 	cell.Provide(NewClusterMesh),
 
 	// Convert concrete objects into more restricted interfaces used by clustermesh.
-	cell.ProvidePrivate(func(sc *k8s.ServiceCache) ServiceMerger { return sc }),
 	cell.ProvidePrivate(func(ipcache *ipcache.IPCache) ipcache.IPCacher { return ipcache }),
 	cell.ProvidePrivate(func(mgr nodemanager.NodeManager) (nodeStore.NodeManager, kvstore.ClusterSizeDependantIntervalFunc) {
 		return mgr, mgr.ClusterSizeDependantInterval
@@ -44,4 +44,20 @@ var Cell = cell.Module(
 	}),
 	cell.Invoke(ipsetNotifier),
 	cell.Invoke(nodeManagerNotifier),
+
+	cell.ProvidePrivate(func() ServiceMerger { return &dummyMerger{} }),
 )
+
+type dummyMerger struct{}
+
+// MergeExternalServiceDelete implements ServiceMerger.
+func (d *dummyMerger) MergeExternalServiceDelete(service *store.ClusterService, swg *lock.StoppableWaitGroup) {
+	panic("unimplemented")
+}
+
+// MergeExternalServiceUpdate implements ServiceMerger.
+func (d *dummyMerger) MergeExternalServiceUpdate(service *store.ClusterService, swg *lock.StoppableWaitGroup) {
+	panic("unimplemented")
+}
+
+var _ ServiceMerger = &dummyMerger{}

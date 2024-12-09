@@ -31,7 +31,6 @@ import (
 	"github.com/cilium/cilium/pkg/mtu"
 	"github.com/cilium/cilium/pkg/node/manager"
 	"github.com/cilium/cilium/pkg/promise"
-	"github.com/cilium/cilium/pkg/testutils/mockmaps"
 	"github.com/cilium/cilium/pkg/time"
 	wg "github.com/cilium/cilium/pkg/wireguard/agent"
 )
@@ -48,10 +47,6 @@ var Cell = cell.Module(
 			fakeNodeHandler := fakeTypes.NewNodeHandler()
 			nodeManager.Subscribe(fakeNodeHandler)
 			return fakeNodeHandler, fakeNodeHandler, fakeNodeHandler, fakeNodeHandler
-		},
-		func(lifecycle cell.Lifecycle, na types.NodeAddressing, nodeManager manager.NodeManager) (types.LBMap, *mockmaps.LBMockMap) {
-			lbMap := mockmaps.NewLBMockMap()
-			return lbMap, lbMap
 		},
 		func() signalmap.Map { return fakesignalmap.NewFakeSignalMap([][]byte{}, time.Second) },
 		func() authmap.Map { return fakeauthmap.NewFakeAuthMap() },

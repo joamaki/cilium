@@ -23,18 +23,15 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/synced"
 	"github.com/cilium/cilium/pkg/k8s/watchers/resources"
 	"github.com/cilium/cilium/pkg/labels"
-	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
-	"github.com/cilium/cilium/pkg/redirectpolicy"
 	"github.com/cilium/cilium/pkg/source"
 )
 
 const (
 	k8sAPIGroupNamespaceV1Core                  = "core/v1::Namespace"
-	K8sAPIGroupServiceV1Core                    = "core/v1::Service"
 	k8sAPIGroupNetworkingV1Core                 = "networking.k8s.io/v1::NetworkPolicy"
 	k8sAPIGroupCiliumNetworkPolicyV2            = "cilium/v2::CiliumNetworkPolicy"
 	k8sAPIGroupCiliumClusterwideNetworkPolicyV2 = "cilium/v2::CiliumClusterwideNetworkPolicy"
@@ -78,23 +75,6 @@ type policyManager interface {
 	TriggerPolicyUpdates(reason string)
 }
 
-type svcManager interface {
-	DeleteService(frontend loadbalancer.L3n4Addr) (bool, error)
-	GetDeepCopyServiceByFrontend(frontend loadbalancer.L3n4Addr) (*loadbalancer.SVC, bool)
-	UpsertService(*loadbalancer.SVC) (bool, loadbalancer.ID, error)
-}
-
-type redirectPolicyManager interface {
-	AddRedirectPolicy(config redirectpolicy.LRPConfig) (bool, error)
-	DeleteRedirectPolicy(config redirectpolicy.LRPConfig) error
-	OnAddService(svcID k8s.ServiceID)
-	EnsureService(svcID k8s.ServiceID) (bool, error)
-	OnDeleteService(svcID k8s.ServiceID)
-	OnUpdatePod(pod *slim_corev1.Pod, needsReassign bool, ready bool)
-	OnDeletePod(pod *slim_corev1.Pod)
-	OnAddPod(pod *slim_corev1.Pod)
-}
-
 type cgroupManager interface {
 	OnAddPod(pod *slim_corev1.Pod)
 	OnUpdatePod(oldPod, newPod *slim_corev1.Pod)
@@ -126,9 +106,7 @@ type K8sWatcher struct {
 	k8sPodWatcher             *K8sPodWatcher
 	k8sCiliumNodeWatcher      *K8sCiliumNodeWatcher
 	k8sNamespaceWatcher       *K8sNamespaceWatcher
-	k8sServiceWatcher         *K8sServiceWatcher
 	k8sEndpointsWatcher       *K8sEndpointsWatcher
-	k8sCiliumLRPWatcher       *K8sCiliumLRPWatcher
 	k8sCiliumEndpointsWatcher *K8sCiliumEndpointsWatcher
 
 	// k8sResourceSynced maps a resource name to a channel. Once the given
@@ -148,9 +126,7 @@ func newWatcher(
 	k8sPodWatcher *K8sPodWatcher,
 	k8sCiliumNodeWatcher *K8sCiliumNodeWatcher,
 	k8sNamespaceWatcher *K8sNamespaceWatcher,
-	k8sServiceWatcher *K8sServiceWatcher,
 	k8sEndpointsWatcher *K8sEndpointsWatcher,
-	k8sCiliumLRPWatcher *K8sCiliumLRPWatcher,
 	k8sCiliumEndpointsWatcher *K8sCiliumEndpointsWatcher,
 	k8sEventReporter *K8sEventReporter,
 	k8sResourceSynced *synced.Resources,
@@ -164,9 +140,7 @@ func newWatcher(
 		k8sPodWatcher:             k8sPodWatcher,
 		k8sCiliumNodeWatcher:      k8sCiliumNodeWatcher,
 		k8sNamespaceWatcher:       k8sNamespaceWatcher,
-		k8sServiceWatcher:         k8sServiceWatcher,
 		k8sEndpointsWatcher:       k8sEndpointsWatcher,
-		k8sCiliumLRPWatcher:       k8sCiliumLRPWatcher,
 		k8sCiliumEndpointsWatcher: k8sCiliumEndpointsWatcher,
 		k8sResourceSynced:         k8sResourceSynced,
 		k8sAPIGroups:              k8sAPIGroups,
@@ -244,10 +218,6 @@ var ciliumResourceToGroupMapping = map[string]watcherInfo{
 // which the Cilium agent watches to implement CNI functionality.
 func resourceGroups(cfg WatcherConfiguration) (resourceGroups, waitForCachesOnly []string) {
 	k8sGroups := []string{
-		// To perform the service translation and have the BPF LB datapath
-		// with the right service -> backend (k8s endpoints) translation.
-		K8sAPIGroupServiceV1Core,
-
 		// Namespaces can contain labels which are essential for
 		// endpoints being restored to have the right identity.
 		k8sAPIGroupNamespaceV1Core,
@@ -344,8 +314,6 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 				asyncControllers.Add(1)
 				go k.k8sCiliumNodeWatcher.ciliumNodeInit(ctx, asyncControllers)
 			}
-		case resources.K8sAPIGroupServiceV1Core:
-			k.k8sServiceWatcher.servicesInit()
 		case resources.K8sAPIGroupEndpointSliceOrEndpoint:
 			k.k8sEndpointsWatcher.endpointsInit()
 		case k8sAPIGroupCiliumEndpointV2:
@@ -354,8 +322,6 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 			}
 		case k8sAPIGroupCiliumEndpointSliceV2Alpha1:
 			// no-op; handled in k8sAPIGroupCiliumEndpointV2
-		case k8sAPIGroupCiliumLocalRedirectPolicyV2:
-			k.k8sCiliumLRPWatcher.ciliumLocalRedirectPolicyInit()
 		default:
 			log.WithFields(logrus.Fields{
 				logfields.Resource: r,
@@ -368,9 +334,7 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 
 func (k *K8sWatcher) StopWatcher() {
 	k.k8sNamespaceWatcher.stopWatcher()
-	k.k8sServiceWatcher.stopWatcher()
 	k.k8sEndpointsWatcher.stopWatcher()
-	k.k8sCiliumLRPWatcher.stopWatcher()
 }
 
 // K8sEventProcessed is called to do metrics accounting for each processed
@@ -393,8 +357,4 @@ func (k *K8sWatcher) GetCachedPod(namespace, name string) (*slim_corev1.Pod, err
 // GetCachedNamespace returns a namespace from the local store.
 func (k *K8sWatcher) GetCachedNamespace(namespace string) (*slim_corev1.Namespace, error) {
 	return k.k8sNamespaceWatcher.GetCachedNamespace(namespace)
-}
-
-func (k *K8sWatcher) RunK8sServiceHandler() {
-	k.k8sServiceWatcher.RunK8sServiceHandler()
 }

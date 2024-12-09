@@ -21,9 +21,11 @@ import (
 	"github.com/cilium/statedb/reconciler"
 	"github.com/cilium/stream"
 	"google.golang.org/protobuf/proto"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/cilium/cilium/pkg/envoy"
+	"github.com/cilium/cilium/pkg/k8s"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/labels"
 	"github.com/cilium/cilium/pkg/loadbalancer"
@@ -544,3 +546,25 @@ func registerEnvoyReconciler(log *slog.Logger, xds resourceMutator, params recon
 	)
 	return err
 }
+
+// useOriginalSourceAddress returns true if the given object metadata indicates that the owner needs the Envoy listener to assume the identity of Cilium Ingress.
+// This can be an explicit label or the presence of an OwnerReference of Kind "Ingress" or "Gateway".
+func useOriginalSourceAddress(meta *metav1.ObjectMeta) bool {
+	for _, owner := range meta.OwnerReferences {
+		if owner.Kind == "Ingress" || owner.Kind == "Gateway" {
+			return false
+		}
+	}
+
+	if meta.GetLabels() != nil {
+		if v, ok := meta.GetLabels()[k8s.UseOriginalSourceAddressLabel]; ok {
+			if boolValue, err := strconv.ParseBool(v); err == nil {
+				return boolValue
+			}
+		}
+	}
+
+	return true
+}
+
+const anyPort = "*"

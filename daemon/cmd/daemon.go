@@ -58,7 +58,6 @@ import (
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maglev"
 	"github.com/cilium/cilium/pkg/maps/ctmap"
-	"github.com/cilium/cilium/pkg/maps/lbmap"
 	"github.com/cilium/cilium/pkg/maps/policymap"
 	"github.com/cilium/cilium/pkg/metrics"
 	monitoragent "github.com/cilium/cilium/pkg/monitor/agent"
@@ -72,10 +71,7 @@ import (
 	policyAPI "github.com/cilium/cilium/pkg/policy/api"
 	"github.com/cilium/cilium/pkg/proxy"
 	"github.com/cilium/cilium/pkg/rate"
-	"github.com/cilium/cilium/pkg/redirectpolicy"
 	"github.com/cilium/cilium/pkg/resiliency"
-	"github.com/cilium/cilium/pkg/service"
-	serviceStore "github.com/cilium/cilium/pkg/service/store"
 	"github.com/cilium/cilium/pkg/status"
 	"github.com/cilium/cilium/pkg/time"
 	wireguard "github.com/cilium/cilium/pkg/wireguard/agent"
@@ -95,7 +91,6 @@ type Daemon struct {
 	buildEndpointSem *semaphore.Weighted
 	l7Proxy          *proxy.Proxy
 	envoyXdsServer   envoy.XDSServer
-	svc              service.ServiceManager
 	policy           policy.PolicyRepository
 	idmgr            identitymanager.IDManager
 
@@ -142,8 +137,7 @@ type Daemon struct {
 
 	ipcache *ipcache.IPCache
 
-	k8sWatcher  *watchers.K8sWatcher
-	k8sSvcCache *k8s.ServiceCache
+	k8sWatcher *watchers.K8sWatcher
 
 	// endpointMetadataFetcher knows how to fetch Kubernetes metadata for endpoints.
 	endpointMetadataFetcher endpointMetadataFetcher
@@ -185,7 +179,6 @@ type Daemon struct {
 	iptablesManager datapath.IptablesManager
 	hubble          hubblecell.HubbleIntegration
 
-	lrpManager   *redirectpolicy.Manager
 	ctMapGC      ctmap.GCRunner
 	maglevConfig maglev.Config
 }
@@ -319,38 +312,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 	ctmap.InitMapInfo(option.Config.EnableIPv4, option.Config.EnableIPv6, option.Config.EnableNodePort)
 	policymap.InitMapInfo(option.Config.PolicyMapEntries)
 
-	lbmapInitParams := lbmap.InitParams{
-		IPv4: option.Config.EnableIPv4,
-		IPv6: option.Config.EnableIPv6,
-
-		MaxSockRevNatMapEntries:  option.Config.SockRevNatEntries,
-		ServiceMapMaxEntries:     option.Config.LBMapEntries,
-		BackEndMapMaxEntries:     option.Config.LBMapEntries,
-		RevNatMapMaxEntries:      option.Config.LBMapEntries,
-		AffinityMapMaxEntries:    option.Config.LBMapEntries,
-		SourceRangeMapMaxEntries: option.Config.LBMapEntries,
-		MaglevMapMaxEntries:      option.Config.LBMapEntries,
-	}
-	if option.Config.LBServiceMapEntries > 0 {
-		lbmapInitParams.ServiceMapMaxEntries = option.Config.LBServiceMapEntries
-	}
-	if option.Config.LBBackendMapEntries > 0 {
-		lbmapInitParams.BackEndMapMaxEntries = option.Config.LBBackendMapEntries
-	}
-	if option.Config.LBRevNatEntries > 0 {
-		lbmapInitParams.RevNatMapMaxEntries = option.Config.LBRevNatEntries
-	}
-	if option.Config.LBAffinityMapEntries > 0 {
-		lbmapInitParams.AffinityMapMaxEntries = option.Config.LBAffinityMapEntries
-	}
-	if option.Config.LBSourceRangeMapEntries > 0 {
-		lbmapInitParams.SourceRangeMapMaxEntries = option.Config.LBSourceRangeMapEntries
-	}
-	if option.Config.LBMaglevMapEntries > 0 {
-		lbmapInitParams.MaglevMapMaxEntries = option.Config.LBMaglevMapEntries
-	}
-	lbmap.Init(lbmapInitParams)
-
 	identity.IterateReservedIdentities(func(_ identity.NumericIdentity, _ *identity.Identity) {
 		metrics.Identity.WithLabelValues(identity.ReservedIdentityType).Inc()
 		metrics.IdentityLabelSources.WithLabelValues(labels.LabelSourceReserved).Inc()
@@ -384,7 +345,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		clusterInfo:       params.ClusterInfo,
 		clustermesh:       params.ClusterMesh,
 		monitorAgent:      params.MonitorAgent,
-		svc:               params.ServiceManager,
 		l7Proxy:           params.L7Proxy,
 		envoyXdsServer:    params.EnvoyXdsServer,
 		authManager:       params.AuthManager,
@@ -394,13 +354,11 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		bwManager:         params.BandwidthManager,
 		endpointManager:   params.EndpointManager,
 		k8sWatcher:        params.K8sWatcher,
-		k8sSvcCache:       params.K8sSvcCache,
 		ipam:              params.IPAM,
 		wireguardAgent:    params.WGAgent,
 		orchestrator:      params.Orchestrator,
 		iptablesManager:   params.IPTablesManager,
 		hubble:            params.Hubble,
-		lrpManager:        params.LRPManager,
 		ctMapGC:           params.CTNATMapGC,
 		maglevConfig:      params.MaglevConfig,
 	}
@@ -453,25 +411,8 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		return nil, nil, fmt.Errorf("error while opening/creating BPF maps: %w", err)
 	}
 
-	// Read the service IDs of existing services from the BPF map and
-	// reserve them. This must be done *before* connecting to the
-	// Kubernetes apiserver and serving the API to ensure service IDs are
-	// not changing across restarts or that a new service could accidentally
-	// use an existing service ID.
-	// Also, create missing v2 services from the corresponding legacy ones.
-	if option.Config.RestoreState && !option.Config.DryMode {
-		bootstrapStats.restore.Start()
-		if err := d.svc.RestoreServices(); err != nil {
-			log.WithError(err).Warn("Failed to restore services from BPF maps")
-		}
-		bootstrapStats.restore.End(true)
-	}
-
-	debug.RegisterStatusObject("k8s-service-cache", d.k8sSvcCache)
 	debug.RegisterStatusObject("ipam", d.ipam)
 	debug.RegisterStatusObject("ongoing-endpoint-creations", d.endpointCreations)
-
-	d.k8sWatcher.RunK8sServiceHandler()
 
 	if option.Config.DNSPolicyUnloadOnShutdown {
 		log.Debugf("Registering cleanup function to unload DNS policies due to --%s", option.DNSPolicyUnloadOnShutdown)
@@ -754,7 +695,8 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		}
 
 		// Start services watcher
-		serviceStore.JoinClusterServices(d.k8sSvcCache, option.Config.ClusterName)
+		// FIXME(jm)
+		//serviceStore.JoinClusterServices(d.k8sSvcCache, option.Config.ClusterName)
 	}
 
 	// Start IPAM

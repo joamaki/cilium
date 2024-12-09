@@ -35,7 +35,6 @@ import (
 	"github.com/cilium/cilium/api/v1/server/restapi/policy"
 	"github.com/cilium/cilium/api/v1/server/restapi/prefilter"
 	"github.com/cilium/cilium/api/v1/server/restapi/recorder"
-	"github.com/cilium/cilium/api/v1/server/restapi/service"
 	"github.com/cilium/hive/cell"
 
 	"github.com/cilium/cilium/pkg/api"
@@ -71,7 +70,6 @@ type apiParams struct {
 	PolicyDeletePolicyHandler            policy.DeletePolicyHandler
 	PrefilterDeletePrefilterHandler      prefilter.DeletePrefilterHandler
 	RecorderDeleteRecorderIDHandler      recorder.DeleteRecorderIDHandler
-	ServiceDeleteServiceIDHandler        service.DeleteServiceIDHandler
 	BgpGetBgpPeersHandler                bgp.GetBgpPeersHandler
 	BgpGetBgpRoutePoliciesHandler        bgp.GetBgpRoutePoliciesHandler
 	BgpGetBgpRoutesHandler               bgp.GetBgpRoutesHandler
@@ -93,7 +91,6 @@ type apiParams struct {
 	PolicyGetIdentityHandler             policy.GetIdentityHandler
 	PolicyGetIdentityEndpointsHandler    policy.GetIdentityEndpointsHandler
 	PolicyGetIdentityIDHandler           policy.GetIdentityIDHandler
-	ServiceGetLrpHandler                 service.GetLrpHandler
 	DaemonGetMapHandler                  daemon.GetMapHandler
 	DaemonGetMapNameHandler              daemon.GetMapNameHandler
 	DaemonGetMapNameEventsHandler        daemon.GetMapNameEventsHandler
@@ -104,8 +101,6 @@ type apiParams struct {
 	RecorderGetRecorderHandler           recorder.GetRecorderHandler
 	RecorderGetRecorderIDHandler         recorder.GetRecorderIDHandler
 	RecorderGetRecorderMasksHandler      recorder.GetRecorderMasksHandler
-	ServiceGetServiceHandler             service.GetServiceHandler
-	ServiceGetServiceIDHandler           service.GetServiceIDHandler
 	DaemonPatchConfigHandler             daemon.PatchConfigHandler
 	EndpointPatchEndpointIDHandler       endpoint.PatchEndpointIDHandler
 	EndpointPatchEndpointIDConfigHandler endpoint.PatchEndpointIDConfigHandler
@@ -116,7 +111,6 @@ type apiParams struct {
 	EndpointPutEndpointIDHandler         endpoint.PutEndpointIDHandler
 	PolicyPutPolicyHandler               policy.PutPolicyHandler
 	RecorderPutRecorderIDHandler         recorder.PutRecorderIDHandler
-	ServicePutServiceIDHandler           service.PutServiceIDHandler
 }
 
 func newAPI(p apiParams) *restapi.CiliumAPIAPI {
@@ -131,7 +125,6 @@ func newAPI(p apiParams) *restapi.CiliumAPIAPI {
 	api.PolicyDeletePolicyHandler = p.PolicyDeletePolicyHandler
 	api.PrefilterDeletePrefilterHandler = p.PrefilterDeletePrefilterHandler
 	api.RecorderDeleteRecorderIDHandler = p.RecorderDeleteRecorderIDHandler
-	api.ServiceDeleteServiceIDHandler = p.ServiceDeleteServiceIDHandler
 	api.BgpGetBgpPeersHandler = p.BgpGetBgpPeersHandler
 	api.BgpGetBgpRoutePoliciesHandler = p.BgpGetBgpRoutePoliciesHandler
 	api.BgpGetBgpRoutesHandler = p.BgpGetBgpRoutesHandler
@@ -153,7 +146,6 @@ func newAPI(p apiParams) *restapi.CiliumAPIAPI {
 	api.PolicyGetIdentityHandler = p.PolicyGetIdentityHandler
 	api.PolicyGetIdentityEndpointsHandler = p.PolicyGetIdentityEndpointsHandler
 	api.PolicyGetIdentityIDHandler = p.PolicyGetIdentityIDHandler
-	api.ServiceGetLrpHandler = p.ServiceGetLrpHandler
 	api.DaemonGetMapHandler = p.DaemonGetMapHandler
 	api.DaemonGetMapNameHandler = p.DaemonGetMapNameHandler
 	api.DaemonGetMapNameEventsHandler = p.DaemonGetMapNameEventsHandler
@@ -164,8 +156,6 @@ func newAPI(p apiParams) *restapi.CiliumAPIAPI {
 	api.RecorderGetRecorderHandler = p.RecorderGetRecorderHandler
 	api.RecorderGetRecorderIDHandler = p.RecorderGetRecorderIDHandler
 	api.RecorderGetRecorderMasksHandler = p.RecorderGetRecorderMasksHandler
-	api.ServiceGetServiceHandler = p.ServiceGetServiceHandler
-	api.ServiceGetServiceIDHandler = p.ServiceGetServiceIDHandler
 	api.DaemonPatchConfigHandler = p.DaemonPatchConfigHandler
 	api.EndpointPatchEndpointIDHandler = p.EndpointPatchEndpointIDHandler
 	api.EndpointPatchEndpointIDConfigHandler = p.EndpointPatchEndpointIDConfigHandler
@@ -176,7 +166,6 @@ func newAPI(p apiParams) *restapi.CiliumAPIAPI {
 	api.EndpointPutEndpointIDHandler = p.EndpointPutEndpointIDHandler
 	api.PolicyPutPolicyHandler = p.PolicyPutPolicyHandler
 	api.RecorderPutRecorderIDHandler = p.RecorderPutRecorderIDHandler
-	api.ServicePutServiceIDHandler = p.ServicePutServiceIDHandler
 
 	// Inject custom middleware if provided by Hive
 	if p.Middleware != nil {

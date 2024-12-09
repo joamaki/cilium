@@ -67,9 +67,7 @@ func (s *KubeProxyHealthzTestSuite) healthTestHelper(t *testing.T, ciliumStatus 
 	h := kubeproxyHealthzHandler{
 		d: &FakeDaemon{injectedStatusResponse: models.StatusResponse{
 			Cilium: &models.Status{State: ciliumStatus}}},
-		svc: &FakeService{
-			injectedCurrentTs:     currentTs,
-			injectedLastUpdatedTs: lastUpdateTs}}
+	}
 
 	// Create a new request.
 	req, err := http.NewRequest(http.MethodGet, "/healthz", nil)

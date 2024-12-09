@@ -6,10 +6,7 @@ package check
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +15,6 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/cilium/cilium/api/v1/models"
 	"github.com/cilium/cilium/cilium-cli/defaults"
 	"github.com/cilium/cilium/cilium-cli/k8s"
 	"github.com/cilium/cilium/cilium-cli/utils/features"
@@ -236,48 +232,52 @@ func WaitForServiceEndpoints(ctx context.Context, log Logger, agent Pod, service
 }
 
 func checkServiceEndpoints(ctx context.Context, agent Pod, service Service, backends uint, families []features.IPFamily) error {
-	buffer, err := agent.K8sClient.ExecInPod(ctx, agent.Namespace(), agent.NameWithoutNamespace(),
-		defaults.AgentContainerName, []string{"cilium", "service", "list", "--output=json"})
-	if err != nil {
-		return fmt.Errorf("failed to query service list: %w", err)
-	}
+	panic("FIXME(jm): Implement replacement for service list, move models.Service to api/structs or some such")
 
-	var services []*models.Service
-	if err := json.Unmarshal(buffer.Bytes(), &services); err != nil {
-		return fmt.Errorf("failed to unmarshal service list output: %w", err)
-	}
-
-	type l3n4 struct {
-		addr string
-		port uint16
-	}
-
-	found := make(map[l3n4]uint)
-	for _, svc := range services {
-		found[l3n4{
-			addr: svc.Spec.FrontendAddress.IP,
-			port: svc.Spec.FrontendAddress.Port,
-		}] = uint(len(svc.Spec.BackendAddresses))
-	}
-
-	for _, ip := range service.Service.Spec.ClusterIPs {
-		addr, err := netip.ParseAddr(ip)
+	/*
+		buffer, err := agent.K8sClient.ExecInPod(ctx, agent.Namespace(), agent.NameWithoutNamespace(),
+			defaults.AgentContainerName, []string{"cilium", "service", "list", "--output=json"})
 		if err != nil {
-			return fmt.Errorf("failed to parse ClusterIP %q: %w", ip, err)
+			return fmt.Errorf("failed to query service list: %w", err)
 		}
 
-		// Skip the check for a given address if the corresponding IP family is not
-		// enabled in Cilium, as the backends will never be populated.
-		if addr.Is4() && !slices.Contains(families, features.IPFamilyV4) || addr.Is6() && !slices.Contains(families, features.IPFamilyV6) {
-			continue
-		}
 
-		for _, port := range service.Service.Spec.Ports {
-			if found[l3n4{addr: ip, port: uint16(port.Port)}] < backends {
-				return errors.New("service not yet synchronized")
+			var services []*models.Service
+			if err := json.Unmarshal(buffer.Bytes(), &services); err != nil {
+				return fmt.Errorf("failed to unmarshal service list output: %w", err)
 			}
-		}
-	}
+
+			type l3n4 struct {
+				addr string
+				port uint16
+			}
+
+			found := make(map[l3n4]uint)
+			for _, svc := range services {
+				found[l3n4{
+					addr: svc.Spec.FrontendAddress.IP,
+					port: svc.Spec.FrontendAddress.Port,
+				}] = uint(len(svc.Spec.BackendAddresses))
+			}
+
+			for _, ip := range service.Service.Spec.ClusterIPs {
+				addr, err := netip.ParseAddr(ip)
+				if err != nil {
+					return fmt.Errorf("failed to parse ClusterIP %q: %w", ip, err)
+				}
+
+				// Skip the check for a given address if the corresponding IP family is not
+				// enabled in Cilium, as the backends will never be populated.
+				if addr.Is4() && !slices.Contains(families, features.IPFamilyV4) || addr.Is6() && !slices.Contains(families, features.IPFamilyV6) {
+					continue
+				}
+
+				for _, port := range service.Service.Spec.Ports {
+					if found[l3n4{addr: ip, port: uint16(port.Port)}] < backends {
+						return errors.New("service not yet synchronized")
+					}
+				}
+			}*/
 
 	return nil
 }

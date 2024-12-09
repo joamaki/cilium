@@ -21,7 +21,6 @@ import (
 	"github.com/cilium/cilium/api/v1/server/restapi/ipam"
 	"github.com/cilium/cilium/api/v1/server/restapi/policy"
 	"github.com/cilium/cilium/api/v1/server/restapi/prefilter"
-	"github.com/cilium/cilium/api/v1/server/restapi/service"
 	"github.com/cilium/cilium/pkg/api"
 	"github.com/cilium/cilium/pkg/logging"
 	ciliumMetrics "github.com/cilium/cilium/pkg/metrics"
@@ -74,11 +73,6 @@ func configureAPI(api *restapi.CiliumAPIAPI) http.Handler {
 	if api.PrefilterDeletePrefilterHandler == nil {
 		api.PrefilterDeletePrefilterHandler = prefilter.DeletePrefilterHandlerFunc(func(params prefilter.DeletePrefilterParams) middleware.Responder {
 			return middleware.NotImplemented("operation prefilter.DeletePrefilter has not yet been implemented")
-		})
-	}
-	if api.ServiceDeleteServiceIDHandler == nil {
-		api.ServiceDeleteServiceIDHandler = service.DeleteServiceIDHandlerFunc(func(params service.DeleteServiceIDParams) middleware.Responder {
-			return middleware.NotImplemented("operation service.DeleteServiceID has not yet been implemented")
 		})
 	}
 	if api.DaemonGetClusterNodesHandler == nil {
@@ -191,16 +185,6 @@ func configureAPI(api *restapi.CiliumAPIAPI) http.Handler {
 			return middleware.NotImplemented("operation prefilter.GetPrefilter has not yet been implemented")
 		})
 	}
-	if api.ServiceGetServiceHandler == nil {
-		api.ServiceGetServiceHandler = service.GetServiceHandlerFunc(func(params service.GetServiceParams) middleware.Responder {
-			return middleware.NotImplemented("operation service.GetService has not yet been implemented")
-		})
-	}
-	if api.ServiceGetServiceIDHandler == nil {
-		api.ServiceGetServiceIDHandler = service.GetServiceIDHandlerFunc(func(params service.GetServiceIDParams) middleware.Responder {
-			return middleware.NotImplemented("operation service.GetServiceID has not yet been implemented")
-		})
-	}
 	if api.DaemonPatchConfigHandler == nil {
 		api.DaemonPatchConfigHandler = daemon.PatchConfigHandlerFunc(func(params daemon.PatchConfigParams) middleware.Responder {
 			return middleware.NotImplemented("operation daemon.PatchConfig has not yet been implemented")
@@ -244,11 +228,6 @@ func configureAPI(api *restapi.CiliumAPIAPI) http.Handler {
 	if api.PolicyPutPolicyHandler == nil {
 		api.PolicyPutPolicyHandler = policy.PutPolicyHandlerFunc(func(params policy.PutPolicyParams) middleware.Responder {
 			return middleware.NotImplemented("operation policy.PutPolicy has not yet been implemented")
-		})
-	}
-	if api.ServicePutServiceIDHandler == nil {
-		api.ServicePutServiceIDHandler = service.PutServiceIDHandlerFunc(func(params service.PutServiceIDParams) middleware.Responder {
-			return middleware.NotImplemented("operation service.PutServiceID has not yet been implemented")
 		})
 	}
 

@@ -79,7 +79,6 @@ var sections = map[string]addSection{
 	"cilium-status":           addCiliumStatus,
 	"cilium-environment-keys": addCiliumEnvironmentKeys,
 	"cilium-endpoint-list":    addCiliumEndpointList,
-	"cilium-service-list":     addCiliumServiceList,
 	"cilium-policy":           addCiliumPolicy,
 	"cilium-memory-map":       addCiliumMemoryMap,
 	"cilium-subsystems":       addSubsystems,
@@ -293,13 +292,6 @@ func addCiliumEndpointList(w *tabwriter.Writer, p *models.DebugInfo) {
 			printList(w, "Identity get "+id, "identity", "get", id)
 		}
 	}
-}
-
-func addCiliumServiceList(w *tabwriter.Writer, p *models.DebugInfo) {
-	printMD(w, "Service list", "")
-	printTicks(w)
-	printServiceList(w, p.ServiceList)
-	printTicks(w)
 }
 
 func addCiliumPolicy(w *tabwriter.Writer, p *models.DebugInfo) {

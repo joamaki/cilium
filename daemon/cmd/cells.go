@@ -41,7 +41,6 @@ import (
 	"github.com/cilium/cilium/pkg/identity/identitymanager"
 	ipamcell "github.com/cilium/cilium/pkg/ipam/cell"
 	ipcache "github.com/cilium/cilium/pkg/ipcache/cell"
-	"github.com/cilium/cilium/pkg/k8s"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
@@ -65,8 +64,6 @@ import (
 	"github.com/cilium/cilium/pkg/pprof"
 	"github.com/cilium/cilium/pkg/proxy"
 	"github.com/cilium/cilium/pkg/recorder"
-	"github.com/cilium/cilium/pkg/redirectpolicy"
-	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/signal"
 	"github.com/cilium/cilium/pkg/source"
 )
@@ -203,10 +200,6 @@ var (
 		// Experimental control-plane for configuring service load-balancing.
 		loadbalancer_experimental.Cell,
 
-		// Service is a datapath service handler. Its main responsibility is to reflect
-		// service-related changes into BPF maps used by datapath BPF programs.
-		service.Cell,
-
 		// Proxy provides the proxy port allocation and related datapath coordination and
 		// makes different L7 proxies (Envoy, DNS proxy) usable to Cilium endpoints through
 		// a common Proxy 'redirect' abstraction.
@@ -244,9 +237,6 @@ var (
 		// Egress Gateway allows originating traffic from specific IPv4 addresses.
 		egressgateway.Cell,
 
-		// ServiceCache holds the list of known services correlated with the matching endpoints.
-		k8s.ServiceCacheCell,
-
 		// Provides PolicyRepository (List of policy rules)
 		policy.Cell,
 
@@ -267,9 +257,6 @@ var (
 
 		// RegeneratorCell provides extra options and utilities for endpoints regeneration.
 		endpoint.RegeneratorCell,
-
-		// Redirect policy manages the Local Redirect Policies.
-		redirectpolicy.Cell,
 
 		// The node discovery cell provides the local node configuration and node discovery
 		// which communicate changes in local node information to the API server or KVStore.

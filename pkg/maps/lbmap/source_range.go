@@ -10,8 +10,6 @@ import (
 	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/byteorder"
 	"github.com/cilium/cilium/pkg/cidr"
-	"github.com/cilium/cilium/pkg/ebpf"
-	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/types"
 )
 
@@ -131,45 +129,6 @@ type SourceRangeValue struct {
 
 func (v *SourceRangeValue) String() string    { return "" }
 func (v *SourceRangeValue) New() bpf.MapValue { return &SourceRangeValue{} }
-
-var (
-	// SourceRange4Map is the BPF map for storing IPv4 service source ranges to
-	// check if option.Config.EnableSVCSourceRangeCheck is enabled.
-	SourceRange4Map *bpf.Map
-	// SourceRange6Map is the BPF map for storing IPv6 service source ranges to
-	// check if option.Config.EnableSVCSourceRangeCheck is enabled.
-	SourceRange6Map *bpf.Map
-)
-
-// initSourceRange creates the BPF maps for storing both IPv4 and IPv6
-// service source ranges.
-func initSourceRange(params InitParams) {
-	SourceRangeMapMaxEntries = params.SourceRangeMapMaxEntries
-
-	if params.IPv4 {
-		SourceRange4Map = bpf.NewMap(
-			SourceRange4MapName,
-			ebpf.LPMTrie,
-			&SourceRangeKey4{},
-			&SourceRangeValue{},
-			SourceRangeMapMaxEntries,
-			bpf.BPF_F_NO_PREALLOC,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(SourceRange4MapName))
-	}
-
-	if params.IPv6 {
-		SourceRange6Map = bpf.NewMap(
-			SourceRange6MapName,
-			ebpf.LPMTrie,
-			&SourceRangeKey6{},
-			&SourceRangeValue{},
-			SourceRangeMapMaxEntries,
-			bpf.BPF_F_NO_PREALLOC,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(SourceRange6MapName))
-	}
-}
 
 func srcRangeKey(cidr *cidr.CIDR, revNATID uint16, ipv6 bool) bpf.MapKey {
 	ones, _ := cidr.Mask.Size()

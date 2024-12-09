@@ -29,8 +29,7 @@ type ServiceInterface interface {
 }
 
 type kubeproxyHealthzHandler struct {
-	d   DaemonInterface
-	svc ServiceInterface
+	d DaemonInterface
 }
 
 // startKubeProxyHealthzHTTPService registers a handler function for the kube-proxy /healthz
@@ -47,7 +46,7 @@ func (d *Daemon) startKubeProxyHealthzHTTPService(addr string) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/healthz", kubeproxyHealthzHandler{d: d, svc: d.svc})
+	mux.Handle("/healthz", kubeproxyHealthzHandler{d: d})
 
 	srv := &http.Server{
 		Addr:    addr,
@@ -75,17 +74,16 @@ func (h kubeproxyHealthzHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 
 	statusCode := http.StatusOK
-	currentTs := h.svc.GetCurrentTs()
-	var lastUpdateTs = currentTs
+	// FIXME(jm): Implement replacement GetLastUpdatedTs() in Writer
+	currentTs := time.Now()
 	// We piggy back here on Cilium daemon health. If Cilium is healthy, we can
 	// reasonably assume that the node networking is ready.
 	sr := h.d.getStatus(true, true)
 	if isUnhealthy(&sr) {
 		statusCode = http.StatusServiceUnavailable
-		lastUpdateTs = h.svc.GetLastUpdatedTs()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	fmt.Fprintf(w, `{"lastUpdated": %q,"currentTime": %q}`, lastUpdateTs, currentTs)
+	fmt.Fprintf(w, `{"lastUpdated": %q,"currentTime": %q}`, currentTs, currentTs)
 }

@@ -30,10 +30,8 @@ type policyWatcher struct {
 	k8sResourceSynced *k8sSynced.Resources
 	k8sAPIGroups      *k8sSynced.APIGroups
 
-	policyImporter        policycell.PolicyImporter
-	svcCache              serviceCache
-	svcCacheNotifications <-chan k8s.ServiceNotification
-	ipCache               ipc
+	policyImporter policycell.PolicyImporter
+	ipCache        ipc
 
 	// Number of outstanding requests still pending in the PolicyImporter
 	// This is only used during initial sync; we will increment these
@@ -114,7 +112,6 @@ func (p *policyWatcher) watchResources(ctx context.Context) {
 			cnpEvents       <-chan resource.Event[*cilium_v2.CiliumNetworkPolicy]
 			ccnpEvents      <-chan resource.Event[*cilium_v2.CiliumClusterwideNetworkPolicy]
 			cidrGroupEvents <-chan resource.Event[*cilium_api_v2alpha1.CiliumCIDRGroup]
-			serviceEvents   <-chan k8s.ServiceNotification
 		)
 		// copy the done-channels so we can nil them here and stop sending, without
 		// affecting the reader above
@@ -136,7 +133,6 @@ func (p *policyWatcher) watchResources(ctx context.Context) {
 			// https://docs.cilium.io/en/latest/network/kubernetes/ciliumcidrgroup/
 			cidrGroupEvents = p.ciliumCIDRGroups.Events(ctx)
 			// Service Cache Notifications are only used with CNP/CCNP.
-			serviceEvents = p.svcCacheNotifications
 		}
 
 		for {
@@ -253,18 +249,20 @@ func (p *policyWatcher) watchResources(ctx context.Context) {
 					p.onDeleteCIDRGroup(event.Object.Name, k8sAPIGroupCiliumCIDRGroupV2Alpha1)
 				}
 				event.Done(nil)
-			case event, ok := <-serviceEvents:
-				if !ok {
-					serviceEvents = nil
-					break
-				}
 
-				switch event.Action {
-				case k8s.UpdateService, k8s.DeleteService:
-					p.onServiceEvent(event)
-				}
+				/* FIXME(jm): Implement processing of services via Table[Service]
+				case event, ok := <-serviceEvents:
+					if !ok {
+						serviceEvents = nil
+						break
+					}
+
+					switch event.Action {
+					case k8s.UpdateService, k8s.DeleteService:
+						p.onServiceEvent(event)
+					}*/
 			}
-			if knpEvents == nil && cnpEvents == nil && ccnpEvents == nil && cidrGroupEvents == nil && serviceEvents == nil {
+			if knpEvents == nil && cnpEvents == nil && ccnpEvents == nil && cidrGroupEvents == nil {
 				return
 			}
 		}

@@ -17,71 +17,70 @@ import (
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/kvstore/store"
-	"github.com/cilium/cilium/pkg/lock"
-	"github.com/cilium/cilium/pkg/logging/logfields"
 	serviceStore "github.com/cilium/cilium/pkg/service/store"
 )
 
 var (
-	K8sSvcCache = k8s.NewServiceCache(nil, nil, k8s.NewSVCMetricsNoop())
-
 	kvs store.SyncStore
 )
 
-func k8sServiceHandler(ctx context.Context, cinfo cmtypes.ClusterInfo, shared bool, logger *slog.Logger) {
-	serviceHandler := func(event k8s.ServiceEvent) {
-		defer event.SWGDone()
+/*
+FIXME(jm): Implement
 
-		svc := k8s.NewClusterService(event.ID, event.Service, event.Endpoints)
-		svc.Cluster = cinfo.Name
-		svc.ClusterID = cinfo.ID
+	func k8sServiceHandler(ctx context.Context, cinfo cmtypes.ClusterInfo, shared bool, logger *slog.Logger) {
+		serviceHandler := func(event k8s.ServiceEvent) {
+			defer event.SWGDone()
 
-		logger.Debug("Kubernetes service definition changed",
-			logfields.K8sSvcName, event.ID.Name,
-			logfields.K8sNamespace, event.ID.Namespace,
-			"action", event.Action,
-			"service", event.Service,
-			"endpoints", event.Endpoints,
-			"shared", event.Service.Shared,
-		)
+			svc := k8s.NewClusterService(event.ID, event.Service, event.Endpoints)
+			svc.Cluster = cinfo.Name
+			svc.ClusterID = cinfo.ID
 
-		if shared && !event.Service.Shared {
-			// The annotation may have been added, delete an eventual existing service
-			kvs.DeleteKey(ctx, &svc)
-			return
-		}
+			logger.Debug("Kubernetes service definition changed",
+				logfields.K8sSvcName, event.ID.Name,
+				logfields.K8sNamespace, event.ID.Namespace,
+				"action", event.Action,
+				"service", event.Service,
+				"endpoints", event.Endpoints,
+				"shared", event.Service.Shared,
+			)
 
-		switch event.Action {
-		case k8s.UpdateService:
-			if err := kvs.UpsertKey(ctx, &svc); err != nil {
-				// An error is triggered only in case it concerns service marshaling,
-				// as kvstore operations are automatically re-tried in case of error.
-				logger.Warn("Failed synchronizing service",
-					logfields.Error, err,
-					logfields.K8sSvcName, event.ID.Name,
-					logfields.K8sNamespace, event.ID.Namespace,
-				)
-			}
-
-		case k8s.DeleteService:
-			kvs.DeleteKey(ctx, &svc)
-		}
-	}
-	for {
-		select {
-		case event, ok := <-K8sSvcCache.Events:
-			if !ok {
+			if shared && !event.Service.Shared {
+				// The annotation may have been added, delete an eventual existing service
+				kvs.DeleteKey(ctx, &svc)
 				return
 			}
 
-			serviceHandler(event)
+			switch event.Action {
+			case k8s.UpdateService:
+				if err := kvs.UpsertKey(ctx, &svc); err != nil {
+					// An error is triggered only in case it concerns service marshaling,
+					// as kvstore operations are automatically re-tried in case of error.
+					logger.Warn("Failed synchronizing service",
+						logfields.Error, err,
+						logfields.K8sSvcName, event.ID.Name,
+						logfields.K8sNamespace, event.ID.Namespace,
+					)
+				}
 
-		case <-ctx.Done():
-			return
+			case k8s.DeleteService:
+				kvs.DeleteKey(ctx, &svc)
+			}
+		}
+		for {
+			select {
+			case event, ok := <-K8sSvcCache.Events:
+				if !ok {
+					return
+				}
+
+				serviceHandler(event)
+
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
-}
-
+*/
 type ServiceSyncParameters struct {
 	ClusterInfo  cmtypes.ClusterInfo
 	Clientset    k8sClient.Clientset
@@ -125,77 +124,80 @@ func StartSynchronizingServices(ctx context.Context, wg *sync.WaitGroup, cfg Ser
 		<-kvstoreReady
 
 		log.Info("Starting to synchronize Kubernetes services to kvstore")
-		k8sServiceHandler(ctx, cfg.ClusterInfo, cfg.SharedOnly, logger)
+		panic("FIXME(jm): Implement")
+		//k8sServiceHandler(ctx, cfg.ClusterInfo, cfg.SharedOnly, logger)
 	}()
 
-	// Start populating the service cache with Kubernetes services and endpoints
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	panic("FIXME(jm): Implement")
+	/*
+		// Start populating the service cache with Kubernetes services and endpoints
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-		swg := lock.NewStoppableWaitGroup()
-		serviceEvents := cfg.Services.Events(ctx)
-		endpointEvents := cfg.Endpoints.Events(ctx)
+			swg := lock.NewStoppableWaitGroup()
+			serviceEvents := cfg.Services.Events(ctx)
+			endpointEvents := cfg.Endpoints.Events(ctx)
 
-		servicesSynced, endpointsSynced := false, false
+			servicesSynced, endpointsSynced := false, false
 
-		// onSync is called when the initial listing and processing of
-		// services and endpoints has finished.
-		onSync := func() {
-			// Wait until all work has been finished up to the sync event.
-			swg.Stop()
-			swg.Wait()
+			// onSync is called when the initial listing and processing of
+			// services and endpoints has finished.
+			onSync := func() {
+				// Wait until all work has been finished up to the sync event.
+				swg.Stop()
+				swg.Wait()
 
-			log.Info("Initial list of services successfully received from Kubernetes")
-			kvs.Synced(ctx, cfg.SyncCallback)
-		}
-
-		for serviceEvents != nil || endpointEvents != nil {
-			select {
-			case ev, ok := <-serviceEvents:
-				if !ok {
-					serviceEvents = nil
-					continue
-				}
-
-				// Ignore kubernetes endpoints events
-				if ev.Key.Name == "kube-scheduler" || ev.Key.Name == "kube-controller-manager" {
-					ev.Done(nil)
-					continue
-				}
-
-				switch ev.Kind {
-				case resource.Sync:
-					servicesSynced = true
-					if servicesSynced && endpointsSynced {
-						onSync()
-					}
-				case resource.Upsert:
-					K8sSvcCache.UpdateService(ev.Object, swg)
-				case resource.Delete:
-					K8sSvcCache.DeleteService(ev.Object, swg)
-				}
-				ev.Done(nil)
-
-			case ev, ok := <-endpointEvents:
-				if !ok {
-					endpointEvents = nil
-					continue
-				}
-
-				switch ev.Kind {
-				case resource.Sync:
-					endpointsSynced = true
-					if servicesSynced && endpointsSynced {
-						onSync()
-					}
-				case resource.Upsert:
-					K8sSvcCache.UpdateEndpoints(ev.Object, swg)
-				case resource.Delete:
-					K8sSvcCache.DeleteEndpoints(ev.Object.EndpointSliceID, swg)
-				}
-				ev.Done(nil)
+				log.Info("Initial list of services successfully received from Kubernetes")
+				kvs.Synced(ctx, cfg.SyncCallback)
 			}
-		}
-	}()
+
+			for serviceEvents != nil || endpointEvents != nil {
+				select {
+				case ev, ok := <-serviceEvents:
+					if !ok {
+						serviceEvents = nil
+						continue
+					}
+
+					// Ignore kubernetes endpoints events
+					if ev.Key.Name == "kube-scheduler" || ev.Key.Name == "kube-controller-manager" {
+						ev.Done(nil)
+						continue
+					}
+
+					switch ev.Kind {
+					case resource.Sync:
+						servicesSynced = true
+						if servicesSynced && endpointsSynced {
+							onSync()
+						}
+					case resource.Upsert:
+						K8sSvcCache.UpdateService(ev.Object, swg)
+					case resource.Delete:
+						K8sSvcCache.DeleteService(ev.Object, swg)
+					}
+					ev.Done(nil)
+
+				case ev, ok := <-endpointEvents:
+					if !ok {
+						endpointEvents = nil
+						continue
+					}
+
+					switch ev.Kind {
+					case resource.Sync:
+						endpointsSynced = true
+						if servicesSynced && endpointsSynced {
+							onSync()
+						}
+					case resource.Upsert:
+						K8sSvcCache.UpdateEndpoints(ev.Object, swg)
+					case resource.Delete:
+						K8sSvcCache.DeleteEndpoints(ev.Object.EndpointSliceID, swg)
+					}
+					ev.Done(nil)
+				}
+			}
+		}()*/
 }

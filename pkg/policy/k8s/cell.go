@@ -52,10 +52,6 @@ type PolicyManager interface {
 	PolicyDelete(labels labels.LabelArray, opts *policy.DeleteOptions) (newRev uint64, err error)
 }
 
-type serviceCache interface {
-	ForEachService(func(svcID k8s.ServiceID, svc *k8s.Service, eps *k8s.EndpointSlices) bool)
-}
-
 type ipc interface {
 	UpsertMetadataBatch(updates ...ipcache.MU) (revision uint64)
 	RemoveMetadataBatch(updates ...ipcache.MU) (revision uint64)
@@ -73,7 +69,6 @@ type PolicyWatcherParams struct {
 	K8sResourceSynced *synced.Resources
 	K8sAPIGroups      *synced.APIGroups
 
-	ServiceCache   *k8s.ServiceCache
 	IPCache        *ipcache.IPCache
 	PolicyImporter policycell.PolicyImporter
 
@@ -93,7 +88,6 @@ func startK8sPolicyWatcher(params PolicyWatcherParams) {
 	// We want to subscribe before the start hook is invoked in order to not miss
 	// any events
 	ctx, cancel := context.WithCancel(context.Background())
-	svcCacheNotifications := serviceNotificationsQueue(ctx, params.ServiceCache.Notifications())
 
 	p := &policyWatcher{
 		log:                              params.Logger,
@@ -101,8 +95,6 @@ func startK8sPolicyWatcher(params PolicyWatcherParams) {
 		policyImporter:                   params.PolicyImporter,
 		k8sResourceSynced:                params.K8sResourceSynced,
 		k8sAPIGroups:                     params.K8sAPIGroups,
-		svcCache:                         params.ServiceCache,
-		svcCacheNotifications:            svcCacheNotifications,
 		ipCache:                          params.IPCache,
 		ciliumNetworkPolicies:            params.CiliumNetworkPolicies,
 		ciliumClusterwideNetworkPolicies: params.CiliumClusterwideNetworkPolicies,

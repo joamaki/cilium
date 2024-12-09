@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/cilium/ebpf"
-
 	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/byteorder"
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
@@ -44,117 +42,7 @@ var (
 	// MaxSockRevNat4MapEntries is the maximum number of entries in the BPF
 	// map. It is set by Init(), but unit tests use the initial value below.
 	MaxSockRevNat4MapEntries = SockRevNat4MapSize
-
-	// The following BPF maps are initialized in initSVC().
-
-	// Service4MapV2 is the IPv4 LB Services v2 BPF map.
-	Service4MapV2 *bpf.Map
-	// Backend4Map is the IPv4 LB backends BPF map.
-	Backend4Map *bpf.Map
-	// Backend4MapV2 is the IPv4 LB backends v2 BPF map.
-	Backend4MapV2 *bpf.Map
-	// Backend4MapV2 is the IPv4 LB backends v2 BPF map.
-	Backend4MapV3 *bpf.Map
-	// RevNat4Map is the IPv4 LB reverse NAT BPF map.
-	RevNat4Map *bpf.Map
-	// SockRevNat4Map is the IPv4 LB sock reverse NAT BPF map.
-	SockRevNat4Map *bpf.Map
 )
-
-// initSVC constructs the IPv4 & IPv6 LB BPF maps used for Services. The maps
-// have their maximum entries configured. Note this does not create or open the
-// maps; it simply constructs the objects.
-func initSVC(params InitParams) {
-	ServiceMapMaxEntries = params.ServiceMapMaxEntries
-	ServiceBackEndMapMaxEntries = params.BackEndMapMaxEntries
-	RevNatMapMaxEntries = params.RevNatMapMaxEntries
-
-	if params.IPv4 {
-		Service4MapV2 = bpf.NewMap(Service4MapV2Name,
-			ebpf.Hash,
-			&Service4Key{},
-			&Service4Value{},
-			ServiceMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Service4MapV2Name))
-		Backend4Map = bpf.NewMap(Backend4MapName,
-			ebpf.Hash,
-			&Backend4Key{},
-			&Backend4Value{},
-			ServiceBackEndMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Backend4MapName))
-		Backend4MapV2 = bpf.NewMap(Backend4MapV2Name,
-			ebpf.Hash,
-			&Backend4KeyV3{},
-			&Backend4Value{},
-			ServiceBackEndMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Backend4MapV2Name))
-		Backend4MapV3 = bpf.NewMap(Backend4MapV3Name,
-			ebpf.Hash,
-			&Backend4KeyV3{},
-			&Backend4ValueV3{},
-			ServiceBackEndMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Backend4MapV3Name))
-		RevNat4Map = bpf.NewMap(RevNat4MapName,
-			ebpf.Hash,
-			&RevNat4Key{},
-			&RevNat4Value{},
-			RevNatMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(RevNat4MapName))
-	}
-
-	if params.IPv6 {
-		Service6MapV2 = bpf.NewMap(Service6MapV2Name,
-			ebpf.Hash,
-			&Service6Key{},
-			&Service6Value{},
-			ServiceMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Service6MapV2Name))
-		Backend6Map = bpf.NewMap(Backend6MapName,
-			ebpf.Hash,
-			&Backend6Key{},
-			&Backend6Value{},
-			ServiceBackEndMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Backend6MapName))
-		Backend6MapV2 = bpf.NewMap(Backend6MapV2Name,
-			ebpf.Hash,
-			&Backend6KeyV3{},
-			&Backend6Value{},
-			ServiceBackEndMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Backend6MapV2Name))
-		Backend6MapV3 = bpf.NewMap(Backend6MapV3Name,
-			ebpf.Hash,
-			&Backend6KeyV3{},
-			&Backend6ValueV3{},
-			ServiceBackEndMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(Backend6MapV3Name))
-		RevNat6Map = bpf.NewMap(RevNat6MapName,
-			ebpf.Hash,
-			&RevNat6Key{},
-			&RevNat6Value{},
-			RevNatMapMaxEntries,
-			0,
-		).WithCache().WithPressureMetric().
-			WithEvents(option.Config.GetEventBufferConfig(RevNat6MapName))
-	}
-}
 
 // The compile-time check for whether the structs implement the interfaces
 var _ RevNatKey = (*RevNat4Key)(nil)
@@ -177,7 +65,6 @@ func NewRevNat4Key(value uint16) *RevNat4Key {
 	return &RevNat4Key{value}
 }
 
-func (k *RevNat4Key) Map() *bpf.Map   { return RevNat4Map }
 func (k *RevNat4Key) String() string  { return fmt.Sprintf("%d", k.ToHost().(*RevNat4Key).Key) }
 func (k *RevNat4Key) New() bpf.MapKey { return &RevNat4Key{} }
 func (k *RevNat4Key) GetKey() uint16  { return k.Key }
@@ -262,7 +149,6 @@ func (k *Service4Key) New() bpf.MapKey { return &Service4Key{} }
 
 func (k *Service4Key) IsIPv6() bool            { return false }
 func (k *Service4Key) IsSurrogate() bool       { return k.GetAddress().IsUnspecified() }
-func (k *Service4Key) Map() *bpf.Map           { return Service4MapV2 }
 func (k *Service4Key) SetBackendSlot(slot int) { k.BackendSlot = uint16(slot) }
 func (k *Service4Key) GetBackendSlot() int     { return int(k.BackendSlot) }
 func (k *Service4Key) SetScope(scope uint8)    { k.Scope = scope }
@@ -270,7 +156,6 @@ func (k *Service4Key) GetScope() uint8         { return k.Scope }
 func (k *Service4Key) GetAddress() net.IP      { return k.Address.IP() }
 func (k *Service4Key) GetPort() uint16         { return k.Port }
 func (k *Service4Key) GetProtocol() uint8      { return k.Proto }
-func (k *Service4Key) MapDelete() error        { return k.Map().Delete(k.ToNetwork()) }
 
 func (k *Service4Key) RevNatValue() RevNatValue {
 	return &RevNat4Value{
@@ -376,7 +261,6 @@ func NewBackend4KeyV3(id loadbalancer.BackendID) *Backend4KeyV3 {
 
 func (k *Backend4KeyV3) String() string                  { return fmt.Sprintf("%d", k.ID) }
 func (k *Backend4KeyV3) New() bpf.MapKey                 { return &Backend4KeyV3{} }
-func (k *Backend4KeyV3) Map() *bpf.Map                   { return Backend4MapV3 }
 func (k *Backend4KeyV3) SetID(id loadbalancer.BackendID) { k.ID = id }
 func (k *Backend4KeyV3) GetID() loadbalancer.BackendID   { return k.ID }
 
@@ -386,7 +270,6 @@ type Backend4Key struct {
 
 func (k *Backend4Key) String() string                  { return fmt.Sprintf("%d", k.ID) }
 func (k *Backend4Key) New() bpf.MapKey                 { return &Backend4Key{} }
-func (k *Backend4Key) Map() *bpf.Map                   { return Backend4Map }
 func (k *Backend4Key) SetID(id loadbalancer.BackendID) { k.ID = uint16(id) }
 func (k *Backend4Key) GetID() loadbalancer.BackendID   { return loadbalancer.BackendID(k.ID) }
 
@@ -531,7 +414,6 @@ func NewBackend4V3(id loadbalancer.BackendID, addrCluster cmtypes.AddrCluster, p
 	}, nil
 }
 
-func (b *Backend4V3) Map() *bpf.Map          { return Backend4MapV3 }
 func (b *Backend4V3) GetKey() BackendKey     { return b.Key }
 func (b *Backend4V3) GetValue() BackendValue { return b.Value }
 
@@ -553,7 +435,6 @@ func NewBackend4V2(id loadbalancer.BackendID, ip net.IP, port uint16, proto u8pr
 	}, nil
 }
 
-func (b *Backend4V2) Map() *bpf.Map          { return Backend4MapV2 }
 func (b *Backend4V2) GetKey() BackendKey     { return b.Key }
 func (b *Backend4V2) GetValue() BackendValue { return b.Value }
 
@@ -562,7 +443,6 @@ type Backend4 struct {
 	Value *Backend4Value
 }
 
-func (b *Backend4) Map() *bpf.Map          { return Backend4Map }
 func (b *Backend4) GetKey() BackendKey     { return b.Key }
 func (b *Backend4) GetValue() BackendValue { return b.Value }
 
@@ -581,8 +461,6 @@ type SockRevNat4Value struct {
 	Port        int16      `align:"port"`
 	RevNatIndex uint16     `align:"rev_nat_index"`
 }
-
-func (k *SockRevNat4Key) Map() *bpf.Map { return SockRevNat4Map }
 
 func NewSockRevNat4Key(cookie uint64, addr net.IP, port uint16) *SockRevNat4Key {
 	var key SockRevNat4Key
@@ -606,15 +484,3 @@ func (v *SockRevNat4Value) String() string {
 }
 
 func (v *SockRevNat4Value) New() bpf.MapValue { return &SockRevNat4Value{} }
-
-// CreateSockRevNat4Map creates the reverse NAT sock map.
-func CreateSockRevNat4Map() error {
-	SockRevNat4Map = bpf.NewMap(SockRevNat4MapName,
-		ebpf.LRUHash,
-		&SockRevNat4Key{},
-		&SockRevNat4Value{},
-		MaxSockRevNat4MapEntries,
-		0,
-	).WithPressureMetric()
-	return SockRevNat4Map.OpenOrCreate()
-}

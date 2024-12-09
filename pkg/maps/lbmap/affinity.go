@@ -6,12 +6,9 @@ package lbmap
 import (
 	"fmt"
 
-	"github.com/cilium/ebpf"
-
 	"github.com/cilium/cilium/pkg/bpf"
 	"github.com/cilium/cilium/pkg/byteorder"
 	"github.com/cilium/cilium/pkg/loadbalancer"
-	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/types"
 )
 
@@ -20,50 +17,6 @@ const (
 	Affinity4MapName     = "cilium_lb4_affinity"
 	Affinity6MapName     = "cilium_lb6_affinity"
 )
-
-var (
-	// AffinityMatchMap is the BPF map to implement session affinity.
-	AffinityMatchMap *bpf.Map
-	Affinity4Map     *bpf.Map
-	Affinity6Map     *bpf.Map
-)
-
-// initAffinity creates the BPF maps for implementing session affinity.
-func initAffinity(params InitParams) {
-	AffinityMapMaxEntries = params.AffinityMapMaxEntries
-
-	AffinityMatchMap = bpf.NewMap(
-		AffinityMatchMapName,
-		ebpf.Hash,
-		&AffinityMatchKey{},
-		&AffinityMatchValue{},
-		AffinityMapMaxEntries,
-		0,
-	).WithCache().WithPressureMetric().
-		WithEvents(option.Config.GetEventBufferConfig(AffinityMatchMapName))
-
-	if params.IPv4 {
-		Affinity4Map = bpf.NewMap(
-			Affinity4MapName,
-			ebpf.LRUHash,
-			&Affinity4Key{},
-			&AffinityValue{},
-			AffinityMapMaxEntries,
-			0,
-		)
-	}
-
-	if params.IPv6 {
-		Affinity6Map = bpf.NewMap(
-			Affinity6MapName,
-			ebpf.LRUHash,
-			&Affinity6Key{},
-			&AffinityValue{},
-			AffinityMapMaxEntries,
-			0,
-		)
-	}
-}
 
 type AffinityMatchKey struct {
 	BackendID loadbalancer.BackendID `align:"backend_id"`

@@ -17,7 +17,6 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/linux/config/defines"
 	"github.com/cilium/cilium/pkg/ebpf"
 	"github.com/cilium/cilium/pkg/option"
-	"github.com/cilium/cilium/pkg/service"
 )
 
 const (
@@ -174,9 +173,9 @@ func (s *ActiveConnectionTrackerKey) New() bpf.MapKey { return &ActiveConnection
 
 func (v *ActiveConnectionTrackerKey) String() string {
 	svcID := byteorder.HostToNetwork16(v.SvcID)
-	if svcAddr, err := service.GetID(uint32(svcID)); err == nil && svcAddr != nil {
+	/* FIXME(jm) if svcAddr, err := service.GetID(uint32(svcID)); err == nil && svcAddr != nil {
 		return fmt.Sprintf("%s[%s]", svcAddr.String(), option.Config.GetZone(v.Zone))
-	}
+	}*/
 	return fmt.Sprintf("%d[%s]", svcID, option.Config.GetZone(v.Zone))
 }
 
