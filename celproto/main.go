@@ -18,10 +18,10 @@ import (
 const (
 	test1 = `
 		foo: agent.example.foo != 'bar'   # Foo should be bar!
-		bar: agent.example.bar > 1000     # High bar value, check quux
+		bar: agent.example.bar > 1000.0   # High bar value, check quux
 		quux: agent.example.quux['a'] == 'aa' # aaa
 		baz: agent.example.baz['a'] > 0.1 # a is fubar'd!
-		double: agent.example.bar > 1000 && agent.example.baz['a'] > 0.1 # double trouble
+		double: agent.example.bar > 1000.0 && agent.example.baz['a'] > 0.1 # double trouble
 
 		goroutines: metrics.go_goroutines > 2.0 # High number of goroutines
 		heapuse: metrics.go_memstats_heap_inuse_bytes > 4e+06 # High heap usage
@@ -66,7 +66,7 @@ func main() {
 		),
 
 		cell.Module("agent", "Agent",
-						
+
 			cell.Module("example", "Example",
 				cell.Provide(newExampleCollector),
 				Diagnostics[*exampleCollector](),

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/hive/cell"
 	"github.com/google/cel-go/common/types"
@@ -22,6 +24,21 @@ type (
 	DMap    = traits.Mapper
 	DList   = traits.Lister
 )
+
+// DAnnoFloat is an annotated float. The annotation is only used outside CEL to show
+// additional information when evaluation fails. E.g. this could be used to show for
+// example when a specific metric value last changed.
+type DAnnoFloat struct {
+	types.Double
+	anno string
+}
+
+func (daf DAnnoFloat) String() string {
+	return fmt.Sprintf("%g (%s)", daf.Double, daf.anno)
+}
+
+var _ ref.Val = DAnnoFloat{}
+var _ traits.Comparer = DAnnoFloat{}
 
 var dreg, _ = types.NewRegistry()
 
@@ -50,7 +67,7 @@ type exampleCollector struct{}
 func (e *exampleCollector) CollectDiagnostics() map[string]DValue {
 	return map[string]DValue{
 		"foo":     DString("bar"),
-		"bar":     DInt(1234),
+		"bar":     DAnnoFloat{1234, "extra info here"},
 		"baz":     NewFloatMap(map[string]float64{"a": 1.0, "b": 2.0}),
 		"quux":    NewStringMap(map[string]string{"a": "aa"}),
 		"enabled": DBool(true),
