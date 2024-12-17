@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
@@ -250,4 +251,29 @@ func (cs *collectorSet) remove(c prometheus.Collector) {
 	cs.mu.Lock()
 	delete(cs.collectors, c)
 	cs.mu.Unlock()
+}
+
+func (reg *Registry) Diagnostics() map[string]float64 {
+	m := map[string]float64{}
+
+	for metric := range reg.collectors.collect() {
+		var msg dto.Metric
+		desc := metric.Desc()
+		if err := metric.Write(&msg); err != nil {
+			continue
+		}
+		key := newMetricKey(desc, msg.Label)
+		name := key.fqName()
+		if msg.Histogram != nil {
+			buckets := convertHistogram(msg.GetHistogram())
+			m[name+".p50"] = getHistogramQuantile(buckets, 0.5)
+			m[name+".p90"] = getHistogramQuantile(buckets, 0.9)
+			m[name+".p99"] = getHistogramQuantile(buckets, 0.99)
+		} else if msg.Gauge != nil {
+			m[name] = msg.GetGauge().GetValue()
+		} else if msg.Counter != nil {
+			m[name] = msg.GetCounter().GetValue()
+		}
+	}
+	return m
 }

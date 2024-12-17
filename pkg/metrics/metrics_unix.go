@@ -6,6 +6,8 @@
 package metrics
 
 import (
+	"runtime"
+	
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/probes"
@@ -21,6 +23,9 @@ func Errno2Outcome(errno unix.Errno) string {
 }
 
 func enableIfIndexMetric() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
 	// On kernels which do not provide ifindex via the FIB, Cilium needs
 	// to store it in the CT map, with a field limit of max(uint16).
 	// The EndpointMaxIfindex metric can be used to determine if that

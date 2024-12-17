@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/hive/cell"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -11,10 +17,17 @@ import (
 
 const (
 	test1 = `
-		foo: foo != 'bar'   # Foo should be bar!
-		bar: bar > 1000     # High bar value, check quux
-		quux: quux['a'] == 'aa' # aaa
-		baz: baz['a'] > 0.1 # a is fubar'd!
+		foo: agent.example.foo != 'bar'   # Foo should be bar!
+		bar: agent.example.bar > 1000     # High bar value, check quux
+		quux: agent.example.quux['a'] == 'aa' # aaa
+		baz: agent.example.baz['a'] > 0.1 # a is fubar'd!
+		double: agent.example.bar > 1000 && agent.example.baz['a'] > 0.1 # double trouble
+
+		goroutines: metrics.go_goroutines > 2.0 # High number of goroutines
+		heapuse: metrics.go_memstats_heap_inuse_bytes > 4e+06 # High heap usage
+		slowpolicy: metrics.cilium_policy_implementation_delay.p90 > 0.1 # Slow policy implementation
+
+		
 	`
 )
 
@@ -44,9 +57,36 @@ func parseDiagnosticExpressions(txt string) (out []diagExpr) {
 }
 
 func main() {
-	var e exampleCollector
-	data := collapse(CollectorsIn{Collectors: []DiagnosticCollector{&e}})
+	var collectors CollectorsIn
 
+	h := hive.New(
+		cell.Module("metrics", "Metrics",
+			cell.Provide(newMetricsCollector),
+			Diagnostics[*metricsCollector](),
+		),
+
+		cell.Module("agent", "Agent",
+						
+			cell.Module("example", "Example",
+				cell.Provide(newExampleCollector),
+				Diagnostics[*exampleCollector](),
+			),
+		),
+
+		cell.Invoke(
+			func(in CollectorsIn) {
+				collectors = in
+			},
+		),
+
+		cell.Provide(func() *option.DaemonConfig {
+			return &option.DaemonConfig{}
+		}),
+		metrics.Cell,
+	)
+	h.Start(slog.Default(), context.TODO())
+
+	data := collapse(collectors)
 	fmt.Printf("Collected diagnostics data:\n")
 	for k, v := range data {
 		fmt.Printf("  %s: %v\n", k, v)
@@ -64,7 +104,6 @@ func main() {
 			fmt.Println()
 		}
 	}
-
 }
 
 func run(txt string, data map[string]ref.Val) (bool, map[string]any) {
@@ -114,5 +153,4 @@ func run(txt string, data map[string]ref.Val) (bool, map[string]any) {
 	default:
 		panic("bad type")
 	}
-
 }

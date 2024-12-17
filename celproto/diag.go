@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/hive/cell"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -56,6 +57,10 @@ func (e *exampleCollector) CollectDiagnostics() map[string]DValue {
 	}
 }
 
+func newExampleCollector() *exampleCollector {
+	return &exampleCollector{}
+}
+
 var _ DiagnosticCollector = &exampleCollector{}
 
 type CollectorOut struct {
@@ -70,6 +75,31 @@ type CollectorsIn struct {
 	Collectors []DiagnosticCollector `group:"diagnostic-collectors"`
 }
 
+type qualifiedCollector struct {
+	moduleID cell.FullModuleID
+	coll     DiagnosticCollector
+}
+
+func (q qualifiedCollector) CollectDiagnostics() map[string]DValue {
+	m := map[string]DValue{}
+	for k, v := range q.coll.CollectDiagnostics() {
+		m[q.moduleID.String()+"."+k] = v
+	}
+	return m
+}
+
+func Diagnostics[T DiagnosticCollector]() cell.Cell {
+	return cell.Provide(
+		func(x T, mid cell.FullModuleID) CollectorOut {
+			return CollectorOut{
+				Collector: qualifiedCollector{
+					moduleID: mid,
+					coll:     x,
+				},
+			}
+		})
+}
+
 func collapse(in CollectorsIn) map[string]ref.Val {
 	m := map[string]ref.Val{}
 	for _, dc := range in.Collectors {
@@ -78,4 +108,20 @@ func collapse(in CollectorsIn) map[string]ref.Val {
 		}
 	}
 	return m
+}
+
+type metricsCollector struct {
+	reg *metrics.Registry
+}
+
+func newMetricsCollector(r *metrics.Registry) *metricsCollector {
+	return &metricsCollector{r}
+}
+
+func (m *metricsCollector) CollectDiagnostics() map[string]DValue {
+	out := map[string]DValue{}
+	for k, v := range m.reg.Diagnostics() {
+		out[k] = DFloat(v)
+	}
+	return out
 }
