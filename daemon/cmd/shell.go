@@ -77,6 +77,9 @@ func (sh shell) listener(ctx context.Context, health cell.Health) error {
 	for ctx.Err() == nil {
 		conn, err := l.Accept()
 		if err != nil {
+			if ctx.Err() != nil {
+				break
+			}
 			return fmt.Errorf("accept failed: %w", err)
 		}
 		sh.jg.Add(job.OneShot(
