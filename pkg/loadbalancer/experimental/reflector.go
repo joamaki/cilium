@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"slices"
-	"strings"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -155,7 +154,7 @@ func runResourceReflector(ctx context.Context, p reflectorParams, initComplete f
 				case resource.Upsert:
 					name := loadbalancer.ServiceName{Namespace: obj.Namespace, Name: obj.Name}
 
-					if endpointsByService[name] == 0 {
+					if endpointsByService[name] == 0 && obj.Spec.ClusterIP != "" {
 						// We have not yet seen backends for this service. Postpone its handling
 						// until they've been seen.
 						pendingServices[name] = obj
@@ -264,11 +263,6 @@ var (
 )
 
 func convertService(svc *slim_corev1.Service) (s *Service, fes []FrontendParams) {
-	if strings.ToLower(svc.Spec.ClusterIP) == "none" {
-		// Skip headless services
-		return
-	}
-
 	name := loadbalancer.ServiceName{Namespace: svc.Namespace, Name: svc.Name}
 	s = &Service{
 		Name:                name,

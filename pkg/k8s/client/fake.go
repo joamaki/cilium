@@ -4,21 +4,30 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"path"
 	"strings"
+	"time"
 
 	cilium_fake "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/fake"
 	slim_clientset "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned"
 	slim_fake "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned/fake"
 	"github.com/cilium/cilium/pkg/k8s/testutils"
+	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/hive"
 	"github.com/cilium/hive/cell"
+	"github.com/cilium/hive/job"
 	"github.com/cilium/hive/script"
+	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	apiext_fake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	versionapi "k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
 	fakediscovery "k8s.io/client-go/discovery/fake"
@@ -28,17 +37,40 @@ import (
 	mcsapi_fake "sigs.k8s.io/mcs-api/pkg/client/clientset/versioned/fake"
 )
 
+type FakeClientConfig struct {
+	EnableK8s          bool
+	K8sFakeObjectsPath string
+}
+
+const (
+	k8sFakeObjectsPathFlag = "k8s-fake-objects-path"
+)
+
+func (def FakeClientConfig) Flags(flags *pflag.FlagSet) {
+	flags.Bool(option.EnableK8s, def.EnableK8s, "Enable the fake k8s clientset")
+	flags.String(k8sFakeObjectsPathFlag, "", "Absolute path to directory containing the fake k8s objects. The directory is watched for changes and the objects are injected into the fake client.")
+}
+
 var FakeClientCell = cell.Module(
 	"k8s-fake-client",
 	"Fake Kubernetes client",
 
-	cell.Config(defaultSharedConfig),
+	cell.Config(FakeClientConfig{EnableK8s: true}),
 
 	cell.Provide(
-		func(cfg SharedConfig) (*FakeClientset, Clientset) {
+		func(jg job.Group, log *slog.Logger, cfg FakeClientConfig) (*FakeClientset, Clientset) {
 			fc, _ := NewFakeClientset()
+			fc.cfg = cfg
+			fc.log = log
 			if !cfg.EnableK8s {
 				fc.Disable()
+				return fc, fc
+			}
+			if cfg.K8sFakeObjectsPath != "" {
+				jg.Add(
+					job.OneShot("directory-watcher", fc.watchLoop,
+						job.WithRetry(-1, &job.ExponentialBackoff{Min: time.Second, Max: time.Second}),
+					))
 			}
 			return fc, fc
 		},
@@ -57,6 +89,9 @@ type (
 )
 
 type FakeClientset struct {
+	cfg FakeClientConfig
+	log *slog.Logger
+
 	disabled bool
 
 	*MCSAPIFakeClientset
@@ -98,6 +133,159 @@ func (c *FakeClientset) Config() Config {
 func (c *FakeClientset) RestConfig() *rest.Config {
 	//exhaustruct:ignore
 	return &rest.Config{}
+}
+
+func (fc *FakeClientset) watchLoop(ctx context.Context, health cell.Health) error {
+	dir := fc.cfg.K8sFakeObjectsPath
+	if dir == "" {
+		return nil
+	}
+
+	stat, err := os.Stat(dir)
+	if err == nil && !stat.IsDir() {
+		err = fmt.Errorf("%q is not a directory", dir)
+	}
+	if err != nil {
+		return fmt.Errorf("invalid --%s: %w", k8sFakeObjectsPathFlag, err)
+	}
+
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+
+	if err := watcher.Add(dir); err != nil {
+		watcher.Close()
+		return fmt.Errorf("failed to watch %q: %w", dir, err)
+	}
+
+	events := watcher.Events
+
+	// Synthesize creates for the existing files.
+	go func() {
+	loop:
+		for _, ent := range ents {
+			select {
+			case events <- fsnotify.Event{
+				Op:   fsnotify.Create,
+				Name: path.Join(dir, ent.Name()),
+			}:
+			case <-ctx.Done():
+				break loop
+			}
+		}
+		<-ctx.Done()
+		watcher.Close()
+	}()
+
+	fileToIdentity := map[string]objectIdentity{}
+
+	health.OK(fmt.Sprintf("Watching %q", dir))
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev := <-events:
+			switch ev.Op {
+			case fsnotify.Create:
+				_, exists := fileToIdentity[ev.Name]
+				if exists {
+					// Ignore double creations (ReadDir race)
+					continue
+				}
+				fallthrough
+
+			case fsnotify.Write:
+				fc.log.Info("processing file", "file", ev.Name)
+				id, err := fc.processFile(ev.Name, ev.Op == fsnotify.Create)
+				if err != nil {
+					fc.log.Error("failed to process file", "file", path.Join(dir, ev.Name), "error", err)
+				} else {
+					fileToIdentity[ev.Name] = id
+				}
+			case fsnotify.Remove:
+				if id, found := fileToIdentity[ev.Name]; found {
+					delete(fileToIdentity, ev.Name)
+					if err := fc.deleteIdentity(id); err != nil {
+						panic("TODO log")
+					}
+				}
+			default:
+				fc.log.Warn("unhandled event", "event", ev)
+			}
+		}
+	}
+}
+
+type objectIdentity struct {
+	gvr             schema.GroupVersionResource
+	namespace, name string
+}
+
+func (fc *FakeClientset) processFile(file string, add bool) (id objectIdentity, err error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return id, fmt.Errorf("failed to read %s: %w", file, err)
+	}
+	obj, gvk, err := testutils.DecodeObjectGVK(b)
+	if err != nil {
+		return id, fmt.Errorf("decode: %w", err)
+	}
+	gvr, _ := meta.UnsafeGuessKindToResource(*gvk)
+	objMeta, err := meta.Accessor(obj)
+	if err != nil {
+		return id, fmt.Errorf("accessor: %w", err)
+	}
+	name := objMeta.GetName()
+	ns := objMeta.GetNamespace()
+	id = objectIdentity{gvr, ns, name}
+
+	// Try to add the object to all the trackers. If one of them
+	// accepts we're good. We'll add to all since multiple trackers
+	// may accept (e.g. slim and kubernetes).
+
+	// err will get set to nil if any of the tracker methods succeed.
+	// start with a non-nil default error.
+	err = fmt.Errorf("none of the trackers of FakeClientset accepted %T", obj)
+	for trackerName, tracker := range fc.trackers {
+		var trackerErr error
+		if add {
+			trackerErr = tracker.Add(obj)
+		} else {
+			trackerErr = tracker.Update(gvr, obj, ns)
+		}
+		if err != nil {
+			if trackerErr == nil {
+				// One of the trackers accepted the object, it's a success!
+				err = nil
+			} else {
+				err = errors.Join(err, fmt.Errorf("%s: %w", trackerName, trackerErr))
+			}
+		}
+	}
+	return
+}
+
+func (fc *FakeClientset) deleteIdentity(id objectIdentity) error {
+	err := fmt.Errorf("none of the trackers of FakeClientset accepted %v", id)
+	for trackerName, tracker := range fc.trackers {
+		trackerErr := tracker.Delete(id.gvr, id.namespace, id.name)
+		if err != nil {
+			if trackerErr == nil {
+				// One of the trackers accepted the object, it's a success!
+				err = nil
+			} else {
+				err = errors.Join(err, fmt.Errorf("%s: %w", trackerName, trackerErr))
+			}
+		}
+	}
+	return err
 }
 
 func NewFakeClientset() (*FakeClientset, Clientset) {

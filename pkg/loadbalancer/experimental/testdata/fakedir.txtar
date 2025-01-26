@@ -1,0 +1,139 @@
+#! --enable-experimental-lb --k8s-fake-objects-path=$WORK/objects --enable-k8s=true
+
+# Create the objects directory that the fake client is watching
+# and to which we referred in --k8s-fake-objects-path. This will
+# start the fsnotify-based watcher to inject objects into the
+# system.
+mkdir objects
+
+hive start
+
+# Copy the service definition to objects directory to ingest it.
+cp service.yaml objects
+cp endpoints.yaml objects
+db/cmp services services.table 
+db/cmp frontends frontends.table 
+db/cmp backends backends.table
+
+# Check the BPF maps
+lb/maps-dump lbmaps.actual
+* cmp lbmaps.expected lbmaps.actual
+
+# Remove and recreate the service.
+rm objects/service.yaml
+
+# Service should be gone
+db/show --format=yaml -o table.yaml services
+* cmp table.yaml empty
+
+# BPF maps should be empty
+lb/maps-dump lbmaps.actual
+* cmp lbmaps.actual lbmaps.empty
+
+# Add the service back. It should pick up the backends that we did
+# not remove.
+cp service.yaml objects
+db/cmp services services.table 
+db/cmp frontends frontends.table 
+db/cmp backends backends.table
+
+# BPF maps should be filled again. As the backends were unreferenced for awhile
+# they were cleaned up and their IDs released. Now that they're used again they
+# are given new IDs.
+lb/maps-dump lbmaps.actual
+* cmp lbmaps2.expected lbmaps.actual
+
+# Cleanup
+rm objects/service.yaml objects/endpoints.yaml
+
+# The tables should be empty now
+db/show --format=yaml -o table.yaml services
+* cmp table.yaml empty
+db/show --format=yaml -o table.yaml frontends
+* cmp table.yaml empty
+db/show --format=yaml -o table.yaml backends
+* cmp table.yaml empty
+
+# BPF maps should be empty
+lb/maps-dump lbmaps.actual
+* cmp lbmaps.actual lbmaps.empty
+
+-- services.table --
+Name      Source ExtTrafficPolicy IntTrafficPolicy 
+test/echo k8s    Cluster          Cluster          
+-- frontends.table --
+Address           Type         ServiceName PortName Status Error Backends
+172.16.1.1:80/TCP LoadBalancer test/echo   http     Done         10.244.1.1:80/TCP (active), 10.244.1.2:80/TCP (active), 10.244.1.3:80/TCP (active), 10.244.1.4:80/TCP (active)
+-- backends.table --
+Address           State  Instances
+10.244.1.1:80/TCP active test/echo (http)
+10.244.1.2:80/TCP active test/echo (http)
+10.244.1.3:80/TCP active test/echo (http)
+10.244.1.4:80/TCP active test/echo (http)
+
+-- empty --
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: test
+spec:
+  ports:
+  - name: http
+    nodePort: 30781
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  type: LoadBalancer
+status:
+  loadBalancer:
+    ingress:
+    - ip: 172.16.1.1
+
+-- endpoints.yaml --
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  labels:
+    kubernetes.io/service-name: echo
+  name: test-endpoints
+  namespace: test
+  uid: d1f517f6-ab88-4c76-9bd0-4906a17cdd75
+addressType: IPv4
+endpoints:
+- addresses:
+  - 10.244.1.1
+  - 10.244.1.2
+  - 10.244.1.3
+  - 10.244.1.4
+ports:
+- name: http
+  port: 80
+  protocol: TCP
+
+
+-- lbmaps.expected --
+BE: ID=1 ADDR=10.244.1.1:80/TCP STATE=active
+BE: ID=2 ADDR=10.244.1.2:80/TCP STATE=active
+BE: ID=3 ADDR=10.244.1.3:80/TCP STATE=active
+BE: ID=4 ADDR=10.244.1.4:80/TCP STATE=active
+REV: ID=1 ADDR=172.16.1.1:80
+SVC: ID=1 ADDR=172.16.1.1:80/TCP SLOT=0 LBALG=random AFFTimeout=0 COUNT=4 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=1 ADDR=172.16.1.1:80/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=1 ADDR=172.16.1.1:80/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=1 ADDR=172.16.1.1:80/TCP SLOT=3 BEID=3 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=1 ADDR=172.16.1.1:80/TCP SLOT=4 BEID=4 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+-- lbmaps2.expected --
+BE: ID=5 ADDR=10.244.1.1:80/TCP STATE=active
+BE: ID=6 ADDR=10.244.1.2:80/TCP STATE=active
+BE: ID=7 ADDR=10.244.1.3:80/TCP STATE=active
+BE: ID=8 ADDR=10.244.1.4:80/TCP STATE=active
+REV: ID=2 ADDR=172.16.1.1:80
+SVC: ID=2 ADDR=172.16.1.1:80/TCP SLOT=0 LBALG=random AFFTimeout=0 COUNT=4 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=2 ADDR=172.16.1.1:80/TCP SLOT=1 BEID=5 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=2 ADDR=172.16.1.1:80/TCP SLOT=2 BEID=6 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=2 ADDR=172.16.1.1:80/TCP SLOT=3 BEID=7 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+SVC: ID=2 ADDR=172.16.1.1:80/TCP SLOT=4 BEID=8 COUNT=0 QCOUNT=0 FLAGS=LoadBalancer
+-- lbmaps.empty --
+
