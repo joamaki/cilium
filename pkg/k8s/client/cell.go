@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cilium/hive/cell"
+	"github.com/cilium/hive/job"
 	"github.com/sirupsen/logrus"
 	apiext_clientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -123,7 +125,12 @@ type compositeClientset struct {
 	restConfig    *rest.Config
 }
 
-func newClientset(lc cell.Lifecycle, log logrus.FieldLogger, cfg Config) (Clientset, error) {
+func newClientset(lc cell.Lifecycle, jg job.Group, slog *slog.Logger, log logrus.FieldLogger, cfg Config) (Clientset, error) {
+	if cfg.K8sFakeObjectsPath != "" {
+		fc, _ := newFakeClientsetForHive(jg, slog, cfg.SharedConfig)
+		return fc, nil
+	}
+
 	return newClientsetForUserAgent(lc, log, cfg, "")
 }
 

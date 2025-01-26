@@ -123,6 +123,10 @@ func AllCiliumCRDResourceNames() []string {
 // Cilium Operator. This function will block until it finds all the
 // CRDs or if a timeout occurs.
 func SyncCRDs(ctx context.Context, clientset client.Clientset, crdNames []string, rs *Resources, ag *APIGroups) error {
+	if _, ok := clientset.(*client.FakeClientset); ok {
+		return nil
+	}
+
 	crds := newCRDState(crdNames)
 
 	listerWatcher := newListWatchFromClient(

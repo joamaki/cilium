@@ -17,14 +17,13 @@ import (
 	slim_clientset "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned"
 	slim_fake "github.com/cilium/cilium/pkg/k8s/slim/k8s/client/clientset/versioned/fake"
 	"github.com/cilium/cilium/pkg/k8s/testutils"
-	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/k8s/version"
 	"github.com/cilium/hive"
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
 	"github.com/cilium/hive/script"
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/pflag"
 	apiext_fake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -37,48 +36,42 @@ import (
 	mcsapi_fake "sigs.k8s.io/mcs-api/pkg/client/clientset/versioned/fake"
 )
 
-type FakeClientConfig struct {
-	EnableK8s          bool
-	K8sFakeObjectsPath string
-}
-
-const (
-	k8sFakeObjectsPathFlag = "k8s-fake-objects-path"
-)
-
-func (def FakeClientConfig) Flags(flags *pflag.FlagSet) {
-	flags.Bool(option.EnableK8s, def.EnableK8s, "Enable the fake k8s clientset")
-	flags.String(k8sFakeObjectsPathFlag, "", "Absolute path to directory containing the fake k8s objects. The directory is watched for changes and the objects are injected into the fake client.")
-}
-
 var FakeClientCell = cell.Module(
 	"k8s-fake-client",
 	"Fake Kubernetes client",
 
-	cell.Config(FakeClientConfig{EnableK8s: true}),
+	cell.Config(defaultSharedConfig),
 
 	cell.Provide(
-		func(jg job.Group, log *slog.Logger, cfg FakeClientConfig) (*FakeClientset, Clientset) {
-			fc, _ := NewFakeClientset()
-			fc.cfg = cfg
-			fc.log = log
-			if !cfg.EnableK8s {
-				fc.Disable()
-				return fc, fc
-			}
-			if cfg.K8sFakeObjectsPath != "" {
-				jg.Add(
-					job.OneShot("directory-watcher", fc.watchLoop,
-						job.WithRetry(-1, &job.ExponentialBackoff{Min: time.Second, Max: time.Second}),
-					))
-			}
-			return fc, fc
-		},
+		newFakeClientsetForHive,
 		func(fc *FakeClientset) hive.ScriptCmdOut {
 			return hive.NewScriptCmd("k8s", FakeClientCommand(fc))
 		},
 	),
 )
+
+func newFakeClientsetForHive(jg job.Group, log *slog.Logger, cfg SharedConfig) (*FakeClientset, Clientset) {
+	fc, _ := NewFakeClientset()
+	fc.cfg = cfg
+	fc.log = log
+	if !cfg.EnableK8s {
+		fc.Disable()
+		return fc, fc
+	}
+
+	version.Force("1.31.0")
+
+	if cfg.K8sFakeObjectsPath != "" {
+		// FIXME: Need to synchronize with informers/reflectors before we can start feeding
+		// the trackers! This is non-trivial as we don't have a way of knowning the full
+		// set of them.
+		jg.Add(
+			job.OneShot("directory-watcher", fc.watchLoop,
+				job.WithRetry(-1, &job.ExponentialBackoff{Min: time.Second, Max: time.Second}),
+			))
+	}
+	return fc, fc
+}
 
 type (
 	MCSAPIFakeClientset     = mcsapi_fake.Clientset
@@ -89,7 +82,7 @@ type (
 )
 
 type FakeClientset struct {
-	cfg FakeClientConfig
+	cfg SharedConfig
 	log *slog.Logger
 
 	disabled bool
@@ -146,7 +139,7 @@ func (fc *FakeClientset) watchLoop(ctx context.Context, health cell.Health) erro
 		err = fmt.Errorf("%q is not a directory", dir)
 	}
 	if err != nil {
-		return fmt.Errorf("invalid --%s: %w", k8sFakeObjectsPathFlag, err)
+		return fmt.Errorf("invalid --k8s-fake-objects-path: %w", err)
 	}
 
 	ents, err := os.ReadDir(dir)
@@ -202,6 +195,9 @@ func (fc *FakeClientset) watchLoop(ctx context.Context, health cell.Health) erro
 				fallthrough
 
 			case fsnotify.Write:
+				if path.Ext(ev.Name) != ".yaml" {
+					continue
+				}
 				fc.log.Info("processing file", "file", ev.Name)
 				id, err := fc.processFile(ev.Name, ev.Op == fsnotify.Create)
 				if err != nil {

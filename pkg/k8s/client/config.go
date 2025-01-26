@@ -42,6 +42,10 @@ type SharedConfig struct {
 
 	// EnableAPIDiscovery enables Kubernetes API discovery
 	EnableK8sAPIDiscovery bool
+
+	// K8sFakeObjectsPath if set will switch to consuming K8s objects from a local directory
+	// instead of the API server.
+	K8sFakeObjectsPath string
 }
 
 type ClientParams struct {
@@ -70,6 +74,7 @@ var defaultSharedConfig = SharedConfig{
 	K8sClientConnectionKeepAlive: 30 * time.Second,
 	K8sHeartbeatTimeout:          30 * time.Second,
 	EnableK8sAPIDiscovery:        defaults.K8sEnableAPIDiscovery,
+	K8sFakeObjectsPath:           "",
 }
 
 func (def SharedConfig) Flags(flags *pflag.FlagSet) {
@@ -80,6 +85,7 @@ func (def SharedConfig) Flags(flags *pflag.FlagSet) {
 	flags.Duration(option.K8sClientConnectionKeepAlive, def.K8sClientConnectionKeepAlive, "Configures the keep alive duration of K8s client connections. K8 client is disabled if the value is set to 0")
 	flags.Duration(option.K8sHeartbeatTimeout, def.K8sHeartbeatTimeout, "Configures the timeout for api-server heartbeat, set to 0 to disable")
 	flags.Bool(option.K8sEnableAPIDiscovery, def.EnableK8sAPIDiscovery, "Enable discovery of Kubernetes API groups and resources with the discovery API")
+	flags.String("k8s-fake-objects-path", "", "Absolute path to directory containing the fake k8s objects. The directory is watched for changes and the objects are injected into the fake client.")
 }
 
 func NewClientConfig(cfg SharedConfig, params ClientParams) Config {
