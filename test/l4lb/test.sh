@@ -2,12 +2,21 @@
 
 PS4='+[\t] '
 set -eux
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 export LC_NUMERIC=C
 
 IMG_OWNER=${1:-cilium}
 IMG_TAG=${2:-latest}
 CILIUM_EXTRA_ARGS=${3:-}
+CLANG="../../contrib/scripts/builder.sh clang -O2 -Wall --target=bpf -Ibpf/include -I/usr/$(uname -m)-linux-gnu/include"
+
+function cleanup() {
+    docker kill nginx lb-node
+    docker rm nginx lb-node
+    docker network rm cilium-l4lb
+}
+trap cleanup EXIT
 
 ###########
 #  SETUP  #
@@ -18,16 +27,14 @@ CILIUM_EXTRA_ARGS=${3:-}
 # the container netns, forwards a LB request with XDP_TX, the request needs to
 # be picked in the host netns by a NAPI handler. To register the handler, we
 # attach the dummy program.
-apt-get update
-apt-get install -y gcc-multilib libbpf-dev
-clang -O2 -Wall --target=bpf -c bpf_xdp_veth_host.c -o bpf_xdp_veth_host.o
+$CLANG -c test/l4lb/bpf_xdp_veth_host.c -o test/l4lb/bpf_xdp_veth_host.o
 
 # The worker (aka backend node) will receive IPIP packets from the LB node.
 # To decapsulate the packets instead of creating an ipip dev which would
 # complicate network setup, we will attach the following program which
 # terminates the tunnel.
 # The program is taken from the Linux kernel selftests.
-clang -O2 -Wall --target=bpf -c test_tc_tunnel.c -o test_tc_tunnel.o
+$CLANG -c test/l4lb/test_tc_tunnel.c -o test/l4lb/test_tc_tunnel.o
 
 # With Docker-in-Docker we create two nodes:
 #
@@ -36,7 +43,7 @@ clang -O2 -Wall --target=bpf -c test_tc_tunnel.c -o test_tc_tunnel.o
 
 docker network create cilium-l4lb
 docker run --privileged --name lb-node -d --restart=on-failure:10 \
-    --network cilium-l4lb -v /lib/modules:/lib/modules \
+    --network cilium-l4lb -v /lib/modules:/lib/modules -v /tmp/objs:/mnt \
     docker:dind
 docker run --name nginx -d --network cilium-l4lb nginx
 
@@ -54,19 +61,29 @@ nsenter -t $CONTROL_PLANE_PID -n /bin/sh -c "\
 # Wait until Docker is ready in the lb-node node
 while ! docker exec -t lb-node docker ps >/dev/null; do sleep 1; done
 
+# transfer dev-docker-image
+docker save quay.io/cilium/cilium-dev:latest | docker exec -i lb-node docker load 
+
 # Install Cilium as standalone L4LB
 docker exec -t lb-node mount bpffs /sys/fs/bpf -t bpf
+#    quay.io/${IMG_OWNER}/cilium-ci:${IMG_TAG} \
+#    --enable-k8s=false \
+#    --datapath-mode=lb-only \
 docker exec -t lb-node \
   docker run --name cilium-lb -td \
     -v /sys/fs/bpf:/sys/fs/bpf \
     -v /lib/modules:/lib/modules \
+    -v /mnt:/mnt \
     --privileged=true \
     --network=host \
-    quay.io/${IMG_OWNER}/cilium-ci:${IMG_TAG} \
+    quay.io/cilium/cilium-dev:latest \
     cilium-agent \
     --enable-ipv4=true \
     --enable-ipv6=false \
-    --enable-k8s=false \
+    --enable-experimental-lb=true \
+    --kube-proxy-replacement=true \
+    --enable-node-port=true \
+    --k8s-fake-objects-path=/mnt \
     --datapath-mode=lb-only \
     --bpf-lb-algorithm=maglev \
     --bpf-lb-dsr-dispatch=ipip \
@@ -106,11 +123,15 @@ LB_VIP="10.0.0.2"
 nsenter -t $(docker inspect nginx -f '{{ .State.Pid }}') -n /bin/sh -c \
     "ip a a dev eth0 ${LB_VIP}/32"
 
-docker exec -t lb-node docker exec -t cilium-lb \
-    cilium-dbg service update --id 1 --frontend "${LB_VIP}:80" --backends "${WORKER_IP}:80" --k8s-load-balancer
+# XXX: replaced by service.yaml and endpointslice.yaml
+#docker exec -t lb-node docker exec -t cilium-lb \
+#    cilium-dbg service update --id 1 --frontend "${LB_VIP}:80" --backends "${WORKER_IP}:80" --k8s-load-balancer
 
 LB_NODE_IP=$(docker exec lb-node ip -o -4 a s eth0 | awk '{print $4}' | cut -d/ -f1)
 ip r a "${LB_VIP}/32" via "$LB_NODE_IP"
+
+
+sleep 1
 
 # Issue 10 requests to LB
 for i in $(seq 1 10); do
@@ -125,6 +146,8 @@ ip r replace "${LB_VIP}/32" via "$SECOND_LB_NODE_IP"
 for i in $(seq 1 10); do
     curl -o /dev/null "${LB_VIP}:80" || (echo "Failed $i"; exit -1)
 done
+
+false ## STOP
 
 # Set nginx to maintenance
 docker exec -t lb-node docker exec -t cilium-lb \

@@ -4,10 +4,14 @@
 
 /* In-place tunneling */
 
+/*
 #include <stdbool.h>
 #include <string.h>
-
 #include <linux/stddef.h>
+*/
+#include "../../bpf/include/bpf/ctx/skb.h"
+#include "../../bpf/lib/endian.h"
+
 #include <linux/bpf.h>
 #include <linux/if_ether.h>
 #include <linux/in.h>
@@ -19,8 +23,11 @@
 #include <linux/pkt_cls.h>
 #include <linux/types.h>
 
+
+/*
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
+*/
 
 #define ERROR(ret) do {\
 		char fmt[] = "ERROR line:%d ret:%d\n";\
@@ -101,7 +108,7 @@ static __always_inline int encap_ipv4(struct __sk_buff *skb, __u8 encap_proto,
 		struct ipv6hdr iph6_inner;
 
 		/* Read the IPv6 header */
-		if (bpf_skb_load_bytes(skb, ETH_HLEN, &iph6_inner,
+		if (ctx_load_bytes(skb, __ETH_HLEN, &iph6_inner,
 				       sizeof(iph6_inner)) < 0)
 			return TC_ACT_OK;
 
@@ -118,7 +125,7 @@ static __always_inline int encap_ipv4(struct __sk_buff *skb, __u8 encap_proto,
 
 		tcp_off = sizeof(iph6_inner);
 	} else {
-		if (bpf_skb_load_bytes(skb, ETH_HLEN, &iph_inner,
+		if (ctx_load_bytes(skb, __ETH_HLEN, &iph_inner,
 				       sizeof(iph_inner)) < 0)
 			return TC_ACT_OK;
 
@@ -129,7 +136,7 @@ static __always_inline int encap_ipv4(struct __sk_buff *skb, __u8 encap_proto,
 	if (iph_inner.ihl != 5 || iph_inner.protocol != IPPROTO_TCP)
 		return TC_ACT_OK;
 
-	if (bpf_skb_load_bytes(skb, ETH_HLEN + tcp_off,
+	if (ctx_load_bytes(skb, __ETH_HLEN + tcp_off,
 			       &tcph, sizeof(tcph)) < 0)
 		return TC_ACT_OK;
 
@@ -147,7 +154,7 @@ static __always_inline int encap_ipv4(struct __sk_buff *skb, __u8 encap_proto,
 		udp_dst = MPLS_OVER_UDP_PORT;
 		break;
 	case ETH_P_TEB:
-		l2_len = ETH_HLEN;
+		l2_len = __ETH_HLEN;
 		udp_dst = ETH_OVER_UDP_PORT;
 		break;
 	}
@@ -183,15 +190,15 @@ static __always_inline int encap_ipv4(struct __sk_buff *skb, __u8 encap_proto,
 		*((__u32 *)((__u8 *)&h_outer + olen)) = mpls_label;
 		break;
 	case ETH_P_TEB:
-		if (bpf_skb_load_bytes(skb, 0, (__u8 *)&h_outer + olen,
-				       ETH_HLEN))
+		if (ctx_load_bytes(skb, 0, (__u8 *)&h_outer + olen,
+				       __ETH_HLEN))
 			return TC_ACT_SHOT;
 		break;
 	}
 	olen += l2_len;
 
 	/* add room between mac and network header */
-	if (bpf_skb_adjust_room(skb, olen, BPF_ADJ_ROOM_MAC, flags))
+	if (ctx_adjust_hroom(skb, olen, BPF_ADJ_ROOM_MAC, flags))
 		return TC_ACT_SHOT;
 
 	/* prepare new outer network header */
@@ -203,7 +210,7 @@ static __always_inline int encap_ipv4(struct __sk_buff *skb, __u8 encap_proto,
 	set_ipv4_csum((void *)&h_outer.ip);
 
 	/* store new outer network header */
-	if (bpf_skb_store_bytes(skb, ETH_HLEN, &h_outer, olen,
+	if (ctx_store_bytes(skb, __ETH_HLEN, &h_outer, olen,
 				BPF_F_INVALIDATE_HASH) < 0)
 		return TC_ACT_SHOT;
 
@@ -211,10 +218,10 @@ static __always_inline int encap_ipv4(struct __sk_buff *skb, __u8 encap_proto,
 	if (encap_proto == IPPROTO_IPV6) {
 		struct ethhdr eth;
 
-		if (bpf_skb_load_bytes(skb, 0, &eth, sizeof(eth)) < 0)
+		if (ctx_load_bytes(skb, 0, &eth, sizeof(eth)) < 0)
 			return TC_ACT_SHOT;
 		eth.h_proto = bpf_htons(ETH_P_IP);
-		if (bpf_skb_store_bytes(skb, 0, &eth, sizeof(eth), 0) < 0)
+		if (ctx_store_bytes(skb, 0, &eth, sizeof(eth), 0) < 0)
 			return TC_ACT_SHOT;
 	}
 
@@ -232,12 +239,12 @@ static __always_inline int encap_ipv6(struct __sk_buff *skb, __u8 encap_proto,
 	__u16 tot_len;
 	__u64 flags;
 
-	if (bpf_skb_load_bytes(skb, ETH_HLEN, &iph_inner,
+	if (ctx_load_bytes(skb, __ETH_HLEN, &iph_inner,
 			       sizeof(iph_inner)) < 0)
 		return TC_ACT_OK;
 
 	/* filter only packets we want */
-	if (bpf_skb_load_bytes(skb, ETH_HLEN + sizeof(iph_inner),
+	if (ctx_load_bytes(skb, __ETH_HLEN + sizeof(iph_inner),
 			       &tcph, sizeof(tcph)) < 0)
 		return TC_ACT_OK;
 
@@ -255,7 +262,7 @@ static __always_inline int encap_ipv6(struct __sk_buff *skb, __u8 encap_proto,
 		udp_dst = MPLS_OVER_UDP_PORT;
 		break;
 	case ETH_P_TEB:
-		l2_len = ETH_HLEN;
+		l2_len = __ETH_HLEN;
 		udp_dst = ETH_OVER_UDP_PORT;
 		break;
 	}
@@ -290,15 +297,15 @@ static __always_inline int encap_ipv6(struct __sk_buff *skb, __u8 encap_proto,
 		*((__u32 *)((__u8 *)&h_outer + olen)) = mpls_label;
 		break;
 	case ETH_P_TEB:
-		if (bpf_skb_load_bytes(skb, 0, (__u8 *)&h_outer + olen,
-				       ETH_HLEN))
+		if (ctx_load_bytes(skb, 0, (__u8 *)&h_outer + olen,
+				       __ETH_HLEN))
 			return TC_ACT_SHOT;
 		break;
 	}
 	olen += l2_len;
 
 	/* add room between mac and network header */
-	if (bpf_skb_adjust_room(skb, olen, BPF_ADJ_ROOM_MAC, flags))
+	if (ctx_adjust_hroom(skb, olen, BPF_ADJ_ROOM_MAC, flags))
 		return TC_ACT_SHOT;
 
 	/* prepare new outer network header */
@@ -309,15 +316,15 @@ static __always_inline int encap_ipv6(struct __sk_buff *skb, __u8 encap_proto,
 	h_outer.ip.nexthdr = encap_proto;
 
 	/* store new outer network header */
-	if (bpf_skb_store_bytes(skb, ETH_HLEN, &h_outer, olen,
+	if (ctx_store_bytes(skb, __ETH_HLEN, &h_outer, olen,
 				BPF_F_INVALIDATE_HASH) < 0)
 		return TC_ACT_SHOT;
 
 	return TC_ACT_OK;
 }
 
-SEC("encap_ipip_none")
-int __encap_ipip_none(struct __sk_buff *skb)
+__section_entry
+int encap_ipip_none(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IP))
 		return encap_ipv4(skb, IPPROTO_IPIP, ETH_P_IP);
@@ -325,8 +332,8 @@ int __encap_ipip_none(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_gre_none")
-int __encap_gre_none(struct __sk_buff *skb)
+__section_entry
+int encap_gre_none(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IP))
 		return encap_ipv4(skb, IPPROTO_GRE, ETH_P_IP);
@@ -334,8 +341,8 @@ int __encap_gre_none(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_gre_mpls")
-int __encap_gre_mpls(struct __sk_buff *skb)
+__section_entry
+int encap_gre_mpls(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IP))
 		return encap_ipv4(skb, IPPROTO_GRE, ETH_P_MPLS_UC);
@@ -343,8 +350,8 @@ int __encap_gre_mpls(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_gre_eth")
-int __encap_gre_eth(struct __sk_buff *skb)
+__section_entry
+int encap_gre_eth(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IP))
 		return encap_ipv4(skb, IPPROTO_GRE, ETH_P_TEB);
@@ -352,8 +359,8 @@ int __encap_gre_eth(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_udp_none")
-int __encap_udp_none(struct __sk_buff *skb)
+__section_entry
+int encap_udp_none(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IP))
 		return encap_ipv4(skb, IPPROTO_UDP, ETH_P_IP);
@@ -361,8 +368,8 @@ int __encap_udp_none(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_udp_mpls")
-int __encap_udp_mpls(struct __sk_buff *skb)
+__section_entry
+int encap_udp_mpls(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IP))
 		return encap_ipv4(skb, IPPROTO_UDP, ETH_P_MPLS_UC);
@@ -370,8 +377,8 @@ int __encap_udp_mpls(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_udp_eth")
-int __encap_udp_eth(struct __sk_buff *skb)
+__section_entry
+int encap_udp_eth(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IP))
 		return encap_ipv4(skb, IPPROTO_UDP, ETH_P_TEB);
@@ -379,8 +386,8 @@ int __encap_udp_eth(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_sit_none")
-int __encap_sit_none(struct __sk_buff *skb)
+__section_entry
+int encap_sit_none(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv4(skb, IPPROTO_IPV6, ETH_P_IP);
@@ -388,8 +395,8 @@ int __encap_sit_none(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_ip6tnl_none")
-int __encap_ip6tnl_none(struct __sk_buff *skb)
+__section_entry
+int encap_ip6tnl_none(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv6(skb, IPPROTO_IPV6, ETH_P_IPV6);
@@ -397,8 +404,8 @@ int __encap_ip6tnl_none(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_ip6gre_none")
-int __encap_ip6gre_none(struct __sk_buff *skb)
+__section_entry
+int encap_ip6gre_none(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv6(skb, IPPROTO_GRE, ETH_P_IPV6);
@@ -406,8 +413,8 @@ int __encap_ip6gre_none(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_ip6gre_mpls")
-int __encap_ip6gre_mpls(struct __sk_buff *skb)
+__section_entry
+int encap_ip6gre_mpls(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv6(skb, IPPROTO_GRE, ETH_P_MPLS_UC);
@@ -415,8 +422,8 @@ int __encap_ip6gre_mpls(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_ip6gre_eth")
-int __encap_ip6gre_eth(struct __sk_buff *skb)
+__section_entry
+int encap_ip6gre_eth(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv6(skb, IPPROTO_GRE, ETH_P_TEB);
@@ -424,8 +431,8 @@ int __encap_ip6gre_eth(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_ip6udp_none")
-int __encap_ip6udp_none(struct __sk_buff *skb)
+__section_entry
+int encap_ip6udp_none(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv6(skb, IPPROTO_UDP, ETH_P_IPV6);
@@ -433,8 +440,8 @@ int __encap_ip6udp_none(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_ip6udp_mpls")
-int __encap_ip6udp_mpls(struct __sk_buff *skb)
+__section_entry
+int encap_ip6udp_mpls(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv6(skb, IPPROTO_UDP, ETH_P_MPLS_UC);
@@ -442,8 +449,8 @@ int __encap_ip6udp_mpls(struct __sk_buff *skb)
 		return TC_ACT_OK;
 }
 
-SEC("encap_ip6udp_eth")
-int __encap_ip6udp_eth(struct __sk_buff *skb)
+__section_entry
+int encap_ip6udp_eth(struct __sk_buff *skb)
 {
 	if (skb->protocol == __bpf_constant_htons(ETH_P_IPV6))
 		return encap_ipv6(skb, IPPROTO_UDP, ETH_P_TEB);
@@ -464,27 +471,27 @@ static int decap_internal(struct __sk_buff *skb, int off, int len, char proto)
 		break;
 	case IPPROTO_GRE:
 		olen += sizeof(struct gre_hdr);
-		if (bpf_skb_load_bytes(skb, off + len, &greh, sizeof(greh)) < 0)
+		if (ctx_load_bytes(skb, off + len, &greh, sizeof(greh)) < 0)
 			return TC_ACT_OK;
 		switch (bpf_ntohs(greh.protocol)) {
 		case ETH_P_MPLS_UC:
 			olen += sizeof(mpls_label);
 			break;
 		case ETH_P_TEB:
-			olen += ETH_HLEN;
+			olen += __ETH_HLEN;
 			break;
 		}
 		break;
 	case IPPROTO_UDP:
 		olen += sizeof(struct udphdr);
-		if (bpf_skb_load_bytes(skb, off + len, &udph, sizeof(udph)) < 0)
+		if (ctx_load_bytes(skb, off + len, &udph, sizeof(udph)) < 0)
 			return TC_ACT_OK;
 		switch (bpf_ntohs(udph.dest)) {
 		case MPLS_OVER_UDP_PORT:
 			olen += sizeof(mpls_label);
 			break;
 		case ETH_OVER_UDP_PORT:
-			olen += ETH_HLEN;
+			olen += __ETH_HLEN;
 			break;
 		}
 		break;
@@ -492,7 +499,7 @@ static int decap_internal(struct __sk_buff *skb, int off, int len, char proto)
 		return TC_ACT_OK;
 	}
 
-   	if (bpf_skb_adjust_room(skb, -olen, BPF_ADJ_ROOM_MAC, BPF_F_ADJ_ROOM_FIXED_GSO))
+   	if (ctx_adjust_hroom(skb, -olen, BPF_ADJ_ROOM_MAC, BPF_F_ADJ_ROOM_FIXED_GSO))
     	return TC_ACT_SHOT;
 
 	return TC_ACT_OK;
@@ -502,14 +509,14 @@ static int decap_ipv4(struct __sk_buff *skb)
 {
 	struct iphdr iph_outer;
 
-	if (bpf_skb_load_bytes(skb, ETH_HLEN, &iph_outer,
+	if (ctx_load_bytes(skb, __ETH_HLEN, &iph_outer,
 			       sizeof(iph_outer)) < 0)
 		return TC_ACT_OK;
 
 	if (iph_outer.ihl != 5)
 		return TC_ACT_OK;
 
-	return decap_internal(skb, ETH_HLEN, sizeof(iph_outer),
+	return decap_internal(skb, __ETH_HLEN, sizeof(iph_outer),
 			      iph_outer.protocol);
 }
 
@@ -517,15 +524,15 @@ static int decap_ipv6(struct __sk_buff *skb)
 {
 	struct ipv6hdr iph_outer;
 
-	if (bpf_skb_load_bytes(skb, ETH_HLEN, &iph_outer,
+	if (ctx_load_bytes(skb, __ETH_HLEN, &iph_outer,
 			       sizeof(iph_outer)) < 0)
 		return TC_ACT_OK;
 
-	return decap_internal(skb, ETH_HLEN, sizeof(iph_outer),
+	return decap_internal(skb, __ETH_HLEN, sizeof(iph_outer),
 			      iph_outer.nexthdr);
 }
 
-SEC("decap")
+__section("decap")
 int decap_f(struct __sk_buff *skb)
 {
 	switch (skb->protocol) {
@@ -539,4 +546,5 @@ int decap_f(struct __sk_buff *skb)
 	}
 }
 
-char __license[] SEC("license") = "GPL";
+
+BPF_LICENSE("GPL");
