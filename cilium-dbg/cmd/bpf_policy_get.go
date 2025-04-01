@@ -208,7 +208,7 @@ func formatMap(w io.Writer, statsMap []policymap.PolicyEntryDump) {
 		if printIDs {
 			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%d\t%d\n",
 				policyStr, trafficDirectionString, id, port, proxyPort, stat.AuthRequirement.AuthType(), bytes, packets, prefixLen, cookie)
-		} else if lbls := labelsID[id]; lbls != nil && len(lbls.Labels) > 0 {
+		} else if lbls := labelsID[id]; lbls != nil && lbls.Labels.Len() > 0 {
 			first := true
 			for _, lbl := range lbls.Labels.GetPrintableModel() {
 				if lbl == "reserved:unknown" {

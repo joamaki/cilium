@@ -15,9 +15,8 @@ import (
 // way the core implementation is cleanly separated, while still
 // having the convenience of these methods as part of 'Labels'.
 
-func (lbls Labels) HasLabelWithKey(key string) bool {
-	_, ok := lbls.GetLabel(key)
-	//fmt.Printf(">>> HasLabelWithKey(%s): %v\n", key, ok)
+func (l Labels) HasLabelWithKey(key string) bool {
+	_, ok := l.GetLabel(key)
 	return ok
 }
 
@@ -108,7 +107,7 @@ func (lbls Labels) Contains(other Labels) bool {
 }
 
 func (l Labels) GetPrintableModel() []string {
-	return slices.Collect(l.Printable())
+	return slices.Sorted(l.Printable())
 }
 
 // Printable returns a (sorted) iterator of strings representing the labels.
@@ -137,7 +136,7 @@ func (l Labels) Printable() iter.Seq[string] {
 // String returns the map of labels as human readable string
 func (l Labels) String() string {
 	var b strings.Builder
-	for l := range l.Printable() {
+	for _, l := range slices.Sorted(l.Printable()) {
 		b.WriteString(l)
 		b.WriteByte(',')
 	}
@@ -227,6 +226,11 @@ func Merge(left, right Labels) Labels {
 	return NewLabels(out...)
 }
 
+// Merge labels together. Returns new labels.
+func (lbls Labels) Merge(other Labels) Labels {
+	return Merge(lbls, other)
+}
+
 // Add label(s). Returns new [Labels].
 func (lbls Labels) Add(labels ...Label) Labels {
 	return Merge(lbls, NewLabels(labels...))
@@ -260,6 +264,16 @@ outer:
 			}
 		}
 		out = append(out, lbl)
+	}
+	return NewLabels(out...)
+}
+
+func (lbls Labels) GetFromSource(source string) Labels {
+	out := make([]Label, 0, lbls.Len())
+	for lbl := range lbls.All() {
+		if lbl.Source() == source {
+			out = append(out, lbl)
+		}
 	}
 	return NewLabels(out...)
 }
@@ -504,4 +518,16 @@ func (lbls Labels) Intersects(needed Labels) bool {
 		}
 	}
 	return false
+}
+
+// generateLabelString generates the string representation of a label with
+// the provided source, key, and value in the format "source:key=value".
+func generateLabelString(source, key, value string) string {
+	return source + ":" + key + "=" + value
+}
+
+// GenerateK8sLabelString generates the string representation of a label with
+// the provided source, key, and value in the format "LabelSourceK8s:key=value".
+func GenerateK8sLabelString(k, v string) string {
+	return generateLabelString(LabelSourceK8s, k, v)
 }

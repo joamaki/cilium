@@ -212,6 +212,7 @@ func (n *manager) RestorationNotify(possibleEndpoints map[uint16]*endpoint.Endpo
 			}
 		}
 	}
+
 }
 
 // readPreCache returns a fqdn.DNSCache object created from the json data at

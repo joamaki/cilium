@@ -295,16 +295,16 @@ func readLabelPrefixCfgFrom(fileName string) (*labelPrefixCfg, error) {
 }
 
 func (cfg *labelPrefixCfg) filterLabels(lbls labels.Labels) (identityLabels, informationLabels labels.Labels) {
-	if len(lbls) == 0 {
-		return nil, nil
+	if lbls.Len() == 0 {
+		return labels.Empty, labels.Empty
 	}
 
 	validLabelPrefixesMU.RLock()
 	defer validLabelPrefixesMU.RUnlock()
 
-	identityLabels = labels.Labels{}
-	informationLabels = labels.Labels{}
-	for k, v := range lbls {
+	identityLabels = labels.Empty
+	informationLabels = labels.Empty
+	for v := range lbls.All() {
 		included, ignored := 0, 0
 
 		for _, p := range cfg.LabelPrefixes {
@@ -336,9 +336,9 @@ func (cfg *labelPrefixCfg) filterLabels(lbls labels.Labels) (identityLabels, inf
 		if (!cfg.whitelist && ignored == 0) || included > ignored {
 			// Just want to make sure we don't have labels deleted in
 			// on side and disappearing in the other side...
-			identityLabels[k] = v
+			identityLabels = identityLabels.Add(v)
 		} else {
-			informationLabels[k] = v
+			informationLabels = informationLabels.Add(v)
 		}
 	}
 	return identityLabels, informationLabels

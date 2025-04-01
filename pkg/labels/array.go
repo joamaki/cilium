@@ -73,11 +73,7 @@ func ParseSelectLabelArrayFromArray(base []string) LabelArray {
 
 // Labels returns the LabelArray as Labels
 func (ls LabelArray) Labels() Labels {
-	lbls := Labels{}
-	for _, l := range ls {
-		lbls[l.Key()] = l
-	}
-	return lbls
+	return NewLabels(ls...)
 }
 
 // Contains returns true if all ls contains all the labels in needed. If
@@ -315,4 +311,8 @@ func (ls LabelArray) Less(b LabelArray) bool {
 	}
 
 	return lsLen < bLen
+}
+
+func ToLabelArray(lbls Labels) LabelArray {
+	return LabelArray(lbls.ToSlice())
 }

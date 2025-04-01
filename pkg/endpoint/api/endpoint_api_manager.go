@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"strconv"
 	"sync"
@@ -180,8 +179,8 @@ func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *mod
 
 	infoLabels := labels.NewLabelsFromModel([]string{})
 
-	if len(apiLabels) > 0 {
-		if lbls := apiLabels.FindReserved(); lbls != nil {
+	if apiLabels.Len() > 0 {
+		if lbls := apiLabels.FindReserved(); !lbls.IsEmpty() {
 			return invalidDataError(ep, fmt.Errorf("not allowed to add reserved labels: %s", lbls))
 		}
 
@@ -190,7 +189,7 @@ func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *mod
 		}
 
 		apiLabels, _ = labelsfilter.Filter(apiLabels)
-		if len(apiLabels) == 0 {
+		if apiLabels.Len() == 0 {
 			return invalidDataError(ep, fmt.Errorf("no valid labels provided"))
 		}
 	}
@@ -200,7 +199,7 @@ func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *mod
 	m.endpointCreations.NewCreateRequest(ep, cancel)
 	defer m.endpointCreations.EndCreateRequest(ep)
 
-	identityLbls := maps.Clone(apiLabels)
+	identityLbls := apiLabels
 
 	if ep.K8sNamespaceAndPodNameIsSet() && m.clientset.IsEnabled() {
 		pod, k8sMetadata, err := m.handleOutdatedPodInformer(ctx, ep)
@@ -236,8 +235,8 @@ func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *mod
 		} else {
 			ep.SetPod(pod)
 			ep.SetK8sMetadata(k8sMetadata.NamedPorts)
-			identityLbls.MergeLabels(k8sMetadata.IdentityLabels)
-			infoLabels.MergeLabels(k8sMetadata.InfoLabels)
+			identityLbls = identityLbls.Merge(k8sMetadata.IdentityLabels)
+			infoLabels = infoLabels.Merge(k8sMetadata.InfoLabels)
 			if _, ok := pod.Annotations[bandwidth.IngressBandwidth]; ok && !m.bandwidthManager.Enabled() {
 				m.logger.Warn("Endpoint has bandwidth annotation, but BPF bandwidth manager is disabled. This annotation is ignored.",
 					logfields.K8sPodName, epTemplate.K8sNamespace+"/"+epTemplate.K8sPodName,
@@ -280,13 +279,13 @@ func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *mod
 
 	// The following docs describe the cases where the init identity is used:
 	// http://docs.cilium.io/en/latest/policy/lifecycle/#init-identity
-	if len(identityLbls) == 0 {
+	if identityLbls.IsEmpty() {
 		// If the endpoint has no labels, give the endpoint a special identity with
 		// label reserved:init so we can generate a custom policy for it until we
 		// get its actual identity.
-		identityLbls = labels.Labels{
-			labels.IDNameInit: labels.NewLabel(labels.IDNameInit, "", labels.LabelSourceReserved),
-		}
+		identityLbls = labels.NewLabels(
+			labels.NewLabel(labels.IDNameInit, "", labels.LabelSourceReserved),
+		)
 	}
 
 	// e.ID assigned here
@@ -522,9 +521,9 @@ func (m *endpointAPIManager) EndpointUpdate(id string, cfg *models.EndpointConfi
 func (m *endpointAPIManager) ModifyEndpointIdentityLabelsFromAPI(id string, add, del labels.Labels) (int, error) {
 	addLabels, _ := labelsfilter.Filter(add)
 	delLabels, _ := labelsfilter.Filter(del)
-	if lbls := addLabels.FindReserved(); lbls != nil {
+	if lbls := addLabels.FindReserved(); !lbls.IsEmpty() {
 		return PatchEndpointIDLabelsUpdateFailedCode, fmt.Errorf("Not allowed to add reserved labels: %s", lbls)
-	} else if lbls := delLabels.FindReserved(); lbls != nil {
+	} else if lbls := delLabels.FindReserved(); !lbls.IsEmpty() {
 		return PatchEndpointIDLabelsUpdateFailedCode, fmt.Errorf("Not allowed to delete reserved labels: %s", lbls)
 	}
 

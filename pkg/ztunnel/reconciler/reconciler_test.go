@@ -221,7 +221,7 @@ var _ resource.Store[*v2alpha1.CiliumEndpointSlice] = &MockCiliumEndpointSliceSt
 
 // createTestEndpoint creates a test endpoint with the given parameters.
 func createTestEndpoint(id uint16, namespace, podName, netnsPath string) *endpoint.Endpoint {
-	return createTestEndpointWithLabels(id, namespace, podName, netnsPath, nil)
+	return createTestEndpointWithLabels(id, namespace, podName, netnsPath, labels.Empty)
 }
 
 // createTestEndpointWithLabels creates a test endpoint with the given parameters and labels.
@@ -232,7 +232,7 @@ func createTestEndpointWithLabels(id uint16, namespace, podName, netnsPath strin
 		K8sPodName:   podName,
 	}
 	ep.SetContainerNetnsPath(netnsPath)
-	if lbls != nil {
+	if !lbls.IsEmpty() {
 		ep.SecurityIdentity = identity.NewIdentity(identity.NumericIdentity(id), lbls)
 	}
 	return ep
@@ -354,9 +354,9 @@ func TestEnrollmentReconciler_Update(t *testing.T) {
 			namespace: "test-ns",
 			endpoints: []*endpoint.Endpoint{
 				createTestEndpoint(1, "test-ns", "pod-1", "/var/run/netns/test1"),
-				createTestEndpointWithLabels(2, "test-ns", "ztunnel-cilium-abc", "/var/run/netns/test2", labels.Labels{
-					"k8s:app": labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
-				}),
+				createTestEndpointWithLabels(2, "test-ns", "ztunnel-cilium-abc", "/var/run/netns/test2", labels.NewLabels(
+					labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
+				)),
 			},
 			expectedEnrolled:       1,
 			expectedEndpointEvents: 0,
@@ -517,9 +517,9 @@ func TestEnrollmentReconciler_Delete(t *testing.T) {
 			namespace: "test-ns",
 			endpoints: []*endpoint.Endpoint{
 				createTestEndpoint(1, "test-ns", "pod-1", "/var/run/netns/test1"),
-				createTestEndpointWithLabels(2, "test-ns", "ztunnel-cilium-xyz", "/var/run/netns/test2", labels.Labels{
-					"k8s:app": labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
-				}),
+				createTestEndpointWithLabels(2, "test-ns", "ztunnel-cilium-xyz", "/var/run/netns/test2", labels.NewLabels(
+					labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
+				)),
 			},
 			expectedDisenrolled:    1,
 			expectedEndpointEvents: 0,
@@ -652,9 +652,9 @@ func TestEnrollmentReconciler_EndpointCreated(t *testing.T) {
 		},
 		{
 			name: "skip ztunnel endpoint",
-			endpoint: createTestEndpointWithLabels(1, "test-ns", "ztunnel-cilium-abc", "/var/run/netns/test1", labels.Labels{
-				"k8s:app": labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
-			}),
+			endpoint: createTestEndpointWithLabels(1, "test-ns", "ztunnel-cilium-abc", "/var/run/netns/test1", labels.NewLabels(
+				labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
+			)),
 			enrolledNs:       []string{"test-ns"},
 			expectedEnrolled: false,
 		},
@@ -731,9 +731,9 @@ func TestEnrollmentReconciler_EndpointDeleted(t *testing.T) {
 		},
 		{
 			name: "skip ztunnel endpoint",
-			endpoint: createTestEndpointWithLabels(1, "test-ns", "ztunnel-cilium-xyz", "/var/run/netns/test1", labels.Labels{
-				"k8s:app": labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
-			}),
+			endpoint: createTestEndpointWithLabels(1, "test-ns", "ztunnel-cilium-xyz", "/var/run/netns/test1", labels.NewLabels(
+				labels.NewLabel("app", "ztunnel-cilium", labels.LabelSourceK8s),
+			)),
 			enrolledNs:          []string{"test-ns"},
 			expectedDisenrolled: false,
 		},

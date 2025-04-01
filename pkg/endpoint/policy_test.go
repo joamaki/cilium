@@ -58,9 +58,9 @@ func TestIncrementalUpdatesDuringPolicyGeneration(t *testing.T) {
 
 	addIdentity := func(labelKeys ...string) *identity.Identity {
 		t.Helper()
-		lbls := labels.Labels{}
+		lbls := labels.Empty
 		for _, labelKey := range labelKeys {
-			lbls[labelKey] = labels.NewLabel("k8s:"+labelKey, "", "")
+			lbls = lbls.Add(labels.NewLabel("k8s:"+labelKey, "", ""))
 		}
 		id, _, err := fakeAllocator.AllocateIdentity(context.Background(), lbls, false, 0)
 		if err != nil {
@@ -222,7 +222,7 @@ func newPolicyTestFixture(t *testing.T) *policyTestFixture {
 	repo := policy.NewPolicyRepository(logger, fakeAllocator.GetIdentityCache(), nil, nil, idManager, testpolicy.NewPolicyMetricsNoop())
 	polComputer := testcompute.InstantiateCellForTesting(t, logger, "endpoint-policy_test", t.Name(), repo, idManager)
 
-	podLbls := labels.Labels{"pod": labels.NewLabel("k8s:pod", "", "")}
+	podLbls := labels.NewLabels(labels.NewLabel("pod", "", labels.LabelSourceK8s))
 	podID, _, err := fakeAllocator.AllocateIdentity(context.Background(), podLbls, false, 0)
 	require.NoError(t, err)
 	wg := &sync.WaitGroup{}

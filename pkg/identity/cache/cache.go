@@ -61,14 +61,14 @@ func (m *CachingIdentityAllocator) GetIdentityCache() identity.IdentityMap {
 	}
 
 	identity.IterateReservedIdentities(func(ni identity.NumericIdentity, id *identity.Identity) {
-		cache[ni] = id.Labels.LabelArray()
+		cache[ni] = labels.ToLabelArray(id.Labels)
 	})
 
 	for _, identity := range m.localIdentities.GetIdentities() {
-		cache[identity.ID] = identity.Labels.LabelArray()
+		cache[identity.ID] = labels.ToLabelArray(identity.Labels)
 	}
 	for _, identity := range m.localNodeIdentities.GetIdentities() {
-		cache[identity.ID] = identity.Labels.LabelArray()
+		cache[identity.ID] = labels.ToLabelArray(identity.Labels)
 	}
 
 	return cache
@@ -235,7 +235,7 @@ func (m *CachingIdentityAllocator) LookupIdentity(ctx context.Context, lbls labe
 		return nil
 	}
 
-	lblArray := lbls.LabelArray()
+	lblArray := labels.ToLabelArray(lbls)
 	id, err := m.IdentityAllocator.GetIncludeRemoteCaches(ctx, &key.GlobalIdentity{LabelArray: lblArray})
 	if err != nil {
 		return nil
@@ -251,7 +251,7 @@ func (m *CachingIdentityAllocator) LookupIdentity(ctx context.Context, lbls labe
 	return identity.NewIdentityFromLabelArray(identity.NumericIdentity(id), lblArray)
 }
 
-var unknownIdentity = identity.NewIdentity(identity.IdentityUnknown, labels.Labels{labels.IDNameUnknown: labels.NewLabel(labels.IDNameUnknown, "", labels.LabelSourceReserved)})
+var unknownIdentity = identity.NewIdentity(identity.IdentityUnknown, labels.NewLabels(labels.NewLabel(labels.IDNameUnknown, "", labels.LabelSourceReserved)))
 
 // LookupIdentityByID returns the identity by ID. This function will first
 // search through the local cache, then the caches for remote kvstores and

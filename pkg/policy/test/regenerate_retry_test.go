@@ -73,7 +73,7 @@ func TestRegenerateRetries(t *testing.T) {
 
 	ep := f.templateEP.CopyFromTemplate()
 	require.NoError(t, f.epm.AddEndpoint(ep))
-	_ = ep.UpdateLabels(ctx, labels.LabelSourceAny, podID.Labels, nil, true)
+	_ = ep.UpdateLabels(ctx, labels.LabelSourceAny, podID.Labels, labels.Empty, true)
 
 	rule := &api.Rule{
 		EndpointSelector: api.NewESFromLabels(labels.NewLabel("app", "test", labels.LabelSourceK8s)),

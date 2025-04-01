@@ -130,7 +130,7 @@ func (ds *DaemonSuite) testEndpointAddNoLabels(t *testing.T) {
 
 func (ds *DaemonSuite) testUpdateSecLabels(t *testing.T) {
 	lbls := labels.NewLabelsFromModel([]string{"reserved:world"})
-	code, err := ds.endpointAPIManager.ModifyEndpointIdentityLabelsFromAPI("1", lbls, nil)
+	code, err := ds.endpointAPIManager.ModifyEndpointIdentityLabelsFromAPI("1", lbls, labels.Empty)
 	require.Error(t, err)
 	require.Equal(t, apiEndpoint.PatchEndpointIDLabelsUpdateFailedCode, code)
 }

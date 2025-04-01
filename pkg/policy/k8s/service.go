@@ -53,7 +53,7 @@ type serviceEvent struct {
 func (s serviceEvent) Equal(other serviceEvent) bool {
 	return s.deleted == other.deleted &&
 		s.name.Equal(other.name) &&
-		s.labels.Equals(other.labels) &&
+		s.labels.Equal(other.labels) &&
 		slices.Equal(s.backendRevisions, other.backendRevisions) &&
 		maps.Equal(s.selector, other.selector)
 }
@@ -187,7 +187,7 @@ func (p *policyWatcher) updateToServicesPolicies(ev serviceEvent) error {
 	// a ToServices selector as candidates.
 	candidatePolicyKeys := p.toServicesPolicies
 
-	if ev.previous != nil && ev.labels.Equals(ev.previous.labels) {
+	if ev.previous != nil && ev.labels.Equal(ev.previous.labels) {
 		// If the service definition itself has not changed, and it's not the
 		// first time we process this service, we only need to check the
 		// policies which are known to select the old version of the service
@@ -361,20 +361,19 @@ type labelsMatcher labels.Labels
 
 // Get implements labels.LabelMatcher; label source is ignored
 func (l labelsMatcher) GetLabel(label *labels.Label) (value string) {
-	v := l[label.Key()]
-	return v.Value()
+	value, _ = labels.Labels(l).LookupLabel(label)
+	return value
 }
 
 // Has implements labels.LabelMatcher.
 func (l labelsMatcher) HasLabel(label *labels.Label) (exists bool) {
-	_, ok := l[label.Key()]
-	return ok
+	_, exists = labels.Labels(l).LookupLabel(label)
+	return exists
 }
 
 // Lookup implements labels.LabelMatcher
 func (l labelsMatcher) LookupLabel(label *labels.Label) (value string, exists bool) {
-	v, ok := l[label.Key()]
-	return v.Value(), ok
+	return labels.Labels(l).LookupLabel(label)
 }
 
 var _ labels.LabelMatcher = labelsMatcher{}

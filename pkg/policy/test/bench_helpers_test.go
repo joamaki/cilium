@@ -47,7 +47,7 @@ func seedEndpoints(tb testing.TB, ctx context.Context, f *testFixture, numEPs, n
 		ep := f.templateEP.CopyFromTemplate()
 		require.NoError(tb, f.epm.AddEndpoint(ep))
 		id := ids[i%numIdentities]
-		_ = ep.UpdateLabels(ctx, labels.LabelSourceAny, id.Labels, nil, true)
+		_ = ep.UpdateLabels(ctx, labels.LabelSourceAny, id.Labels, labels.Empty, true)
 		eps[i] = ep
 	}
 

@@ -457,7 +457,7 @@ func Test_deriveLabelsForNames(t *testing.T) {
 	require.Equal(t, map[string]nameMetadata{
 		"nomatch.local.": {
 			addrs:  []netip.Addr{nomatchIP},
-			labels: labels.Labels{},
+			labels: labels.Empty,
 		},
 		"github.com.": {
 			addrs:  []netip.Addr{githubIP},

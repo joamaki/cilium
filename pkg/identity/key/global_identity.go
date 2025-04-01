@@ -51,7 +51,7 @@ func (gi *GlobalIdentity) PutKey(v string) allocator.AllocatorKey {
 // Note: NewLabelArrayFromMap will parse the ':' separated label source from
 // the keys because the source parameter is ""
 func (gi *GlobalIdentity) PutKeyFromMap(v map[string]string) allocator.AllocatorKey {
-	return &GlobalIdentity{LabelArray: labels.Map2Labels(v, "").LabelArray()}
+	return &GlobalIdentity{LabelArray: labels.ToLabelArray(labels.Map2Labels(v, ""))}
 }
 
 // PutValue puts metadata inside the global identity for the given 'key' with
@@ -76,5 +76,5 @@ func (gi *GlobalIdentity) Value(key any) any {
 func GetCIDKeyFromLabels(allLabels map[string]string, source string) *GlobalIdentity {
 	lbs := labels.Map2Labels(allLabels, source)
 	idLabels, _ := labelsfilter.Filter(lbs)
-	return &GlobalIdentity{LabelArray: idLabels.LabelArray()}
+	return &GlobalIdentity{LabelArray: labels.ToLabelArray(idLabels)}
 }

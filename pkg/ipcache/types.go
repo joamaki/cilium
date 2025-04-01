@@ -87,7 +87,7 @@ func (m *resourceInfo) merge(logger *slog.Logger, info IPMetadata, src source.So
 	switch info := info.(type) {
 	case labels.Labels:
 		changed = !info.DeepEqual(&m.labels)
-		m.labels = labels.NewFrom(info)
+		m.labels = info
 	case overrideIdentity:
 		changed = m.identityOverride != info
 		m.identityOverride = info
@@ -120,7 +120,7 @@ func (m *resourceInfo) merge(logger *slog.Logger, info IPMetadata, src source.So
 func (m *resourceInfo) unmerge(logger *slog.Logger, info IPMetadata) {
 	switch info.(type) {
 	case labels.Labels:
-		m.labels = nil
+		m.labels = labels.Empty
 	case overrideIdentity:
 		m.identityOverride = false
 	case ipcachetypes.TunnelPeer:
@@ -141,7 +141,7 @@ func (m *resourceInfo) unmerge(logger *slog.Logger, info IPMetadata) {
 }
 
 func (m *resourceInfo) isValid() bool {
-	if m.labels != nil {
+	if !m.labels.IsEmpty() {
 		return true
 	}
 	if m.identityOverride {
@@ -164,7 +164,7 @@ func (m *resourceInfo) isValid() bool {
 
 func (m *resourceInfo) DeepCopy() *resourceInfo {
 	n := new(resourceInfo)
-	n.labels = labels.NewFrom(m.labels)
+	n.labels = m.labels
 	n.source = m.source
 	n.identityOverride = m.identityOverride
 	n.tunnelPeer = m.tunnelPeer
@@ -197,8 +197,8 @@ func (s *prefixInfo) sortedBySourceThenResourceID() []ipcachetypes.ResourceID {
 }
 
 func (r *resourceInfo) ToLabels() labels.Labels {
-	if r.labels == nil {
-		return labels.Labels{} // code expects non-nil Labels.
+	if r.labels.IsEmpty() {
+		return labels.Empty
 	}
 	return r.labels
 }
@@ -273,11 +273,13 @@ func (s *prefixInfo) flatten(scopedLog *slog.Logger) *resourceInfo {
 			out.source = info.source
 		}
 
-		if len(info.labels) > 0 && !out.identityOverride /* identityOverride already fixed the labels */ {
-			if len(out.labels) > 0 {
+		if !info.labels.IsEmpty() && !bool(out.identityOverride) /* identityOverride already fixed the labels */ {
+			if !out.labels.IsEmpty() {
 				// merge labels, complaining if the value exists
-				for key, newLabel := range info.labels {
-					otherLabel, exists := out.labels[key]
+				mergedLabels := out.labels
+				for newLabel := range info.labels.All() {
+					key := newLabel.Key()
+					otherLabel, exists := out.labels.GetLabel(key)
 					if exists && !otherLabel.DeepEqual(&newLabel) {
 						scopedLog.Warn(
 							"Detected conflicting label for prefix. "+
@@ -287,17 +289,18 @@ func (s *prefixInfo) flatten(scopedLog *slog.Logger) *resourceInfo {
 							logfields.ConflictingLabels, otherLabel,
 						)
 					} else if !exists {
-						out.labels[key] = newLabel
+						mergedLabels = mergedLabels.Add(newLabel)
 						labelResourceIDs[key] = resourceID
 					}
 				}
+				out.labels = mergedLabels
 			} else {
-				out.labels = labels.NewFrom(info.labels) // copy map, as we will be mutating it
+				out.labels = info.labels
 			}
 		}
 
 		if info.identityOverride {
-			if len(info.labels) == 0 {
+			if info.labels.IsEmpty() {
 				scopedLog.Warn(
 					"Detected identity override, but no labels where specified. "+
 						"Falling back on the old non-override labels. "+

@@ -364,9 +364,9 @@ func TestNodeLabels(t *testing.T) {
 		node:               nLocal,
 		nodeSelectorLabels: true,
 		setupWanted: func() labels.Labels {
-			want := labels.NewFrom(labels.LabelHost)
-			want.MergeLabels(labels.Map2Labels(nodeLabels, labels.LabelSourceNode))
-			want.MergeLabels(labels.Map2Labels(map[string]string{
+			want := labels.LabelHost
+			want = want.Merge(labels.Map2Labels(nodeLabels, labels.LabelSourceNode))
+			want = want.Merge(labels.Map2Labels(map[string]string{
 				"io.cilium.k8s.policy.cluster": "default",
 			}, labels.LabelSourceK8s))
 			return want
@@ -376,16 +376,16 @@ func TestNodeLabels(t *testing.T) {
 		node:               nLocal,
 		nodeSelectorLabels: false,
 		setupWanted: func() labels.Labels {
-			return labels.NewFrom(labels.LabelHost)
+			return labels.LabelHost
 		},
 	}, {
 		name:               "Remote node with node selector labels enabled",
 		node:               nRemote,
 		nodeSelectorLabels: true,
 		setupWanted: func() labels.Labels {
-			want := labels.NewFrom(labels.LabelRemoteNode)
-			want.MergeLabels(labels.Map2Labels(nodeLabels, labels.LabelSourceNode))
-			want.MergeLabels(labels.Map2Labels(map[string]string{
+			want := labels.LabelRemoteNode
+			want = want.Merge(labels.Map2Labels(nodeLabels, labels.LabelSourceNode))
+			want = want.Merge(labels.Map2Labels(map[string]string{
 				"io.cilium.k8s.policy.cluster": "default",
 			}, labels.LabelSourceK8s))
 			return want
@@ -395,7 +395,7 @@ func TestNodeLabels(t *testing.T) {
 		node:               nRemote,
 		nodeSelectorLabels: false,
 		setupWanted: func() labels.Labels {
-			return labels.NewFrom(labels.LabelRemoteNode)
+			return labels.LabelRemoteNode
 		},
 	}, {
 		name:               "Remote node with node selector labels enabled and filtered labels",
@@ -403,11 +403,11 @@ func TestNodeLabels(t *testing.T) {
 		nodeSelectorLabels: true,
 		nodeLabelPrefixes:  []string{"node:test-label"},
 		setupWanted: func() labels.Labels {
-			want := labels.NewFrom(labels.LabelRemoteNode)
-			want.MergeLabels(labels.Map2Labels(map[string]string{
+			want := labels.LabelRemoteNode
+			want = want.Merge(labels.Map2Labels(map[string]string{
 				"test-label": "test-value",
 			}, labels.LabelSourceNode))
-			want.MergeLabels(labels.Map2Labels(map[string]string{
+			want = want.Merge(labels.Map2Labels(map[string]string{
 				"io.cilium.k8s.policy.cluster": "default",
 			}, labels.LabelSourceK8s))
 			return want
@@ -421,7 +421,7 @@ func TestNodeLabels(t *testing.T) {
 			option.Config.ClusterName = "default"
 			got := mngr.nodeIdentityLabels(tt.node)
 			want := tt.setupWanted()
-			assert.True(t, want.Equals(got), "Mismatched labels: want=%v got=%v", want, got)
+			assert.True(t, want.Equal(got), "Mismatched labels: want=%v got=%v", want, got)
 		})
 	}
 }

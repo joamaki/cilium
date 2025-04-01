@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"net/netip"
 	"sync"
@@ -305,9 +304,7 @@ func (m *metadata) getLockedSource(prefix cmtypes.PrefixCluster) source.Source {
 // - 10.1.0.0/16 -> "a=c"
 // - 10.1.1.0/24 -> "d=e"
 // the complete set of labels for 10.1.1.0/24 is [a=c, d=e, foo=bar]
-func (m *metadata) mergeParentLabels(lbls labels.Labels, prefixCluster cmtypes.PrefixCluster) {
-	m.Lock()
-	defer m.Unlock()
+func (m *metadata) mergeParentLabels(lbls labels.Labels, prefixCluster cmtypes.PrefixCluster) labels.Labels {
 	hasCIDR := lbls.HasSource(labels.LabelSourceCIDR) // we should only merge one CIDR label
 
 	// Iterate over all shorter prefixes, from `prefix` to 0.0.0.0/0 // ::/0.
@@ -316,19 +313,20 @@ func (m *metadata) mergeParentLabels(lbls labels.Labels, prefixCluster cmtypes.P
 	for bits := prefix.Bits() - 1; bits >= 0; bits-- {
 		parent, _ := prefix.Addr().Unmap().Prefix(bits) // canonical
 		if info := m.getLocked(cmtypes.NewPrefixCluster(parent, prefixCluster.ClusterID())); info != nil {
-			for k, v := range info.ToLabels() {
-				if v.Source() == labels.LabelSourceCIDR && hasCIDR {
+			for lbl := range info.ToLabels().All() {
+				if lbl.Source() == labels.LabelSourceCIDR && hasCIDR {
 					continue
 				}
-				if _, ok := lbls[k]; !ok {
-					lbls[k] = v
-					if v.Source() == labels.LabelSourceCIDR {
+				if !lbls.HasLabelWithKey(lbl.Key()) {
+					lbls = lbls.Add(lbl)
+					if lbl.Source() == labels.LabelSourceCIDR {
 						hasCIDR = true
 					}
 				}
 			}
 		}
 	}
+	return lbls
 }
 
 // findAffectedChildPrefixes returns the list of all child prefixes which are
@@ -464,7 +462,7 @@ func (ipc *IPCache) doInjectLabels(ctx context.Context, modifiedPrefixes []cmtyp
 
 			// If this ID was newly allocated, we must add it to the SelectorCache
 			if isNew {
-				idsToAdd[newID.ID] = newID.Labels.LabelArray()
+				idsToAdd[newID.ID] = labels.ToLabelArray(newID.Labels)
 			}
 			entriesToReplace[prefix] = ipcacheEntry{
 				identity: Identity{
@@ -567,7 +565,7 @@ func (ipc *IPCache) doInjectLabels(ctx context.Context, modifiedPrefixes []cmtyp
 		// we must always update the SelectorCache (normally, this is elided
 		// when no changes are present).
 		if newID != nil && newID.ID == identity.ReservedIdentityHost {
-			idsToAdd[newID.ID] = newID.Labels.LabelArray()
+			idsToAdd[newID.ID] = labels.ToLabelArray(newID.Labels)
 		}
 
 		// Again, more reserved:host bookkeeping: if this prefix is no longer ID 1 (because
@@ -575,8 +573,8 @@ func (ipc *IPCache) doInjectLabels(ctx context.Context, modifiedPrefixes []cmtyp
 		// for reserved:host and push that to the SelectorCache
 		if entryExists && oldID.ID == identity.ReservedIdentityHost &&
 			(newID == nil || newID.ID != identity.ReservedIdentityHost) && prefix.ClusterID() == 0 {
-			i := ipc.updateReservedHostLabels(prefix.AsPrefix(), nil)
-			idsToAdd[i.ID] = i.Labels.LabelArray()
+			i := ipc.updateReservedHostLabels(prefix.AsPrefix(), labels.Empty)
+			idsToAdd[i.ID] = labels.ToLabelArray(i.Labels)
 		}
 
 	}
@@ -707,7 +705,7 @@ func (ipc *IPCache) resolveIdentity(prefix cmtypes.PrefixCluster, info *resource
 	lbls := info.ToLabels()
 
 	// unconditionally merge any parent labels down in to this prefix
-	ipc.metadata.mergeParentLabels(lbls, prefix)
+	lbls = ipc.metadata.mergeParentLabels(lbls, prefix)
 
 	// Enforce certain label invariants, e.g. adding or removing `reserved:world`.
 	resolveLabels(lbls, prefix)
@@ -772,7 +770,7 @@ func (ipc *IPCache) resolveIdentity(prefix cmtypes.PrefixCluster, info *resource
 //
 // However, nodes *are* allowed to be selectable by CIDR and CIDR equivalents
 // if PolicyCIDRMatchesNodes() is true.
-func resolveLabels(lbls labels.Labels, prefix cmtypes.PrefixCluster) {
+func resolveLabels(lbls labels.Labels, prefix cmtypes.PrefixCluster) labels.Labels {
 	isNode := lbls.HasRemoteNodeLabel() || lbls.HasHostLabel()
 
 	isInCluster := (isNode ||
@@ -781,35 +779,35 @@ func resolveLabels(lbls labels.Labels, prefix cmtypes.PrefixCluster) {
 
 	// In-cluster entities must not have reserved:world.
 	if isInCluster {
-		lbls.Remove(labels.LabelWorld)
-		lbls.Remove(labels.LabelWorldIPv4)
-		lbls.Remove(labels.LabelWorldIPv6)
+		lbls = lbls.RemoveKeys(labels.IDNameWorld, labels.IDNameWorldIPv4, labels.IDNameWorldIPv6)
 	}
 
 	// In-cluster entities must not have cidr or fqdn labels.
 	// Exception: nodes may, when PolicyCIDRMatchesNodes() is enabled.
 	if isInCluster && !(isNode && option.Config.PolicyCIDRMatchesNodes()) {
-		lbls.RemoveFromSource(labels.LabelSourceCIDR)
-		lbls.RemoveFromSource(labels.LabelSourceFQDN)
-		lbls.RemoveFromSource(labels.LabelSourceCIDRGroup)
+		lbls = lbls.RemoveFromSource(labels.LabelSourceCIDR)
+		lbls = lbls.RemoveFromSource(labels.LabelSourceFQDN)
+		lbls = lbls.RemoveFromSource(labels.LabelSourceCIDRGroup)
 	}
 
 	// Remove all labels with source `node:`, unless this is a node *and* node labels are enabled.
 	if !(isNode && option.Config.PerNodeLabelsEnabled()) {
-		lbls.RemoveFromSource(labels.LabelSourceNode)
+		lbls = lbls.RemoveFromSource(labels.LabelSourceNode)
 	}
 
 	// No empty labels allowed.
 	// Add in (cidr:<address/prefix>) label as a fallback.
 	// This should not be hit in production, but is used in tests.
-	if len(lbls) == 0 {
-		maps.Copy(lbls, labels.GetCIDRLabels(prefix.AsPrefix()))
+	if lbls.Len() == 0 {
+		lbls = labels.GetCIDRLabels(prefix.AsPrefix())
 	}
 
 	// add world if not in-cluster.
 	if !isInCluster {
-		lbls.AddWorldLabel(prefix.AsPrefix().Addr())
+		lbls = lbls.AddWorldLabel(prefix.AsPrefix().Addr())
 	}
+
+	return lbls
 }
 
 // updateReservedHostLabels adds or removes labels that apply to the local host.
@@ -825,16 +823,16 @@ func resolveLabels(lbls labels.Labels, prefix cmtypes.PrefixCluster) {
 func (ipc *IPCache) updateReservedHostLabels(prefix netip.Prefix, lbls labels.Labels) *identity.Identity {
 	ipc.metadata.reservedHostLock.Lock()
 	defer ipc.metadata.reservedHostLock.Unlock()
-	if lbls == nil {
+	if lbls.IsEmpty() {
 		delete(ipc.metadata.reservedHostLabels, prefix)
 	} else {
 		ipc.metadata.reservedHostLabels[prefix] = lbls
 	}
 
 	// aggregate all labels and update static identity
-	newLabels := labels.NewFrom(labels.LabelHost)
+	newLabels := labels.LabelHost
 	for _, l := range ipc.metadata.reservedHostLabels {
-		newLabels.MergeLabels(l)
+		newLabels = newLabels.Merge(l)
 	}
 
 	ipc.logger.Debug(
@@ -848,8 +846,8 @@ func (ipc *IPCache) updateReservedHostLabels(prefix netip.Prefix, lbls labels.La
 // appendAPIServerLabelsForDeletion inspects labels and performs special handling for corner cases like API server entities
 // deployed external to the cluster.
 func appendAPIServerLabelsForDeletion(lbls labels.Labels, currentLabels labels.Labels) labels.Labels {
-	if currentLabels.HasKubeAPIServerLabel() && currentLabels.HasWorldLabel() && len(currentLabels) == 2 {
-		lbls.MergeLabels(labels.LabelWorld)
+	if currentLabels.HasKubeAPIServerLabel() && currentLabels.HasWorldLabel() && currentLabels.Len() == 2 {
+		lbls = lbls.Merge(labels.LabelWorld)
 	}
 	return lbls
 }

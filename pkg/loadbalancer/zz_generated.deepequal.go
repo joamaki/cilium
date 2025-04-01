@@ -183,11 +183,8 @@ func (in *Service) deepEqual(other *Service) bool {
 	if in.Source != other.Source {
 		return false
 	}
-	if ((in.Labels != nil) && (other.Labels != nil)) || ((in.Labels == nil) != (other.Labels == nil)) {
-		in, other := &in.Labels, &other.Labels
-		if other == nil || !in.DeepEqual(other) {
-			return false
-		}
+	if !in.Labels.DeepEqual(&other.Labels) {
+		return false
 	}
 
 	if ((in.Annotations != nil) && (other.Annotations != nil)) || ((in.Annotations == nil) != (other.Annotations == nil)) {

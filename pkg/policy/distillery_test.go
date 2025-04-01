@@ -1410,7 +1410,7 @@ var (
 	}}).WithEndpointSelector(api.WildcardEndpointSelector)
 
 	cpyRule                   = *ruleL3DenyWorld
-	ruleL3DenyWorldWithLabels = (&cpyRule).WithLabels(labels.LabelWorld.LabelArray())
+	ruleL3DenyWorldWithLabels = (&cpyRule).WithLabels(labels.ToLabelArray(labels.LabelWorld))
 	worldReservedID           = identity.ReservedIdentityWorld
 	worldReservedIDIPv4       = identity.ReservedIdentityWorldIPv4
 	worldReservedIDIPv6       = identity.ReservedIdentityWorldIPv6
@@ -1427,7 +1427,7 @@ var (
 	mapEntryDeny  = NewMapStateEntry(DenyEntry).withLabels(labels.LabelArrayList{nil})
 	mapEntryAllow = NewMapStateEntry(AllowEntry).withLabels(labels.LabelArrayList{nil})
 
-	worldLabelArrayList         = labels.LabelArrayList{labels.LabelWorld.LabelArray()}
+	worldLabelArrayList         = labels.LabelArrayList{labels.ToLabelArray(labels.LabelWorld)}
 	mapEntryWorldDenyWithLabels = NewMapStateEntry(DenyEntry).withLabels(worldLabelArrayList)
 
 	worldIPIdentity = localIdentity(16324)
@@ -1681,9 +1681,9 @@ func Test_EnsureDeniesPrecedeAllows(t *testing.T) {
 
 	identityCache := identity.IdentityMap{
 		identity.NumericIdentity(identityFoo): labelsFoo,
-		identity.ReservedIdentityWorld:        labels.LabelWorld.LabelArray(),
-		identity.ReservedIdentityWorldIPv4:    labels.LabelWorldIPv4.LabelArray(),
-		identity.ReservedIdentityWorldIPv6:    labels.LabelWorldIPv6.LabelArray(),
+		identity.ReservedIdentityWorld:        labels.ToLabelArray(labels.LabelWorld),
+		identity.ReservedIdentityWorldIPv4:    labels.ToLabelArray(labels.LabelWorldIPv4),
+		identity.ReservedIdentityWorldIPv6:    labels.ToLabelArray(labels.LabelWorldIPv6),
 		worldIPIdentity:                       lblWorldIP,     // "192.0.2.3/32"
 		worldSubnetIdentity:                   lblWorldSubnet, // "192.0.2.0/24"
 	}
@@ -1872,7 +1872,7 @@ func Test_Allowception(t *testing.T) {
 
 	identityCache := identity.IdentityMap{
 		identity.NumericIdentity(identityFoo): labelsFoo,
-		identity.ReservedIdentityWorld:        append(labels.LabelWorld.LabelArray(), lblAllIPv4...),
+		identity.ReservedIdentityWorld:        append(labels.ToLabelArray(labels.LabelWorld), lblAllIPv4...),
 		one3Z8Identity:                        one3Z8Lbls,  // 16331 (0x3fcb): ["1.0.0.0/8"]
 		one0Z32Identity:                       one0Z32Lbls, // 16332 (0x3fcc): ["1.1.1.1/32"]
 	}
@@ -1915,12 +1915,12 @@ func Test_EnsureEntitiesSelectableByCIDR(t *testing.T) {
 	defer SetPolicyEnabled(oldPolicyEnable)
 
 	SetPolicyEnabled(option.DefaultEnforcement)
-	hostLabel := labels.NewFrom(labels.LabelHost)
-	hostLabel.MergeLabels(lblHostIPv4CIDR)
-	hostLabel.MergeLabels(lblHostIPv6CIDR)
+	hostLabel := labels.LabelHost
+	hostLabel = hostLabel.Merge(lblHostIPv4CIDR)
+	hostLabel = hostLabel.Merge(lblHostIPv6CIDR)
 	identityCache := identity.IdentityMap{
 		identity.NumericIdentity(identityFoo): labelsFoo,
-		identity.ReservedIdentityHost:         hostLabel.LabelArray(),
+		identity.ReservedIdentityHost:         labels.ToLabelArray(hostLabel),
 	}
 	selectorCache := testNewSelectorCache(t, hivetest.Logger(t), identityCache)
 	identity := identity.NewIdentityFromLabelArray(identity.NumericIdentity(identityFoo), labelsFoo)
@@ -1982,11 +1982,11 @@ func addCIDRIdentity(prefix string, c identity.IdentityMap) identity.NumericIden
 }
 
 func addFQDNIdentity(fqdnSel api.FQDNSelector, c identity.IdentityMap) (id identity.NumericIdentity, adds identity.IdentityMap) {
-	lbls := labels.Labels{}
+	lbls := labels.Empty
 	l := fqdnSel.IdentityLabel()
-	lbls[l.Key()] = l
+	lbls = lbls.Add(l)
 
-	lblA := lbls.LabelArray()
+	lblA := labels.ToLabelArray(lbls)
 
 	// return an existing id?
 	for id, ls := range c {
@@ -2020,7 +2020,7 @@ func Test_IncrementalFQDNDeletion(t *testing.T) {
 		fooIdentity.ID: fooIdentity.LabelArray,
 	}
 	identity.IterateReservedIdentities(func(ni identity.NumericIdentity, id *identity.Identity) {
-		identityCache[ni] = id.Labels.LabelArray()
+		identityCache[ni] = labels.ToLabelArray(id.Labels)
 	})
 	id2 := addCIDRIdentity("192.0.2.0/24", identityCache)
 	id3 := addCIDRIdentity("192.0.3.0/24", identityCache)

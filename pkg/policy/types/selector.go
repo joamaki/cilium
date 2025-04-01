@@ -477,6 +477,14 @@ func NewCIDRSelector(key string, cidr api.CIDR, except []api.CIDR) *CIDRSelector
 		}
 		cidr += api.CIDR(fmt.Sprintf("/%d", parsedIP.BitLen()))
 	}
+	prefix, err := netip.ParsePrefix(string(cidr))
+	if err != nil {
+		// input is sanitized, so this panic should never fire
+		panic(fmt.Errorf("%q is not a CIDR: %w", cidr, err))
+	}
+	if prefix.Bits() == 0 {
+		return newCIDRSelectorFromRequirements(key, NewExistRequirements(labels.ToLabelArray(labels.GetCIDRLabels(prefix))), except)
+	}
 	lbl, err := labels.IPStringToLabel(string(cidr))
 	if err != nil {
 		// input is sanitized, so this panic should never fire
@@ -498,6 +506,7 @@ func newCIDRRuleSelector(rule api.CIDRRule) (ps *CIDRSelector) {
 	case rule.CIDRGroupSelector.LabelSelector != nil:
 		es := rule.CIDRGroupSelector
 		requirements := LabelSelectorToRequirements(es.LabelSelector)
+		key = strings.ReplaceAll(key, labels.LabelSourceCIDRGroup+labels.PathDelimiter, labels.LabelSourceCIDRGroup+labels.SourceDelimiter)
 		ps = newCIDRSelectorFromRequirements(key, requirements, rule.ExceptCIDRs)
 		ps.encoded = true
 	default: // rule.Cidr != ""

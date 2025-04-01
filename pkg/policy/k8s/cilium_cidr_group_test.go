@@ -5,7 +5,6 @@ package k8s
 
 import (
 	"log/slog"
-	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +12,7 @@ import (
 
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
+	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/policy/api"
 	policyTypes "github.com/cilium/cilium/pkg/policy/types"
 )
@@ -47,12 +47,10 @@ func TestCIDRGroupDuplicateLabelKeys(t *testing.T) {
 	_, lblsFoo := pw.cidrsAndLabelsForCIDRGroup("app-foo")
 
 	// Simulate ipcache label merge: labels from different resources for the
-	// same prefix are unioned into one Labels map. maps.Copy uses last-write-wins,
-	// so if both CCGs produced the same map key, one label is silently dropped.
-	merged := maps.Clone(lblsBar)
-	maps.Copy(merged, lblsFoo)
+	// same prefix are unioned into one Labels set.
+	merged := lblsBar.Merge(lblsFoo)
 
-	arr := merged.LabelArray()
+	arr := labels.ToLabelArray(merged)
 
 	barSelector := policyTypes.ToSelector(api.CIDRRule{
 		CIDRGroupSelector: api.EndpointSelector{

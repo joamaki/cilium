@@ -210,10 +210,8 @@ func bluePolicy() *v2alpha1.CiliumL2AnnouncementPolicy {
 
 func blueService() (*loadbalancer.Service, *loadbalancer.Frontend) {
 	svc := &loadbalancer.Service{
-		Name: loadbalancer.NewServiceName("default", "blue-service"),
-		Labels: labels.Labels{
-			"color": labels.NewLabel("color", "blue", "k8s"),
-		},
+		Name:   loadbalancer.NewServiceName("default", "blue-service"),
+		Labels: labels.NewLabels(labels.NewLabel("color", "blue", "k8s")),
 	}
 	var addr loadbalancer.L3n4Addr
 	addr.ParseFromString("192.168.2.1:80/TCP")
@@ -608,9 +606,7 @@ func TestUpdateHostLabels_AdditionalMatch(t *testing.T) {
 	// Add a non matching service
 	svc, fe := blueService()
 	svc.Name = loadbalancer.NewServiceName(svc.Name.Namespace(), "cyan-service")
-	svc.Labels = labels.Labels{
-		"hue": labels.NewLabel("hue", "cyan", "k8s"),
-	}
+	svc.Labels = labels.NewLabels(labels.NewLabel("hue", "cyan", "k8s"))
 	fe.ServiceName = svc.Name
 	require.NoError(t, fe.Address.ParseFromString("192.168.2.2:80/TCP"))
 	fix.insertService(svc, fe)
@@ -1016,7 +1012,7 @@ func TestUpdateService_NoMatch(t *testing.T) {
 	fix := baseUpdateSetup(t)
 
 	svc, fe := blueService()
-	svc.Labels["color"] = labels.NewLabel("color", "red", "k8s")
+	svc.Labels = svc.Labels.Add(labels.NewLabel("color", "red", "k8s"))
 	fix.insertService(svc, fe)
 
 	err := fix.announcer.processSvcEvent(statedb.Change[*loadbalancer.Service]{

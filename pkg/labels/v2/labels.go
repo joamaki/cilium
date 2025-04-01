@@ -38,6 +38,9 @@ type noCompare [0]func()
 
 var labelsCache = newCache[smallRep]()
 
+// Empty is the canonical empty set of labels.
+var Empty = NewLabels()
+
 func NewLabels(lbls ...Label) Labels {
 	// Sort the labels by key and remember if we see any duplicates
 	equalKeysSeen := false
@@ -118,9 +121,7 @@ func labelsHash(lbls []Label) (hash uint64) {
 // isZero returns true if the labels is the zero value and thus
 // invalid.
 func (lbls Labels) isZero() bool {
-	type h struct{ rep *smallRep }
-	hp := (*h)(unsafe.Pointer(&lbls.handle))
-	return hp.rep == nil
+	return lbls.rep() == nil
 }
 
 func (lbls Labels) rep() *smallRep {
@@ -141,10 +142,7 @@ func (lbls Labels) Len() int {
 }
 
 func (lbls Labels) IsEmpty() bool {
-	if lbls.isZero() {
-		return true
-	}
-	return lbls.rep().smallLen == 0
+	return lbls.Len() == 0
 }
 
 func (lbls Labels) Equal(other Labels) bool {

@@ -357,7 +357,7 @@ func (p *Repository) resolvePolicyLocked(securityIdentity *identity.Identity) (*
 
 	policyCtx := policyContext{
 		repo:               p,
-		ns:                 securityIdentity.LabelArray.Get(labels.LabelSourceK8sKeyPrefix + k8sConst.PodNamespaceLabel),
+		ns:                 securityIdentity.LabelArray.Get(labels.LabelSourceK8s + labels.SourceDelimiter + k8sConst.PodNamespaceLabel),
 		defaultDenyIngress: hasIngressDefaultDeny,
 		defaultDenyEgress:  hasEgressDefaultDeny,
 		traceEnabled:       option.Config.TracingEnabled(),

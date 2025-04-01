@@ -32,8 +32,8 @@ func OriginLogsForTest(m map[CachedSelector]string) map[CachedSelector]ruleOrigi
 }
 
 func TestRuleOrigin(t *testing.T) {
-	lbls1 := labels.NewLabelsFromSortedList("k8s:a=1;k8s:b=1").LabelArray()
-	lbls2 := labels.NewLabelsFromSortedList("k8s:a=2;k8s:b=2").LabelArray()
+	lbls1 := labels.ToLabelArray(labels.NewLabelsFromSortedList("k8s:a=1;k8s:b=1"))
+	lbls2 := labels.ToLabelArray(labels.NewLabelsFromSortedList("k8s:a=2;k8s:b=2"))
 
 	ro := makeSingleRuleOrigin(lbls1, "log1")
 	require.ElementsMatch(t, labels.LabelArrayList{lbls1}, ro.Value().LabelArray())

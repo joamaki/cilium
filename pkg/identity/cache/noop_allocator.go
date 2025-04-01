@@ -77,7 +77,7 @@ func (n *NoopIdentityAllocator) GetIdentityCache() identity.IdentityMap {
 	cache := identity.IdentityMap{}
 
 	identity.IterateReservedIdentities(func(ni identity.NumericIdentity, id *identity.Identity) {
-		cache[ni] = id.Labels.LabelArray()
+		cache[ni] = labels.ToLabelArray(id.Labels)
 	})
 
 	return cache

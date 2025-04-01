@@ -96,8 +96,8 @@ type NamedPort struct {
 // Sanitize takes a partially initialized Identity (for example, deserialized
 // from json) and reconstitutes the full object from what has been restored.
 func (id *Identity) Sanitize() {
-	if id.Labels != nil {
-		id.LabelArray = id.Labels.LabelArray()
+	if !id.Labels.IsEmpty() {
+		id.LabelArray = labels.ToLabelArray(id.Labels)
 	}
 }
 
@@ -128,22 +128,12 @@ func (id *Identity) IsWellKnown() bool {
 
 // NewIdentityFromLabelArray creates a new identity
 func NewIdentityFromLabelArray(id NumericIdentity, lblArray labels.LabelArray) *Identity {
-	var lbls labels.Labels
-
-	if lblArray != nil {
-		lbls = lblArray.Labels()
-	}
-	return &Identity{ID: id, Labels: lbls, LabelArray: lblArray}
+	return &Identity{ID: id, Labels: lblArray.Labels(), LabelArray: lblArray}
 }
 
 // NewIdentity creates a new identity
 func NewIdentity(id NumericIdentity, lbls labels.Labels) *Identity {
-	var lblArray labels.LabelArray
-
-	if lbls != nil {
-		lblArray = lbls.LabelArray()
-	}
-	return &Identity{ID: id, Labels: lbls, LabelArray: lblArray}
+	return &Identity{ID: id, Labels: lbls, LabelArray: labels.ToLabelArray(lbls)}
 }
 
 // IsHost determines whether the IP in the pair represents a host (true) or a
@@ -188,7 +178,7 @@ func ScopeForLabels(lbls labels.Labels) NumericIdentity {
 		return IdentityScopeLocal
 	}
 
-	for _, label := range lbls {
+	for label := range lbls.All() {
 		switch label.Source() {
 		case labels.LabelSourceCIDR, labels.LabelSourceFQDN, labels.LabelSourceReserved, labels.LabelSourceCIDRGroup:
 			scope = IdentityScopeLocal
@@ -231,7 +221,7 @@ func LookupReservedIdentityByLabels(lbls labels.Labels) *Identity {
 	}
 
 	// Check if a fixed identity exists.
-	if lbl, exists := lbls[labels.LabelKeyFixedIdentity]; exists {
+	if lbl, exists := lbls.GetLabel(labels.LabelKeyFixedIdentity); exists {
 		// If the set of labels contain a fixed identity then and exists in
 		// the map of reserved IDs then return the identity of that reserved ID.
 		id := GetReservedID(lbl.Value())
@@ -281,7 +271,7 @@ func LookupReservedIdentityByLabels(lbls labels.Labels) *Identity {
 	// So, we make sure the set of labels only contains a single label and
 	// that label is of the reserved type. This is to prevent users from
 	// adding cilium-reserved labels into the workloads.
-	if len(lbls) != 1 {
+	if lbls.Len() != 1 {
 		return nil
 	}
 

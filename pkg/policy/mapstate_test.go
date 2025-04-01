@@ -2577,17 +2577,17 @@ func TestMapState_orderedMapStateValidation(t *testing.T) {
 	identityFoo := identity.NumericIdentity(100)
 	labelsFoo := labels.ParseSelectLabelArray("foo", "blue")
 	identityWorld := identity.ReservedIdentityWorld
-	labelsWorld := labels.LabelWorld.LabelArray()
+	labelsWorld := labels.ToLabelArray(labels.LabelWorld)
 	identitySubnet := localIdentity(192020)
-	labelsSubnet := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("192.0.2.0/24")))).LabelArray()
+	labelsSubnet := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("192.0.2.0/24")))))
 	identitySubnetIP := localIdentity(192023)
-	labelsSubnetIP := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("192.0.2.3/32")))).LabelArray()
+	labelsSubnetIP := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("192.0.2.3/32")))))
 	identityWorldIP := localIdentity(192042)
-	labelsWorldIP := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("192.0.4.2/32")))).LabelArray()
+	labelsWorldIP := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("192.0.4.2/32")))))
 	identity1111 := localIdentity(1111)
-	labels1111 := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.1.1/32")))).LabelArray()
+	labels1111 := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.1.1/32")))))
 	identity1100 := localIdentity(1100)
-	labels1100 := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.0.0/16")))).LabelArray()
+	labels1100 := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.0.0/16")))))
 
 	type probe struct {
 		key   Key
@@ -3175,7 +3175,7 @@ func TestMapState_orderedMapStateValidation(t *testing.T) {
 func TestMapState_passValidation(t *testing.T) {
 	// identities used in tests
 	identity1111 := localIdentity(1111)
-	labels1111 := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.1.1/32")))).LabelArray()
+	labels1111 := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.1.1/32")))))
 
 	identityCache := identity.IdentityMap{
 		identity1111: labels1111,

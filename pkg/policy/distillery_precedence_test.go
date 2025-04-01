@@ -229,15 +229,15 @@ func TestOrderedPolicyValidation(t *testing.T) {
 	identityWorld := identity.ReservedIdentityWorld
 	identityWorldIPv4 := identity.ReservedIdentityWorldIPv4
 	identityWorldIPv6 := identity.ReservedIdentityWorldIPv6
-	labelsWorld := labels.LabelWorld.LabelArray()
+	labelsWorld := labels.ToLabelArray(labels.LabelWorld)
 
 	identity1111 := localIdentity(1111)
-	labels1111 := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.1.1/32")))).LabelArray()
+	labels1111 := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.1.1/32")))))
 	selector1111 := types.ToSelector(api.CIDR("1.1.1.1/32"))
 	selectors1111 := types.Selectors{selector1111}
 
 	identity1100 := localIdentity(1100)
-	labels1100 := labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.0.0/16")))).LabelArray()
+	labels1100 := labels.ToLabelArray(labels.GetCIDRLabels(netip.MustParsePrefix(string(api.CIDR("1.1.0.0/16")))))
 	selector1100 := types.ToSelector(api.CIDR("1.1.0.0/16"))
 	selectors1100 := types.Selectors{selector1100}
 
@@ -253,8 +253,8 @@ func TestOrderedPolicyValidation(t *testing.T) {
 	identityCache := identity.IdentityMap{
 		identityFoo:       labelsFoo,
 		identityWorld:     labelsWorld,
-		identityWorldIPv4: labels.LabelWorldIPv4.LabelArray(),
-		identityWorldIPv6: labels.LabelWorldIPv6.LabelArray(),
+		identityWorldIPv4: labels.ToLabelArray(labels.LabelWorldIPv4),
+		identityWorldIPv6: labels.ToLabelArray(labels.LabelWorldIPv6),
 		identity1111:      labels1111,
 		identity1100:      labels1100,
 	}

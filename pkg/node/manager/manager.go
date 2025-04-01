@@ -618,9 +618,9 @@ func (m *manager) endpointEncryptionKey(n *nodeTypes.Node) ipcacheTypes.EncryptK
 }
 
 func (m *manager) nodeIdentityLabels(n nodeTypes.Node) labels.Labels {
-	nodeLabels := labels.NewFrom(labels.LabelRemoteNode)
+	nodeLabels := labels.LabelRemoteNode
 	if n.IsLocal() {
-		nodeLabels = labels.NewFrom(labels.LabelHost)
+		nodeLabels = labels.LabelHost
 		if m.conf.PolicyCIDRMatchesNodes() {
 			for _, address := range n.IPAddresses {
 				addr, ok := netipx.FromStdIP(address.IP)
@@ -631,7 +631,7 @@ func (m *manager) nodeIdentityLabels(n nodeTypes.Node) labels.Labels {
 						prefix, err := addr.Prefix(bitLen)
 						if err == nil {
 							cidrLabels := labels.GetCIDRLabels(prefix)
-							nodeLabels.MergeLabels(cidrLabels)
+							nodeLabels = nodeLabels.Merge(cidrLabels)
 						}
 					}
 				}
@@ -642,8 +642,8 @@ func (m *manager) nodeIdentityLabels(n nodeTypes.Node) labels.Labels {
 	if option.Config.PerNodeLabelsEnabled() {
 		lbls := labels.Map2Labels(n.Labels, labels.LabelSourceNode)
 		filteredLbls, _ := labelsfilter.FilterNodeLabels(lbls)
-		nodeLabels.MergeLabels(filteredLbls)
-		nodeLabels.MergeLabels(labels.Map2Labels(map[string]string{
+		nodeLabels = nodeLabels.Merge(filteredLbls)
+		nodeLabels = nodeLabels.Merge(labels.Map2Labels(map[string]string{
 			k8sConst.PolicyLabelCluster: n.Cluster,
 		}, labels.LabelSourceK8s))
 	}
@@ -655,9 +655,7 @@ func (m *manager) nodeIdentityLabels(n nodeTypes.Node) labels.Labels {
 // reserved:world identity given the provided prefix and the
 // current cluster configuration in terms of dual-stack.
 func worldLabelForPrefix(prefix netip.Prefix) labels.Labels {
-	lbls := make(labels.Labels, 1)
-	lbls.AddWorldLabel(prefix.Addr())
-	return lbls
+	return labels.Empty.AddWorldLabel(prefix.Addr())
 }
 
 // NodeUpdated is called after the information of a node has been updated. The
@@ -747,8 +745,8 @@ func (m *manager) NodeUpdated(n nodeTypes.Node) {
 		lbls := nodeLabels
 		// Add the CIDR labels for this node, if we allow selecting nodes by CIDR
 		if m.conf.PolicyCIDRMatchesNodes() {
-			lbls = labels.NewFrom(nodeLabels)
-			lbls.MergeLabels(labels.GetCIDRLabels(prefixCluster.AsPrefix()))
+			lbls = nodeLabels
+			lbls = lbls.Merge(labels.GetCIDRLabels(prefixCluster.AsPrefix()))
 		}
 
 		// Always associate the prefix with metadata, even though this may not

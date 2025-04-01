@@ -224,7 +224,7 @@ func (n *EndpointSelector) Sanitize() error {
 		return fmt.Errorf("invalid label selector: %w", errList.ToAggregate())
 	}
 
-	es := NewESFromK8sLabelSelector(labels.LabelSourceAnyKeyPrefix, n.LabelSelector)
+	es := NewESFromK8sLabelSelector(labels.LabelSourceAny+labels.SourceDelimiter, n.LabelSelector)
 	n.cachedLabelSelectorString = es.cachedLabelSelectorString
 	n.LabelSelector = es.LabelSelector
 

@@ -190,7 +190,7 @@ var _ reconciler.Operations[*table.EnrolledNamespace] = &EnrollmentReconciler{}
 // This checks for the "app=ztunnel-cilium" label that is set on ztunnel pods.
 func isZtunnelPod(ep *endpoint.Endpoint) bool {
 	labels := ep.GetLabels()
-	if label, ok := labels["k8s:app"]; ok {
+	if label, ok := labels.GetLabel("k8s:app"); ok {
 		return label.Value() == "ztunnel-cilium"
 	}
 	return false

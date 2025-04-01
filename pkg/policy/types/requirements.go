@@ -140,8 +140,12 @@ func NewEqualsRequirement(lbl labels.Label) Requirement {
 }
 
 func NewRequirement(key string, op selection.Operator, values []string) Requirement {
+	lbl := labels.ParseSelectLabel(key)
+	if !strings.Contains(key, labels.SourceDelimiter) {
+		lbl = labels.ParseSelectDotLabel(key)
+	}
 	return Requirement{
-		key:      labels.ParseSelectLabel(key),
+		key:      lbl,
 		operator: op,
 		values:   set.NewSet(values...),
 	}

@@ -54,7 +54,7 @@ func ScriptCmds(epm EndpointManager, template *endpoint.Endpoint) map[string]scr
 				if err != nil {
 					return nil, err
 				}
-				_ = ep.UpdateLabels(s.Context(), labels.LabelSourceAny, id.Labels, nil, true)
+				_ = ep.UpdateLabels(s.Context(), labels.LabelSourceAny, id.Labels, labels.Empty, true)
 				// Use RegenerateIfAlive to set the endpoint state to WaitingToRegenerate.
 				_ = ep.RegenerateIfAlive(&regeneration.ExternalRegenerationMetadata{
 					Reason:            "simulate Orchestrator",

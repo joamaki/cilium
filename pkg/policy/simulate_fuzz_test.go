@@ -87,7 +87,7 @@ func FuzzDistillPolicy(f *testing.F) {
 			// simulate policy iteratively
 			simulateVerdict, _, _ := testutils.IteratePolicy(entries, flow)
 
-			require.Equal(t, simulateVerdict.Egress == types.DecisionAllowed, egressEntry.IsAllow(), "Flow verdict mismatch %s -> %s (%d) port %d", flow.From.Labels["name"].Value, flow.To.Labels["name"].Value, flow.To.ID, flow.Dport)
+			require.Equal(t, simulateVerdict.Egress == types.DecisionAllowed, egressEntry.IsAllow(), "Flow verdict mismatch %s -> %s (%d) port %d", flow.From.Labels.GetValue("name"), flow.To.Labels.GetValue("name"), flow.To.ID, flow.Dport)
 		}
 	})
 }

@@ -399,7 +399,7 @@ func (h *ciliumHealthManager) launchAsEndpoint(baseCtx context.Context, endpoint
 	// Give the endpoint a security identity
 	ctx, cancel := context.WithTimeout(baseCtx, LaunchTime)
 	defer cancel()
-	ep.UpdateLabels(ctx, labels.LabelSourceAny, labels.LabelHealth, nil, true)
+	ep.UpdateLabels(ctx, labels.LabelSourceAny, labels.LabelHealth, labels.Empty, true)
 
 	// Initialize the health client to talk to this instance.
 	client := &Client{host: "http://" + net.JoinHostPort(healthIP.String(), strconv.Itoa(option.Config.ClusterHealthPort))}
