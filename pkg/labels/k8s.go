@@ -5,7 +5,6 @@ package labels
 
 import (
 	k8sLabels "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/labels"
-	v2 "github.com/cilium/cilium/pkg/labels/v2"
 )
 
 // K8sLabelArray is a custom type for LabelArray that implements
@@ -44,7 +43,7 @@ func (ls K8sLabelArray) lookupLabel(keyLabel Label) (value string, exists bool) 
 // ParseSelectDotLabel returns a selecting label representation of the given
 // string. Unlike ParseSelectLabel it expects the source separator to be '.'.
 func ParseSelectDotLabel(str string) Label {
-	return v2.ParseSelectLabelWithDelim(str, '.')
+	return ParseSelectLabelWithDelim(str, '.')
 }
 
 // ParseK8sLabelArrayFromArray converts an array of strings as labels and returns the

@@ -5,12 +5,24 @@ package labels
 
 import (
 	"bytes"
+	"slices"
 	"sort"
 	"strings"
 )
 
 // LabelArray is an array of labels forming a set
 type LabelArray []Label
+
+func (ls LabelArray) Equal(other LabelArray) bool {
+	return slices.EqualFunc(ls, other, Label.Equal)
+}
+
+func (ls LabelArray) DeepEqual(other *LabelArray) bool {
+	if other == nil {
+		return len(ls) == 0
+	}
+	return ls.Equal(*other)
+}
 
 // Sort is an internal utility to return all LabelArrays in sorted
 // order, when the source material may be unsorted.  'ls' is sorted
@@ -146,10 +158,9 @@ nextLabel:
 //
 // If the key is of source "cidr", this will also match
 // broader keys.
-// ["cidr:1.1.1.1/32"].Has("cidr.1.0.0.0/8") => true
-// ["cidr:1.0.0.0/8"].Has("cidr.1.1.1.1/32") => false
+// ["cidr:1.1.1.1/32"].Has("cidr:1.0.0.0/8") => true
+// ["cidr:1.0.0.0/8"].Has("cidr:1.1.1.1/32") => false
 func (ls LabelArray) Has(key string) bool {
-	// The key is submitted in the form of `source:key=value`
 	keyLabel := ParseSelectLabel(key)
 	for _, l := range ls {
 		if l.HasKey(keyLabel) {
@@ -165,13 +176,13 @@ func (ls LabelArray) Has(key string) bool {
 //
 // The key can be of source "any", in which case the source is
 // ignored. The inverse, however, is not true.
-// ["k8s.foo=bar"].Get("any.foo") => "bar"
-// ["any.foo=bar"].Get("k8s.foo") => ""
+// ["k8s:foo=bar"].Get("any:foo") => "bar"
+// ["any:foo=bar"].Get("k8s:foo") => ""
 //
 // If the key is of source "cidr", this will also match
 // broader keys.
-// ["cidr:1.1.1.1/32"].Has("cidr.1.0.0.0/8") => true
-// ["cidr:1.0.0.0/8"].Has("cidr.1.1.1.1/32") => false
+// ["cidr:1.1.1.1/32"].Has("cidr:1.0.0.0/8") => true
+// ["cidr:1.0.0.0/8"].Has("cidr:1.1.1.1/32") => false
 func (ls LabelArray) Get(key string) string {
 	keyLabel := ParseSelectLabel(key)
 	for _, l := range ls {

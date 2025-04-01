@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package v2
+package labels
 
 import (
 	"encoding/json"
@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	original "github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/option"
 )
 
@@ -20,57 +19,6 @@ func assertLabelFields(t *testing.T, want, got Label) {
 	assert.Equal(t, want.Key(), got.Key())
 	assert.Equal(t, want.Value(), got.Value())
 	assert.Equal(t, want.Source(), got.Source())
-}
-
-func assertMatchesOriginalLabel(t *testing.T, want original.Label, got Label) {
-	t.Helper()
-	assert.Equal(t, want.Key, got.Key())
-	assert.Equal(t, want.Value, got.Value())
-	assert.Equal(t, want.Source, got.Source())
-	assert.Equal(t, want.String(), got.String())
-}
-
-func TestParseLabelMatchesOriginal(t *testing.T) {
-	for _, str := range []string{
-		"source1:key1=value1",
-		"key1=value1",
-		"value1",
-		"source1:key1",
-		"source1:key1==value1",
-		"source::key1=value1",
-		"$key1=value1",
-		":2foo",
-		":3foo=",
-		"reserved:=key",
-		"4blah=:foo=",
-		"5blah::foo=",
-		"6foo==",
-		"7foo=bar",
-		"k8s:foo=bar:",
-		original.LabelSourceReservedKeyPrefix + "host",
-	} {
-		t.Run(str, func(t *testing.T) {
-			assertMatchesOriginalLabel(t, original.ParseLabel(str), ParseLabel(str))
-			assertMatchesOriginalLabel(t, original.ParseSelectLabel(str), ParseSelectLabel(str))
-		})
-	}
-}
-
-func TestNewSourceEncodedLabelKeyMatchesOriginal(t *testing.T) {
-	for _, key := range []string{
-		"foo",
-		"k8s:foo",
-		"reserved:host",
-		"cidr:10.0.0.0/8",
-		"foo=bar",
-	} {
-		t.Run(key, func(t *testing.T) {
-			assert.Equal(t,
-				original.NewSourceEncodedLabelKey(original.LabelSourceK8sKeyPrefix, key),
-				NewSourceEncodedLabelKey(LabelSourceK8sKeyPrefix, key),
-			)
-		})
-	}
 }
 
 func TestParseLabelParity(t *testing.T) {
@@ -207,47 +155,6 @@ func TestCIDRHelpersParity(t *testing.T) {
 	assert.Equal(t, "reserved:world-ipv6", array[1].String())
 }
 
-func TestCIDRHelpersMatchOriginal(t *testing.T) {
-	enableIPv4, enableIPv6 := option.Config.EnableIPv4, option.Config.EnableIPv6
-	t.Cleanup(func() {
-		option.Config.EnableIPv4, option.Config.EnableIPv6 = enableIPv4, enableIPv6
-	})
-	option.Config.EnableIPv4 = true
-	option.Config.EnableIPv6 = true
-
-	for _, ip := range []string{
-		"0.0.0.0/0",
-		"::/0",
-		"192.0.2.3",
-		"192.0.2.3/24",
-		"2001:db8::1/128",
-		"2001:db8::1/64",
-	} {
-		t.Run(ip, func(t *testing.T) {
-			want, wantErr := original.IPStringToLabel(ip)
-			got, gotErr := IPStringToLabel(ip)
-			require.Equal(t, wantErr, gotErr)
-			if wantErr == nil {
-				assertMatchesOriginalLabel(t, want, got)
-			}
-		})
-	}
-
-	for _, prefix := range []netip.Prefix{
-		netip.MustParsePrefix("0.0.0.0/0"),
-		netip.MustParsePrefix("::/0"),
-		netip.MustParsePrefix("192.0.2.3/24"),
-		netip.MustParsePrefix("2001:db8::1/64"),
-	} {
-		t.Run(prefix.String(), func(t *testing.T) {
-			assert.Equal(t,
-				original.GetCIDRLabels(prefix).GetPrintableModel(),
-				GetCIDRLabels(prefix).GetPrintableModel(),
-			)
-		})
-	}
-}
-
 func TestCIDRPrefixSurvivesInterning(t *testing.T) {
 	uncached := MakeLabel("10.0.0.1/32", "", LabelSourceCIDR)
 	require.NotNil(t, uncached.CIDR())
@@ -269,16 +176,10 @@ func TestLabelsJSONMapShape(t *testing.T) {
 		NewLabel("b", "2", LabelSourceK8s),
 		NewLabel("a", "1", LabelSourceK8s),
 	)
-	orig := original.NewLabelsFromModel([]string{
-		"k8s:b=2",
-		"k8s:a=1",
-	})
 
 	b, err := json.Marshal(lbls)
 	require.NoError(t, err)
-	origB, err := json.Marshal(orig)
-	require.NoError(t, err)
-	assert.JSONEq(t, string(origB), string(b))
+	assert.JSONEq(t, `{"a":{"key":"a","value":"1","source":"k8s"},"b":{"key":"b","value":"2","source":"k8s"}}`, string(b))
 
 	var decoded Labels
 	require.NoError(t, json.Unmarshal(b, &decoded))

@@ -4,243 +4,319 @@
 package labels
 
 import (
+	"bytes"
+	"encoding/json"
+	"iter"
+	"maps"
+	"slices"
 	"strings"
-
-	v2 "github.com/cilium/cilium/pkg/labels/v2"
+	"unique"
+	"unsafe"
 )
 
-const (
-	// SourceDelimiter is the delimiter used in the label keys.
-	SourceDelimiter = v2.SourceDelimiter
+// NOTE: Keep this file dedicated to the core implementation of Labels.
+// Put the domain specific logic to labels_ext.go or label_ext.go.
 
-	// PathDelimiter is the delimiter used in the labels paths.
-	PathDelimiter = v2.PathDelimiter
+// Labels is an immutable set of [Label]s.
+type Labels struct {
+	// handle stores uniquely small set of labels, allowing deduplication
+	// and quick comparisons for majority of the label sets.
+	handle unique.Handle[smallRep]
 
-	// IDNameHost is the label used for the hostname ID.
-	IDNameHost = v2.IDNameHost
+	// overflow stores very large label sets that do not all fit into the
+	// smallRep. These are not unique'd. Stored as pointer to slice so that
+	// we only use a pointer worth of bits instead of the full slice header.
+	overflow *[]Label
 
-	// IDNameRemoteNode is the label used to describe the
-	// ReservedIdentityRemoteNode
-	IDNameRemoteNode = v2.IDNameRemoteNode
-
-	// IDNameWorld is the label used for the world ID.
-	IDNameWorld = v2.IDNameWorld
-
-	// IDNameWorldIPv4 is the label used for the world-ipv4 ID, to distinguish
-	// it from world-ipv6 in dual-stack mode.
-	IDNameWorldIPv4 = v2.IDNameWorldIPv4
-
-	// IDNameWorldIPv6 is the label used for the world-ipv6 ID, to distinguish
-	// it from world-ipv4 in dual-stack mode.
-	IDNameWorldIPv6 = v2.IDNameWorldIPv6
-
-	// IDNameCluster is the label used to identify an unspecified endpoint
-	// inside the cluster
-	IDNameCluster = v2.IDNameCluster
-
-	// IDNameHealth is the label used for the local cilium-health endpoint
-	IDNameHealth = v2.IDNameHealth
-
-	// IDNameInit is the label used to identify any endpoint that has not
-	// received any labels yet.
-	IDNameInit = v2.IDNameInit
-
-	// IDNameKubeAPIServer is the label used to identify the kube-apiserver. It
-	// is part of the reserved identity 7 and it is also used in conjunction
-	// with IDNameHost if the kube-apiserver is running on the local host.
-	IDNameKubeAPIServer = v2.IDNameKubeAPIServer
-
-	// IDNameIngress is the label used to identify Ingress proxies. It is part
-	// of the reserved identity 8.
-	IDNameIngress = v2.IDNameIngress
-
-	// IDNameNone is the label used to identify no endpoint or other L3 entity.
-	// It will never be assigned and this "label" is here for consistency with
-	// other Entities.
-	IDNameNone = v2.IDNameNone
-
-	// IDNameUnmanaged is the label used to identify unmanaged endpoints
-	IDNameUnmanaged = v2.IDNameUnmanaged
-
-	// IDNameUnknown is the label used to to identify an endpoint with an
-	// unknown identity.
-	IDNameUnknown = v2.IDNameUnknown
-)
-
-var (
-	// WorldLabel is the label used for world.
-	WorldLabel = NewLabel(IDNameWorld, "", LabelSourceReserved)
-
-	// WorldLabelV4 is the label used for world-ipv4.
-	WorldLabelV4 = NewLabel(IDNameWorldIPv4, "", LabelSourceReserved)
-
-	// WorldLabelV6 is the label used for world-ipv6.
-	WorldLabelV6 = NewLabel(IDNameWorldIPv6, "", LabelSourceReserved)
-
-	// LabelHealth is the label used for health.
-	LabelHealth = NewLabels(NewLabel(IDNameHealth, "", LabelSourceReserved))
-
-	// LabelHost is the label used for the host endpoint.
-	LabelHost = NewLabels(NewLabel(IDNameHost, "", LabelSourceReserved))
-
-	// LabelWorld is the label used for world.
-	LabelWorld = NewLabels(WorldLabel)
-
-	// LabelWorldIPv4 is the label used for world-ipv4.
-	LabelWorldIPv4 = NewLabels(WorldLabelV4)
-
-	// LabelWorldIPv6 is the label used for world-ipv6.
-	LabelWorldIPv6 = NewLabels(WorldLabelV6)
-
-	// LabelRemoteNode is the label used for remote nodes.
-	LabelRemoteNode = NewLabels(NewLabel(IDNameRemoteNode, "", LabelSourceReserved))
-
-	// LabelKubeAPIServer is the label used for the kube-apiserver. See comment
-	// on IDNameKubeAPIServer.
-	LabelKubeAPIServer = NewLabels(NewLabel(IDNameKubeAPIServer, "", LabelSourceReserved))
-
-	LabelKubeAPIServerExt = NewLabels(
-		NewLabel(IDNameKubeAPIServer, "", LabelSourceReserved),
-		NewLabel(IDNameWorld, "", LabelSourceReserved),
-	)
-
-	// LabelIngress is the label used for Ingress proxies. See comment
-	// on IDNameIngress.
-	LabelIngress = NewLabels(NewLabel(IDNameIngress, "", LabelSourceReserved))
-
-	// LabelKeyFixedIdentity is the label that can be used to define a fixed
-	// identity.
-	LabelKeyFixedIdentity = "io.cilium.fixed-identity"
-)
-
-const (
-	// LabelSourceUnspec is a label with unspecified source
-	LabelSourceUnspec = v2.LabelSourceUnspec
-
-	// LabelSourceAny is a label that matches any source
-	LabelSourceAny = v2.LabelSourceAny
-
-	// LabelSourceAnyKeyPrefix is prefix of a "any" label
-	LabelSourceAnyKeyPrefix = v2.LabelSourceAnyKeyPrefix
-
-	// LabelSourceK8s is a label imported from Kubernetes
-	LabelSourceK8s = v2.LabelSourceK8s
-
-	// LabelSourceK8sKeyPrefix is prefix of a Kubernetes label
-	LabelSourceK8sKeyPrefix = v2.LabelSourceK8sKeyPrefix
-
-	// LabelSourceContainer is a label imported from the container runtime
-	LabelSourceContainer = v2.LabelSourceContainer
-
-	// LabelSourceCNI is a label imported from the CNI plugin
-	LabelSourceCNI = v2.LabelSourceCNI
-
-	// LabelSourceReserved is the label source for reserved types.
-	LabelSourceReserved = v2.LabelSourceReserved
-
-	// LabelSourceCIDR is the label source for generated CIDRs.
-	LabelSourceCIDR = v2.LabelSourceCIDR
-
-	// LabelSourceCIDRGroup is the label source used for labels from CIDRGroups
-	LabelSourceCIDRGroup = v2.LabelSourceCIDRGroup
-
-	// LabelSourceCIDRGroupKeyPrefix is the source as a k8s selector key prefix
-	LabelSourceCIDRGroupKeyPrefix = v2.LabelSourceCIDRGroupKeyPrefix
-
-	// LabelSourceNode is the label source for remote-nodes.
-	LabelSourceNode = v2.LabelSourceNode
-
-	// LabelSourceNodeKeyPrefix is prefix of a node label
-	LabelSourceNodeKeyPrefix = v2.LabelSourceNodeKeyPrefix
-
-	// LabelSourceFQDN is the label source for IPs resolved by fqdn lookups
-	LabelSourceFQDN = v2.LabelSourceFQDN
-
-	// LabelSourceGenerated is the label source for generated labels
-	LabelSourceGenerated = v2.LabelSourceGenerated
-
-	// LabelSourceReservedKeyPrefix is the prefix of a reserved label
-	LabelSourceReservedKeyPrefix = v2.LabelSourceReservedKeyPrefix
-
-	// LabelSourceDirectory is the label source for policies read from files
-	LabelSourceDirectory = v2.LabelSourceDirectory
-)
-
-// EncodedCIDRGroupLabel builds a label with the value baked into the key,
-// used for collision-free matching of CIDRGroup labels.
-func EncodedCIDRGroupLabel(key, val, source string) Label {
-	return NewLabel(key+v2.CIDRGroupEncodedSep+val, "", source)
+	// noCompare makes the Labels struct uncomparable, which it needs to be since
+	// 'overflow' pointer comparison is not meaningful. Comparisons of labels must
+	// be done with 'Equal'
+	_ noCompare
 }
 
-// Label is the Cilium's representation of a container label.
-type Label = v2.Label
+type noCompare [0]func()
 
-// Labels is a set of labels
-type Labels = v2.Labels
+var labelsCache = newCache[smallRep]()
 
-var Empty = v2.Empty
+// Empty is the canonical empty set of labels.
+var Empty = NewLabels()
 
-var NewLabels = v2.NewLabels
+func NewLabels(lbls ...Label) Labels {
+	// Sort the labels by key and remember if we see any duplicates
+	equalKeysSeen := false
+	slices.SortStableFunc(lbls, func(a, b Label) int {
+		cmp := strings.Compare(a.Key(), b.Key())
+		if cmp == 0 {
+			equalKeysSeen = true
+		}
+		return cmp
+	})
+	if equalKeysSeen {
+		// Remove the duplicates we saw during sorting. The last one
+		// wins.
+		lbls = compactSortedLabels(lbls)
+	}
+	smallArrayLabels := lbls[:min(len(lbls), smallLabelsSize)]
 
-// NewLabel returns a new label from the given key, value and source. If source is empty,
-// the default value will be LabelSourceUnspec. If key starts with '$', the source
-// will be overwritten with LabelSourceReserved. If key contains ':', the value
-// before ':' will be used as source if given source is empty, otherwise the value before
-// ':' will be deleted and unused.
-var NewLabel = v2.NewLabel
+	// Lookup or create the unique handle to the small array of labels.
+	var labels Labels
+	labels.handle = labelsCache.lookupOrMake(
+		labelsHash(smallArrayLabels),
+		func(other smallRep) bool {
+			return slices.Equal(smallArrayLabels, other.smallArray[:other.smallLen])
+		},
+		func(hash uint64) (rep smallRep) {
+			rep.smallLen = uint8(copy(rep.smallArray[:], smallArrayLabels))
+			return
+		},
+	)
+	if len(lbls) > smallLabelsSize {
+		overflowLabels := lbls[len(smallArrayLabels):]
+		labels.overflow = &overflowLabels
+	}
+	return labels
+}
 
-// Map2Labels transforms in the form: map[key(string)]value(string) into Labels. The
-// source argument will overwrite the source written in the key of the given map.
-// Example:
-// l := Map2Labels(map[string]string{"k8s:foo": "bar"}, "cilium")
-// fmt.Printf("%+v\n", l)
-//
-//	map[string]Label{"foo":Label{Key:"foo", Value:"bar", Source:"cilium"}}
-var Map2Labels = v2.Map2Labels
+// compactSortedLabels removes duplicate keys. The last one wins.
+func compactSortedLabels(lbls []Label) []Label {
+	if len(lbls) < 2 {
+		return lbls
+	}
 
-// NewLabelsFromModel creates labels from string array.
-func NewLabelsFromModel(base []string) Labels {
-	lbls := make([]Label, 0, len(base))
-	for _, v := range base {
-		if lbl := ParseLabel(v); lbl.Key() != "" {
-			lbls = append(lbls, lbl)
+	// Iterate over the labels looking for runs of duplicates.
+	// 'r' is the "read head", e.g. the label we're currently
+	// looking at, and 'w' is the write head. If there are
+	// duplicates 'r' will be further ahead than 'w'.
+	r, w := 0, 0
+	for r < len(lbls) {
+		k := lbls[r].Key()
+
+		// Find the last index 'i' where the key matches.
+		i := r
+		for i+1 < len(lbls) && lbls[i+1].Key() == k {
+			i++
+		}
+		if i != r {
+			// Duplicates found, write out the last one and start
+			// looking at the next label with a different key.
+			lbls[w] = lbls[i]
+			r = i + 1
+		} else {
+			lbls[w] = lbls[r]
+			r++
+		}
+		w++
+	}
+	clear(lbls[w:]) // zero out the tail for GC
+	return lbls[:w]
+}
+
+func labelsHash(lbls []Label) (hash uint64) {
+	for _, l := range lbls {
+		hash ^= l.rep().hash
+	}
+	return
+}
+
+// isZero returns true if the labels is the zero value and thus
+// invalid.
+func (lbls Labels) isZero() bool {
+	return lbls.rep() == nil
+}
+
+func (lbls Labels) rep() *smallRep {
+	type h struct{ rep *smallRep }
+	hp := (*h)(unsafe.Pointer(&lbls.handle))
+	return hp.rep
+}
+
+func (lbls Labels) Len() int {
+	if lbls.isZero() {
+		return 0
+	}
+	length := int(lbls.handle.Value().smallLen)
+	if lbls.overflow != nil {
+		length += len(*lbls.overflow)
+	}
+	return length
+}
+
+func (lbls Labels) IsEmpty() bool {
+	return lbls.Len() == 0
+}
+
+func (lbls Labels) Equal(other Labels) bool {
+	switch {
+	case lbls.IsEmpty():
+		return other.IsEmpty()
+	case other.IsEmpty():
+		return lbls.IsEmpty()
+	case lbls.overflow == nil && other.overflow == nil:
+		// No overflow, can compare handles directly.
+		return lbls.handle == other.handle
+	case lbls.overflow != nil && other.overflow != nil:
+		return lbls.handle == other.handle &&
+			slices.Equal(*lbls.overflow, *other.overflow)
+	default:
+		return false
+	}
+}
+
+// Less returns true if [lbls] comes before [other] in the lexicographical order.
+func (lbls Labels) Less(other Labels) bool {
+	if lbls.IsEmpty() && other.IsEmpty() {
+		return false
+	}
+	nextA, stopA := iter.Pull(lbls.All())
+	defer stopA()
+	nextB, stopB := iter.Pull(other.All())
+	defer stopB()
+	for {
+		a, okA := nextA()
+		b, okB := nextB()
+		switch {
+		case !okA:
+			// [lbls] is less than [other] only if it is shorter.
+			return okB
+		case !okB:
+			return false
+		default:
+			switch a.Compare(b) {
+			case -1:
+				return true
+			case 1:
+				return false
+			}
 		}
 	}
-	return v2.NewLabels(lbls...)
 }
 
-// FromSlice creates labels from a slice of labels.
-func FromSlice(labels []Label) Labels {
-	return v2.NewLabels(labels...)
-}
-
-// NewLabelsFromSortedList returns labels based on the output of SortedList()
-func NewLabelsFromSortedList(list string) Labels {
-	return NewLabelsFromModel(strings.Split(list, ";"))
-}
-
-// NewSelectLabelArrayFromModel parses a slice of strings and converts them
-// into an array of selecting labels, sorted by the key.
-func NewSelectLabelArrayFromModel(base []string) LabelArray {
-	lbls := make(LabelArray, 0, len(base))
-	for i := range base {
-		lbls = append(lbls, ParseSelectLabel(base[i]))
+func (lbls Labels) GetLabel(key string) (lbl Label, found bool) {
+	if lbls.isZero() {
+		return
 	}
 
-	return lbls.Sort()
+	lbl, found = lbls.rep().get(key)
+	if !found && lbls.overflow != nil {
+		// Label not found from the small array, look into the overflow array.
+		idx, found := slices.BinarySearchFunc(
+			*lbls.overflow,
+			key,
+			func(l Label, key string) int {
+				return strings.Compare(l.Key(), key)
+			})
+		if found {
+			lbl = (*lbls.overflow)[idx]
+			return lbl, true
+		}
+	}
+	return
 }
 
-// ParseLabel returns the label representation of the given string. The str should be
-// in the form of Source:Key=Value or Source:Key if Value is empty. It also parses short
-// forms, for example: $host will be Label{Key: "host", Source: "reserved", Value: ""}.
-var ParseLabel = v2.ParseLabel
+func (lbls Labels) GetOrEmpty(key string) Label {
+	lbl, found := lbls.GetLabel(key)
+	if !found {
+		lbl = EmptyLabel
+	}
+	return lbl
+}
 
-// ParseSelectLabel returns a selecting label representation of the given
-// string. Unlike ParseLabel, if source is unspecified, the source defaults to
-// LabelSourceAny
-var ParseSelectLabel = v2.ParseSelectLabel
+func (lbls Labels) GetValue(key string) string {
+	lbl, found := lbls.GetLabel(key)
+	if !found {
+		return ""
+	}
+	return lbl.Value()
+}
 
-// NewSourceEncodedLabelKey returns the label key with source information encoded.
-// Source encoded label key is of the format `<source>:<label-key>`.
-// If the provided key already contains a source prefix its returned as is.
-var NewSourceEncodedLabelKey = v2.NewSourceEncodedLabelKey
+func (lbls Labels) All() iter.Seq[Label] {
+	return func(yield func(Label) bool) {
+		if lbls.isZero() {
+			return
+		}
+		rep := lbls.rep()
+		for _, l := range rep.smallArray[:rep.smallLen] {
+			if !yield(l) {
+				return
+			}
+		}
+		if lbls.overflow != nil {
+			for _, l := range *lbls.overflow {
+				if !yield(l) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// smallLabelsSize is the number of labels to store in the "small" array.
+// The value is derived from tests on a large real-world data set when
+// optimizing for smallest memory use.
+const smallLabelsSize = 9
+
+func (lbls Labels) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	first := true
+	for l := range lbls.All() {
+		if first {
+			first = false
+		} else {
+			buf.WriteByte(',')
+		}
+		key, err := json.Marshal(l.Key())
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(key)
+		buf.WriteByte(':')
+		lb, err := l.MarshalJSON()
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(lb)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+func (lbls *Labels) UnmarshalJSON(b []byte) error {
+	var m map[string]Label
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	ls := slices.AppendSeq(make([]Label, 0, len(m)), maps.Values(m))
+	if len(ls) == 0 {
+		*lbls = Labels{}
+	} else {
+		*lbls = NewLabels(ls...)
+	}
+	return nil
+}
+
+// smallRep is the internal unique'd representation for a small set of labels.
+// The labels are stored sorted by key.
+type smallRep struct {
+	// smallArray stores small set of labels. This reduces heap allocations
+	// and fragmentation for small label sets.
+	smallArray [smallLabelsSize]Label
+
+	// smallLen is the number of labels in 'smallArray'
+	smallLen uint8
+}
+
+func (rep *smallRep) get(key string) (lbl Label, found bool) {
+	for i := 0; i < int(rep.smallLen); i++ {
+		candidate := rep.smallArray[i]
+		switch strings.Compare(candidate.Key(), key) {
+		case -1:
+			continue
+		case 0:
+			return candidate, true
+		default:
+			return
+		}
+	}
+	return
+}

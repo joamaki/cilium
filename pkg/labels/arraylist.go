@@ -6,6 +6,7 @@ package labels
 import (
 	"bytes"
 	"iter"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -13,6 +14,13 @@ import (
 // LabelArrayList is an array of LabelArrays. It is primarily intended as a
 // simple collection
 type LabelArrayList []LabelArray
+
+func (ls LabelArrayList) DeepEqual(other *LabelArrayList) bool {
+	if other == nil {
+		return len(ls) == 0
+	}
+	return slices.EqualFunc(ls, *other, LabelArray.Equal)
+}
 
 // DeepCopy returns a deep copy of the LabelArray, with each element also copied.
 func (ls LabelArrayList) DeepCopy() LabelArrayList {

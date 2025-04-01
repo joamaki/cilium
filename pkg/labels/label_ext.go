@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package v2
+package labels
 
 import (
 	"bytes"
@@ -415,15 +415,9 @@ func GetCIDRLabels(prefix netip.Prefix) Labels {
 	return lbls.AddWorldLabel(prefix.Addr())
 }
 
-// GetCIDRLabelArray is similar to GetCIDRLabels, but returns labels in a
-// stable slice order.
-func GetCIDRLabelArray(prefix netip.Prefix) []Label {
-	lbls := make([]Label, 0, 2)
-	if prefix.Bits() > 0 {
-		lbls = append(lbls, getCIDRLabel(prefix))
-	}
-	lbls = append(lbls, getWorldLabel(prefix.Addr()))
-	return lbls
+// GetCIDRLabelArray turns a CIDR into labels and returns them as a LabelArray.
+func GetCIDRLabelArray(prefix netip.Prefix) LabelArray {
+	return ToLabelArray(GetCIDRLabels(prefix))
 }
 
 func getWorldLabel(addr netip.Addr) Label {

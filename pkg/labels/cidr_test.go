@@ -167,7 +167,7 @@ func TestIPStringToLabel(t *testing.T) {
 	}{
 		{
 			ip:    "0.0.0.0/0",
-			label: "cidr:0.0.0.0/0",
+			label: "reserved:world-ipv4",
 		},
 		{
 			ip:    "192.0.2.3",
@@ -187,7 +187,7 @@ func TestIPStringToLabel(t *testing.T) {
 		},
 		{
 			ip:    "::/0",
-			label: "cidr:0--0/0",
+			label: "reserved:world-ipv6",
 		},
 		{
 			ip:    "fdff::ff",
@@ -316,7 +316,7 @@ func TestLabelToPrefix(t *testing.T) {
 		}
 		want = want.Masked()
 
-		label := maskedIPToLabel(want.Addr().String(), want.Bits())
+		label := getCIDRLabel(want)
 		have, err := LabelToPrefix(label.Key())
 		if err != nil {
 			t.Fatalf("unexpected err: %v", err)

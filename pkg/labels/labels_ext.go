@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package v2
+package labels
 
 import (
 	"bytes"
@@ -489,6 +489,11 @@ func ParseLabels(s ...string) Labels {
 		}
 	}
 	return NewLabels(lbls...)
+}
+
+// NewLabelsFromModel creates labels from string array.
+func NewLabelsFromModel(base []string) Labels {
+	return ParseLabels(base...)
 }
 
 // NewLabelsFromSortedList returns labels based on the output of SortedList()
