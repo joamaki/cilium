@@ -580,8 +580,8 @@ func TestInitialNamedPortsIdentityLabel(t *testing.T) {
 	assertNamedPortsLabel := func(t *testing.T, e *Endpoint, value string) {
 		label, ok := e.labels.IdentityLabels()[ciliumio.NamedPortsIdentityLabelName]
 		require.True(t, ok)
-		require.Equal(t, value, label.Value)
-		require.Equal(t, labels.LabelSourceGenerated, label.Source)
+		require.Equal(t, value, label.Value())
+		require.Equal(t, labels.LabelSourceGenerated, label.Source())
 	}
 	assertNoNamedPortsLabel := func(t *testing.T, e *Endpoint) {
 		_, ok := e.labels.IdentityLabels()[ciliumio.NamedPortsIdentityLabelName]
@@ -593,7 +593,7 @@ func TestInitialNamedPortsIdentityLabel(t *testing.T) {
 			if newPod {
 				lbl, haveLbl := k8s.NamedPortsIdentityLabel(namedPorts)
 				if haveLbl {
-					lbls[lbl.Key] = lbl
+					lbls[lbl.Key()] = lbl
 				}
 			}
 			return &corev1.Pod{
@@ -1360,9 +1360,9 @@ func (e *Endpoint) getK8sPodLabels() labels.Labels {
 
 	k8sEPPodLabels := labels.Labels{}
 	for k, v := range allLabelsFromK8s {
-		if !strings.HasPrefix(v.Key, ciliumio.PodNamespaceMetaLabels) &&
-			!strings.HasPrefix(v.Key, ciliumio.PolicyLabelServiceAccount) &&
-			!strings.HasPrefix(v.Key, ciliumio.PodNamespaceLabel) {
+		if !strings.HasPrefix(v.Key(), ciliumio.PodNamespaceMetaLabels) &&
+			!strings.HasPrefix(v.Key(), ciliumio.PolicyLabelServiceAccount) &&
+			!strings.HasPrefix(v.Key(), ciliumio.PodNamespaceLabel) {
 			k8sEPPodLabels[k] = v
 		}
 	}

@@ -519,7 +519,11 @@ func TestL7WithIngressWildcard(t *testing.T) {
 
 	td.bootstrapRepo(GenerateL3IngressRules, 1000, t)
 
-	idFooSelectLabels := labels.ParseSelectLabelArray("id=foo").Labels()
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
 	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 
@@ -600,7 +604,12 @@ func TestL7WithLocalHostWildcard(t *testing.T) {
 
 	td.bootstrapRepo(GenerateL3IngressRules, 1000, t)
 
-	idFooSelectLabels := labels.ParseSelectLabelArray("id=foo").Labels()
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
+
 	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 
@@ -702,7 +711,11 @@ func TestMapStateWithIngressWildcard(t *testing.T) {
 		labels.NewLabel(LabelKeyPolicyDerivedFrom, LabelAllowAnyEgress, labels.LabelSourceReserved),
 	}
 
-	idFooSelectLabels := labels.ParseSelectLabelArray("id=foo").Labels()
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
 	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 
@@ -795,7 +808,11 @@ func TestMapStateWithIngress(t *testing.T) {
 		labels.NewLabel(LabelKeyPolicyDerivedFrom, LabelAllowAnyEgress, labels.LabelSourceReserved),
 	}
 
-	idFooSelectLabels := labels.ParseSelectLabelArray("id=foo").Labels()
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
 	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 

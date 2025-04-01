@@ -5,7 +5,6 @@ package labels
 
 import (
 	"bytes"
-	"slices"
 	"sort"
 	"strings"
 )
@@ -18,7 +17,7 @@ type LabelArray []Label
 // in-place, but also returns the sorted array for convenience.
 func (ls LabelArray) Sort() LabelArray {
 	sort.Slice(ls, func(i, j int) bool {
-		return ls[i].Key < ls[j].Key
+		return ls[i].Key() < ls[j].Key()
 	})
 	return ls
 }
@@ -56,7 +55,7 @@ func NewLabelArrayFromSortedList(list string) LabelArray {
 	base := strings.Split(list, ";")
 	array := make(LabelArray, 0, len(base))
 	for _, v := range base {
-		if lbl := ParseLabel(v); lbl.Key != "" {
+		if lbl := ParseLabel(v); lbl.Key() != "" {
 			array = append(array, lbl)
 		}
 	}
@@ -75,8 +74,8 @@ func ParseSelectLabelArrayFromArray(base []string) LabelArray {
 // Labels returns the LabelArray as Labels
 func (ls LabelArray) Labels() Labels {
 	lbls := Labels{}
-	for i := range ls {
-		lbls[ls[i].Key] = ls[i]
+	for _, l := range ls {
+		lbls[l.Key()] = l
 	}
 	return lbls
 }
@@ -87,7 +86,7 @@ func (ls LabelArray) Contains(needed LabelArray) bool {
 nextLabel:
 	for i := range needed {
 		for l := range ls {
-			if ls[l].Has(&needed[i]) {
+			if ls[l].Has(needed[i]) {
 				continue nextLabel
 			}
 		}
@@ -104,15 +103,23 @@ nextLabel:
 // ["k8s:foo=bar"].Intersects(["any:foo=bar"]) == true
 // ["any:foo=bar"].Intersects(["k8s:foo=bar"]) == false
 func (ls LabelArray) Intersects(needed LabelArray) bool {
-	return slices.ContainsFunc(needed, func(lbl Label) bool {
-		return ls.IntersectsLabel(lbl)
-	})
+	for _, l := range ls {
+		for _, n := range needed {
+			if l.Has(n) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
-func (ls LabelArray) IntersectsLabel(target Label) bool {
-	return slices.ContainsFunc(ls, func(lbl Label) bool {
-		return lbl.Has(&target)
-	})
+func (ls LabelArray) IntersectsLabel(needed Label) bool {
+	for _, l := range ls {
+		if l.Has(needed) {
+			return true
+		}
+	}
+	return false
 }
 
 // Lacks is identical to Contains but returns all missing labels
@@ -121,7 +128,7 @@ func (ls LabelArray) Lacks(needed LabelArray) LabelArray {
 nextLabel:
 	for i := range needed {
 		for l := range ls {
-			if ls[l].Has(&needed[l]) {
+			if ls[l].Has(needed[i]) {
 				continue nextLabel
 			}
 		}
@@ -143,13 +150,17 @@ nextLabel:
 //
 // If the key is of source "cidr", this will also match
 // broader keys.
-// ["cidr:1.1.1.1/32"].Has("cidr:1.0.0.0/8") => true
-// ["cidr:1.0.0.0/8"].Has("cidr:1.1.1.1/32") => false
+// ["cidr:1.1.1.1/32"].Has("cidr.1.0.0.0/8") => true
+// ["cidr:1.0.0.0/8"].Has("cidr.1.1.1.1/32") => false
 func (ls LabelArray) Has(key string) bool {
-	// The key is submitted in the form of `source.key=value`
+	// The key is submitted in the form of `source:key=value`
 	keyLabel := ParseSelectLabel(key)
-	_, exists := ls.LookupLabel(&keyLabel)
-	return exists
+	for _, l := range ls {
+		if l.HasKey(keyLabel) {
+			return true
+		}
+	}
+	return false
 }
 
 // Get returns the value for the provided key.
@@ -158,28 +169,27 @@ func (ls LabelArray) Has(key string) bool {
 //
 // The key can be of source "any", in which case the source is
 // ignored. The inverse, however, is not true.
-// ["k8s:foo=bar"].Get("any:foo") => "bar"
-// ["any:foo=bar"].Get("k8s:foo") => ""
+// ["k8s.foo=bar"].Get("any.foo") => "bar"
+// ["any.foo=bar"].Get("k8s.foo") => ""
 //
-// Note that Get is not useful for labels that have no values,
-// as then Get will return an empty string whether or not key
-// matches any label in the array.
+// If the key is of source "cidr", this will also match
+// broader keys.
+// ["cidr:1.1.1.1/32"].Has("cidr.1.0.0.0/8") => true
+// ["cidr:1.0.0.0/8"].Has("cidr.1.1.1.1/32") => false
 func (ls LabelArray) Get(key string) string {
 	keyLabel := ParseSelectLabel(key)
-	value, _ := ls.LookupLabel(&keyLabel)
-	return value
+	for _, l := range ls {
+		if l.HasKey(keyLabel) {
+			return l.Value()
+		}
+	}
+	return ""
 }
 
-func (ls LabelArray) Lookup(label string) (value string, exists bool) {
-	// The label is submitted in the form of `source:key=value`
-	keyLabel := ParseSelectLabel(label)
-	return ls.LookupLabel(&keyLabel)
-}
-
-func (ls LabelArray) LookupLabel(keyLabel *Label) (value string, exists bool) {
-	for i := range ls {
-		if ls[i].HasKey(keyLabel) {
-			return ls[i].Value, true
+func (ls LabelArray) LookupLabel(key *Label) (value string, exists bool) {
+	for _, l := range ls {
+		if l.HasKey(*key) {
+			return l.Value(), true
 		}
 	}
 	return "", false
@@ -250,22 +260,6 @@ func (ls LabelArray) BuildBytes(buf *bytes.Buffer) {
 	buf.WriteString("]")
 }
 
-// Map2LabelArray transforms in the form: map[key(string)]value(string) into LabelArray. The
-// source argument will overwrite the source written in the key of the given map.
-// Example:
-// l := Map2LabelArray(map[string]string{"k8s:foo": "bar"}, "cilium")
-// fmt.Printf("%+v\n", l)
-//
-//	[]Label{Label{Key:"foo", Value:"bar", Source:"cilium"}}
-func Map2LabelArray(m map[string]string, source string) LabelArray {
-	o := make(LabelArray, 0, len(m))
-	for k, v := range m {
-		l := NewLabel(k, v, source)
-		o = append(o, l)
-	}
-	return o
-}
-
 // StringMap converts LabelArray into map[string]string
 // Note: The source is included in the keys with a ':' separator.
 // Note: LabelArray does not deduplicate entries, as it is an array. It is
@@ -273,22 +267,9 @@ func Map2LabelArray(m map[string]string, source string) LabelArray {
 // repeated in a LabelArray, as that is the key of the output. This scenario is
 // not expected.
 func (ls LabelArray) StringMap() map[string]string {
-	o := make(map[string]string, len(ls))
-	for i := range ls {
-		o[ls[i].Source+SourceDelimiter+ls[i].Key] = ls[i].Value
-	}
-	return o
-}
-
-// StringMap converts Labels into map[string]string
-func (ls LabelArray) K8sStringMap() map[string]string {
-	o := make(map[string]string, len(ls))
-	for i := range ls {
-		if ls[i].Source == LabelSourceK8s || ls[i].Source == LabelSourceAny || ls[i].Source == LabelSourceUnspec {
-			o[ls[i].Key] = ls[i].Value
-		} else {
-			o[ls[i].Source+"."+ls[i].Key] = ls[i].Value
-		}
+	o := map[string]string{}
+	for _, v := range ls {
+		o[v.Source()+":"+v.Key()] = v.Value()
 	}
 	return o
 }
@@ -299,7 +280,7 @@ func (ls LabelArray) Equals(b LabelArray) bool {
 		return false
 	}
 	for l := range ls {
-		if !ls[l].Equals(&b[l]) {
+		if !ls[l].Equal(b[l]) {
 			return false
 		}
 	}
@@ -316,19 +297,19 @@ func (ls LabelArray) Less(b LabelArray) bool {
 	for i := range minLen {
 		switch {
 		// Key
-		case ls[i].Key < b[i].Key:
+		case ls[i].Key() < b[i].Key():
 			return true
-		case ls[i].Key > b[i].Key:
+		case ls[i].Key() > b[i].Key():
 			return false
 		// Value
-		case ls[i].Value < b[i].Value:
+		case ls[i].Value() < b[i].Value():
 			return true
-		case ls[i].Value > b[i].Value:
+		case ls[i].Value() > b[i].Value():
 			return false
 		// Source
-		case ls[i].Source < b[i].Source:
+		case ls[i].Source() < b[i].Source():
 			return true
-		case ls[i].Source > b[i].Source:
+		case ls[i].Source() > b[i].Source():
 			return false
 		}
 	}

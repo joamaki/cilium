@@ -5,77 +5,81 @@ package labels
 
 import (
 	"bytes"
-	"encoding/json"
-	"fmt"
 	"maps"
-	"net/netip"
 	"slices"
 	"strings"
 
-	"github.com/cilium/cilium/pkg/container/cache"
-	"github.com/cilium/cilium/pkg/logging"
-	"github.com/cilium/cilium/pkg/logging/logfields"
+	v2 "github.com/cilium/cilium/pkg/labels/v2"
 )
 
 const (
 	// SourceDelimiter is the delimiter used in the label keys.
-	SourceDelimiter = ":"
+	SourceDelimiter = v2.SourceDelimiter
 
 	// PathDelimiter is the delimiter used in the labels paths.
-	PathDelimiter = "."
+	PathDelimiter = v2.PathDelimiter
 
 	// IDNameHost is the label used for the hostname ID.
-	IDNameHost = "host"
+	IDNameHost = v2.IDNameHost
 
 	// IDNameRemoteNode is the label used to describe the
 	// ReservedIdentityRemoteNode
-	IDNameRemoteNode = "remote-node"
+	IDNameRemoteNode = v2.IDNameRemoteNode
 
 	// IDNameWorld is the label used for the world ID.
-	IDNameWorld = "world"
+	IDNameWorld = v2.IDNameWorld
 
 	// IDNameWorldIPv4 is the label used for the world-ipv4 ID, to distinguish
 	// it from world-ipv6 in dual-stack mode.
-	IDNameWorldIPv4 = "world-ipv4"
+	IDNameWorldIPv4 = v2.IDNameWorldIPv4
 
 	// IDNameWorldIPv6 is the label used for the world-ipv6 ID, to distinguish
 	// it from world-ipv4 in dual-stack mode.
-	IDNameWorldIPv6 = "world-ipv6"
+	IDNameWorldIPv6 = v2.IDNameWorldIPv6
 
 	// IDNameCluster is the label used to identify an unspecified endpoint
 	// inside the cluster
-	IDNameCluster = "cluster"
+	IDNameCluster = v2.IDNameCluster
 
 	// IDNameHealth is the label used for the local cilium-health endpoint
-	IDNameHealth = "health"
+	IDNameHealth = v2.IDNameHealth
 
 	// IDNameInit is the label used to identify any endpoint that has not
 	// received any labels yet.
-	IDNameInit = "init"
+	IDNameInit = v2.IDNameInit
 
 	// IDNameKubeAPIServer is the label used to identify the kube-apiserver. It
 	// is part of the reserved identity 7 and it is also used in conjunction
 	// with IDNameHost if the kube-apiserver is running on the local host.
-	IDNameKubeAPIServer = "kube-apiserver"
+	IDNameKubeAPIServer = v2.IDNameKubeAPIServer
 
 	// IDNameIngress is the label used to identify Ingress proxies. It is part
 	// of the reserved identity 8.
-	IDNameIngress = "ingress"
+	IDNameIngress = v2.IDNameIngress
 
 	// IDNameNone is the label used to identify no endpoint or other L3 entity.
 	// It will never be assigned and this "label" is here for consistency with
 	// other Entities.
-	IDNameNone = "none"
+	IDNameNone = v2.IDNameNone
 
 	// IDNameUnmanaged is the label used to identify unmanaged endpoints
-	IDNameUnmanaged = "unmanaged"
+	IDNameUnmanaged = v2.IDNameUnmanaged
 
-	// IDNameUnknown is the label used to identify an endpoint with an
+	// IDNameUnknown is the label used to to identify an endpoint with an
 	// unknown identity.
-	IDNameUnknown = "unknown"
+	IDNameUnknown = v2.IDNameUnknown
 )
 
 var (
+	// WorldLabel is the label used for world.
+	WorldLabel = NewLabel(IDNameWorld, "", LabelSourceReserved)
+
+	// WorldLabelV4 is the label used for world-ipv4.
+	WorldLabelV4 = NewLabel(IDNameWorldIPv4, "", LabelSourceReserved)
+
+	// WorldLabelV6 is the label used for world-ipv6.
+	WorldLabelV6 = NewLabel(IDNameWorldIPv6, "", LabelSourceReserved)
+
 	// LabelHealth is the label used for health.
 	LabelHealth = Labels{IDNameHealth: NewLabel(IDNameHealth, "", LabelSourceReserved)}
 
@@ -83,13 +87,13 @@ var (
 	LabelHost = Labels{IDNameHost: NewLabel(IDNameHost, "", LabelSourceReserved)}
 
 	// LabelWorld is the label used for world.
-	LabelWorld = Labels{IDNameWorld: NewLabel(IDNameWorld, "", LabelSourceReserved)}
+	LabelWorld = Labels{IDNameWorld: WorldLabel}
 
 	// LabelWorldIPv4 is the label used for world-ipv4.
-	LabelWorldIPv4 = Labels{IDNameWorldIPv4: NewLabel(IDNameWorldIPv4, "", LabelSourceReserved)}
+	LabelWorldIPv4 = Labels{IDNameWorldIPv4: WorldLabelV4}
 
 	// LabelWorldIPv6 is the label used for world-ipv6.
-	LabelWorldIPv6 = Labels{IDNameWorldIPv6: NewLabel(IDNameWorldIPv6, "", LabelSourceReserved)}
+	LabelWorldIPv6 = Labels{IDNameWorldIPv6: WorldLabelV6}
 
 	// LabelRemoteNode is the label used for remote nodes.
 	LabelRemoteNode = Labels{IDNameRemoteNode: NewLabel(IDNameRemoteNode, "", LabelSourceReserved)}
@@ -114,102 +118,65 @@ var (
 
 const (
 	// LabelSourceUnspec is a label with unspecified source
-	LabelSourceUnspec = "unspec"
+	LabelSourceUnspec = v2.LabelSourceUnspec
 
 	// LabelSourceAny is a label that matches any source
-	LabelSourceAny = "any"
+	LabelSourceAny = v2.LabelSourceAny
 
 	// LabelSourceAnyKeyPrefix is prefix of a "any" label
-	LabelSourceAnyKeyPrefix = LabelSourceAny + SourceDelimiter
+	LabelSourceAnyKeyPrefix = v2.LabelSourceAnyKeyPrefix
 
 	// LabelSourceK8s is a label imported from Kubernetes
-	LabelSourceK8s = "k8s"
+	LabelSourceK8s = v2.LabelSourceK8s
 
 	// LabelSourceK8sKeyPrefix is prefix of a Kubernetes label
-	LabelSourceK8sKeyPrefix = LabelSourceK8s + SourceDelimiter
-
-	// LabelSourceGenerated is an identity label generated by the agent.
-	LabelSourceGenerated = "gen"
+	LabelSourceK8sKeyPrefix = v2.LabelSourceK8sKeyPrefix
 
 	// LabelSourceContainer is a label imported from the container runtime
-	LabelSourceContainer = "container"
+	LabelSourceContainer = v2.LabelSourceContainer
 
 	// LabelSourceCNI is a label imported from the CNI plugin
-	LabelSourceCNI = "cni"
+	LabelSourceCNI = v2.LabelSourceCNI
 
 	// LabelSourceReserved is the label source for reserved types.
-	LabelSourceReserved = "reserved"
+	LabelSourceReserved = v2.LabelSourceReserved
 
 	// LabelSourceCIDR is the label source for generated CIDRs.
-	LabelSourceCIDR = "cidr"
+	LabelSourceCIDR = v2.LabelSourceCIDR
 
 	// LabelSourceCIDRGroup is the label source used for labels from CIDRGroups
-	LabelSourceCIDRGroup = "cidrgroup"
+	LabelSourceCIDRGroup = v2.LabelSourceCIDRGroup
 
 	// LabelSourceCIDRGroupKeyPrefix is the source as a k8s selector key prefix
-	LabelSourceCIDRGroupKeyPrefix = LabelSourceCIDRGroup + SourceDelimiter
-
-	// CIDRGroupEncodedSep is the separator for encoded key+value CIDRGroup labels.
-	// Safe because K8s label keys/values cannot contain "+".
-	CIDRGroupEncodedSep = "+"
+	LabelSourceCIDRGroupKeyPrefix = v2.LabelSourceCIDRGroupKeyPrefix
 
 	// LabelSourceNode is the label source for remote-nodes.
-	LabelSourceNode = "node"
+	LabelSourceNode = v2.LabelSourceNode
 
-	// LabelSourceNodeKeyPrefix is the source of node labels as k8s selector key prefix
-	LabelSourceNodeKeyPrefix = LabelSourceNode + SourceDelimiter
+	// LabelSourceNodeKeyPrefix is prefix of a node label
+	LabelSourceNodeKeyPrefix = v2.LabelSourceNodeKeyPrefix
 
 	// LabelSourceFQDN is the label source for IPs resolved by fqdn lookups
-	LabelSourceFQDN = "fqdn"
+	LabelSourceFQDN = v2.LabelSourceFQDN
+
+	// LabelSourceGenerated is the label source for generated labels
+	LabelSourceGenerated = v2.LabelSourceGenerated
 
 	// LabelSourceReservedKeyPrefix is the prefix of a reserved label
-	LabelSourceReservedKeyPrefix = LabelSourceReserved + SourceDelimiter
+	LabelSourceReservedKeyPrefix = v2.LabelSourceReservedKeyPrefix
 
 	// LabelSourceDirectory is the label source for policies read from files
-	LabelSourceDirectory = "directory"
+	LabelSourceDirectory = v2.LabelSourceDirectory
 )
 
 // EncodedCIDRGroupLabel builds a label with the value baked into the key,
 // used for collision-free matching of CIDRGroup labels.
 func EncodedCIDRGroupLabel(key, val, source string) Label {
-	return Label{Key: key + CIDRGroupEncodedSep + val, Source: source}
+	return NewLabel(key+v2.CIDRGroupEncodedSep+val, "", source)
 }
-
-type labelSourceDelimiter rune
-
-var (
-	// sourceDelimiter is the delimiter used for perfixing source information in
-	// internal implementation.
-	sourceDelimiter = labelSourceDelimiter(SourceDelimiter[0])
-
-	// k8sSourceDelimiter is the delimiter used for prefixing label source
-	// information in keys, as expected by k8s api machinery.
-	// K8s doesn't allow Cilium internal source delimiter ':' in label keys.
-	k8sSourceDelimiter = labelSourceDelimiter(PathDelimiter[0])
-)
 
 // Label is the Cilium's representation of a container label.
-type Label struct {
-	Key   string `json:"key"`
-	Value string `json:"value,omitempty"`
-	// Source can be one of the above values (e.g.: LabelSourceContainer).
-	//
-	// +kubebuilder:validation:Optional
-	Source string `json:"source"`
-
-	// optimization for CIDR prefixes
-	// +deepequal-gen=false
-	cidr *netip.Prefix `json:"-"`
-}
-
-// GetCIDRPrefix returns the cidr of the Label, or nil if none.
-func (l *Label) GetCIDRPrefix() *netip.Prefix {
-	return l.cidr
-}
-
-func (in *Label) DeepCopyInto(out *Label) {
-	*out = *in
-}
+type Label = v2.Label
 
 // Labels is a map of labels where the map's key is the same as the label's key.
 type Labels map[string]Label
@@ -273,8 +240,8 @@ func (l Labels) HasWorldLabel() bool {
 func (l Labels) GetPrintableModel() (res []string) {
 	res = make([]string, 0, len(l))
 	for _, v := range l {
-		if v.Source == LabelSourceCIDR {
-			prefix, err := keyToPrefix(v.Key)
+		if v.Source() == LabelSourceCIDR {
+			prefix, err := LabelToPrefix(v.Key())
 			if err != nil {
 				res = append(res, v.String())
 			} else {
@@ -303,7 +270,7 @@ func (l Labels) Equals(other Labels) bool {
 
 	for k, lbl1 := range l {
 		if lbl2, ok := other[k]; ok {
-			if lbl1.Source == lbl2.Source && lbl1.Key == lbl2.Key && lbl1.Value == lbl2.Value {
+			if lbl1.Source() == lbl2.Source() && lbl1.Key() == lbl2.Key() && lbl1.Value() == lbl2.Value() {
 				continue
 			}
 		}
@@ -316,7 +283,7 @@ func (l Labels) Equals(other Labels) bool {
 func (l Labels) GetFromSource(source string) Labels {
 	lbls := Labels{}
 	for k, v := range l {
-		if v.Source == source {
+		if v.Source() == source {
 			lbls[k] = v
 		}
 	}
@@ -326,209 +293,16 @@ func (l Labels) GetFromSource(source string) Labels {
 // RemoveFromSource removes all labels that are from the given source
 func (l Labels) RemoveFromSource(source string) {
 	maps.DeleteFunc(l, func(k string, v Label) bool {
-		return v.Source == source
+		return v.Source() == source
 	})
 }
 
-// NewLabel returns a new label from the given key, value and source.
-//
-// * If source is empty, the default value will be LabelSourceUnspec.
-// * If key starts with '$', the source will be overwritten with LabelSourceReserved.
-// * If key contains ':', the value before ':' will be used as source if given source is empty,
-// otherwise the value before ':' will be deleted and unused.
-func NewLabel(key string, value string, source string) Label {
-	var src string
-	src, key = parseSource(key, sourceDelimiter)
-	if source == "" {
-		if src == "" {
-			source = LabelSourceUnspec
-		} else {
-			source = src
-		}
-	}
-	if src == LabelSourceReserved && key == "" {
-		key = value
-		value = ""
-	}
-
-	l := Label{
-		Key:    cache.Strings.Get(key),
-		Value:  cache.Strings.Get(value),
-		Source: cache.Strings.Get(source),
-	}
-	if l.Source == LabelSourceCIDR {
-		c, err := keyToPrefix(l.Key)
-		if err != nil {
-			// slogloggercheck: it's safe to use the default logger here as it has been initialized by the program up to this point.
-			logging.DefaultSlogLogger.Error("Failed to parse CIDR label: invalid prefix.",
-				logfields.Error, err,
-				logfields.Key, l.Key,
-			)
-		} else {
-			l.cidr = &c
-		}
-	}
-
-	return l
-}
-
-// Equals returns true if source, Key and Value are equal and false otherwise.
-func (l *Label) Equals(b *Label) bool {
-	if !l.IsAnySource() && l.Source != b.Source {
-		return false
-	}
-	return l.Key == b.Key && l.Value == b.Value
-}
-
-// IsAnySource return if the label was set with source "any".
-func (l *Label) IsAnySource() bool {
-	return l.Source == LabelSourceAny
-}
-
-// IsReservedSource return if the label was set with source "Reserved".
-func (l *Label) IsReservedSource() bool {
-	return l.Source == LabelSourceReserved
-}
-
-// Has returns true label L contains target.
-// target may be "looser" w.r.t source or cidr, i.e.
-// "k8s:foo=bar".Has("any:foo=bar") is true
-// "any:foo=bar".Has("k8s:foo=bar") is false
-// "cidr:10.0.0.1/32".Has("cidr:10.0.0.0/24") is true
-func (l *Label) Has(target *Label) bool {
-	return l.HasKey(target) && l.Value == target.Value
-}
-
-// HasKey returns true if l has target's key.
-// target may be "looser" w.r.t source or cidr, i.e.
-// "k8s:foo=bar".HasKey("any:foo") is true
-// "any:foo=bar".HasKey("k8s:foo") is false
-// "cidr:10.0.0.1/32".HasKey("cidr:10.0.0.0/24") is true
-// "cidr:10.0.0.0/24".HasKey("cidr:10.0.0.1/32") is false
-func (l *Label) HasKey(target *Label) bool {
-	if !target.IsAnySource() && l.Source != target.Source {
-		return false
-	}
-
-	// Do cidr-aware matching if both sources are "cidr".
-	if target.Source == LabelSourceCIDR && l.Source == LabelSourceCIDR {
-		tc := target.cidr
-		if tc == nil {
-			v, err := keyToPrefix(target.Key)
-			if err == nil {
-				tc = &v
-			}
-		}
-		lc := l.cidr
-		if lc == nil {
-			v, err := keyToPrefix(l.Key)
-			if err == nil {
-				lc = &v
-			}
-		}
-		return tc != nil && lc != nil && tc.Bits() <= lc.Bits() && tc.Contains(lc.Addr())
-	}
-
-	return l.Key == target.Key
-}
-
-// String returns the string representation of Label in the for of Source:Key=Value or
-// Source:Key if Value is empty.
-func (l *Label) String() string {
-	if len(l.Value) != 0 {
-		return l.Source + SourceDelimiter + l.Key + "=" + l.Value
-	}
-	return l.Source + SourceDelimiter + l.Key
-}
-
-func (l *Label) BuildString(sb *strings.Builder) {
-	sb.WriteString(l.Source)
-	sb.WriteString(SourceDelimiter)
-	sb.WriteString(l.Key)
-	if len(l.Value) != 0 {
-		sb.WriteString("=")
-		sb.WriteString(l.Value)
-	}
-}
-
-func (l *Label) BuildBytes(buf *bytes.Buffer) {
-	buf.WriteString(l.Source)
-	buf.WriteString(SourceDelimiter)
-	buf.WriteString(l.Key)
-	if len(l.Value) != 0 {
-		buf.WriteString("=")
-		buf.WriteString(l.Value)
-	}
-}
-
-// IsValid returns true if Key != "".
-func (l *Label) IsValid() bool {
-	return l.Key != ""
-}
-
-// UnmarshalJSON TODO create better explanation about unmarshall with examples
-func (l *Label) UnmarshalJSON(data []byte) error {
-	if l == nil {
-		return fmt.Errorf("cannot unmarshal to nil pointer")
-	}
-
-	if len(data) == 0 {
-		return fmt.Errorf("invalid Label: empty data")
-	}
-
-	var aux struct {
-		Source string `json:"source"`
-		Key    string `json:"key"`
-		Value  string `json:"value,omitempty"`
-	}
-
-	err := json.Unmarshal(data, &aux)
-	if err != nil {
-		// If parsing of the full representation failed then try the short
-		// form in the format:
-		//
-		// [SOURCE:]KEY[=VALUE]
-		var aux string
-
-		if err := json.Unmarshal(data, &aux); err != nil {
-			return fmt.Errorf("decode of Label as string failed: %w", err)
-		}
-
-		if aux == "" {
-			return fmt.Errorf("invalid Label: Failed to parse %s as a string", data)
-		}
-
-		*l = ParseLabel(aux)
-	} else {
-		if aux.Key == "" {
-			return fmt.Errorf("invalid Label: '%s' does not contain label key", data)
-		}
-
-		l.Source = aux.Source
-		l.Key = aux.Key
-		l.Value = aux.Value
-	}
-
-	if l.Source == LabelSourceCIDR {
-		c, err := keyToPrefix(l.Key)
-		if err == nil {
-			l.cidr = &c
-		} else {
-			// slogloggercheck: it's safe to use the default logger here as it has been initialized by the program up to this point.
-			logging.DefaultSlogLogger.Error("Failed to parse CIDR label: invalid prefix.",
-				logfields.Error, err,
-				logfields.Key, l.Key,
-			)
-		}
-	}
-
-	return nil
-}
-
-// GetExtendedKey returns the key of a label with the source encoded.
-func (l *Label) GetExtendedKey() string {
-	return l.Source + SourceDelimiter + l.Key
-}
+// NewLabel returns a new label from the given key, value and source. If source is empty,
+// the default value will be LabelSourceUnspec. If key starts with '$', the source
+// will be overwritten with LabelSourceReserved. If key contains ':', the value
+// before ':' will be used as source if given source is empty, otherwise the value before
+// ':' will be deleted and unused.
+var NewLabel = v2.NewLabel
 
 // Map2Labels transforms in the form: map[key(string)]value(string) into Labels. The
 // source argument will overwrite the source written in the key of the given map.
@@ -541,7 +315,7 @@ func Map2Labels(m map[string]string, source string) Labels {
 	o := make(Labels, len(m))
 	for k, v := range m {
 		l := NewLabel(k, v, source)
-		o[l.Key] = l
+		o[l.Key()] = l
 	}
 	return o
 }
@@ -550,7 +324,7 @@ func Map2Labels(m map[string]string, source string) Labels {
 func (l Labels) StringMap() map[string]string {
 	o := make(map[string]string, len(l))
 	for _, v := range l {
-		o[v.Source+":"+v.Key] = v.Value
+		o[v.Source()+":"+v.Key()] = v.Value()
 	}
 	return o
 }
@@ -559,10 +333,10 @@ func (l Labels) StringMap() map[string]string {
 func (l Labels) K8sStringMap() map[string]string {
 	o := make(map[string]string, len(l))
 	for _, v := range l {
-		if v.Source == LabelSourceK8s || v.Source == LabelSourceAny || v.Source == LabelSourceUnspec {
-			o[v.Key] = v.Value
+		if v.Source() == LabelSourceK8s || v.Source() == LabelSourceAny || v.Source() == LabelSourceUnspec {
+			o[v.Key()] = v.Value()
 		} else {
-			o[v.Source+"."+v.Key] = v.Value
+			o[v.Source()+"."+v.Key()] = v.Value()
 		}
 	}
 	return o
@@ -572,8 +346,8 @@ func (l Labels) K8sStringMap() map[string]string {
 func NewLabelsFromModel(base []string) Labels {
 	lbls := make(Labels, len(base))
 	for _, v := range base {
-		if lbl := ParseLabel(v); lbl.Key != "" {
-			lbls[lbl.Key] = lbl
+		if lbl := ParseLabel(v); lbl.Key() != "" {
+			lbls[lbl.Key()] = lbl
 		}
 	}
 
@@ -584,7 +358,7 @@ func NewLabelsFromModel(base []string) Labels {
 func FromSlice(labels []Label) Labels {
 	lbls := make(Labels, len(labels))
 	for _, lbl := range labels {
-		lbls[lbl.Key] = lbl
+		lbls[lbl.Key()] = lbl
 	}
 	return lbls
 }
@@ -592,6 +366,17 @@ func FromSlice(labels []Label) Labels {
 // NewLabelsFromSortedList returns labels based on the output of SortedList()
 func NewLabelsFromSortedList(list string) Labels {
 	return NewLabelsFromModel(strings.Split(list, ";"))
+}
+
+// NewSelectLabelArrayFromModel parses a slice of strings and converts them
+// into an array of selecting labels, sorted by the key.
+func NewSelectLabelArrayFromModel(base []string) LabelArray {
+	lbls := make(LabelArray, 0, len(base))
+	for i := range base {
+		lbls = append(lbls, ParseSelectLabel(base[i]))
+	}
+
+	return lbls.Sort()
 }
 
 // NewFrom creates a new Labels from the given labels by creating a copy.
@@ -632,41 +417,6 @@ func (l Labels) Remove(from Labels) {
 	})
 }
 
-// FormatForKVStore returns the label as a formatted string, ending in
-// a semicolon
-//
-// DO NOT BREAK THE FORMAT OF THIS. THE RETURNED STRING IS USED AS
-// PART OF THE KEY IN THE KEY-VALUE STORE.
-//
-// Non-pointer receiver allows this to be called on a value in a map.
-func (l Label) FormatForKVStore() []byte {
-	// We don't care if the values already have a '='.
-	//
-	// We absolutely care that the final character is a semi-colon.
-	// Identity allocation in the kvstore depends on this (see
-	// kvstore.prefixMatchesKey())
-	b := make([]byte, 0, len(l.Source)+len(l.Key)+len(l.Value)+3)
-	buf := bytes.NewBuffer(b)
-	l.formatForKVStoreInto(buf)
-	return buf.Bytes()
-}
-
-// formatForKVStoreInto writes the label as a formatted string, ending in
-// a semicolon into buf.
-//
-// DO NOT BREAK THE FORMAT OF THIS. THE RETURNED STRING IS USED AS
-// PART OF THE KEY IN THE KEY-VALUE STORE.
-//
-// Non-pointer receiver allows this to be called on a value in a map.
-func (l Label) formatForKVStoreInto(buf *bytes.Buffer) {
-	buf.WriteString(l.Source)
-	buf.WriteRune(rune(sourceDelimiter))
-	buf.WriteString(l.Key)
-	buf.WriteRune('=')
-	buf.WriteString(l.Value)
-	buf.WriteRune(';')
-}
-
 // SortedList returns the labels as a sorted list, separated by semicolon
 //
 // DO NOT BREAK THE FORMAT OF THIS. THE RETURNED STRING IS USED AS KEY IN
@@ -688,7 +438,7 @@ func (l Labels) SortedList() []byte {
 	b := make([]byte, 0, len(keys)*30)
 	buf := bytes.NewBuffer(b)
 	for _, k := range keys {
-		l[k].formatForKVStoreInto(buf)
+		l[k].FormatForKVStoreInto(buf)
 	}
 
 	return buf.Bytes()
@@ -715,7 +465,7 @@ func (l Labels) FindReserved() LabelArray {
 	lbls := make(LabelArray, 0)
 
 	for _, lbl := range l {
-		if lbl.Source == LabelSourceReserved {
+		if lbl.Source() == LabelSourceReserved {
 			lbls = append(lbls, lbl)
 		}
 	}
@@ -743,17 +493,20 @@ func (l Labels) Has(label Label) bool {
 }
 
 func (l Labels) LookupLabel(label *Label) (value string, exists bool) {
-	if label.Source != LabelSourceCIDR {
-		lbl, ok := l[label.Key]
-		if ok && lbl.Has(label) {
-			return lbl.Value, true
+	if label == nil {
+		return
+	}
+	if label.Source() != LabelSourceCIDR {
+		lbl, ok := l[label.Key()]
+		if ok && lbl.Has(*label) {
+			return lbl.Value(), true
 		}
 		return "", false
 	}
 
 	for _, lbl := range l {
-		if lbl.Has(label) {
-			return lbl.Value, true
+		if lbl.Has(*label) {
+			return lbl.Value(), true
 		}
 	}
 	return "", false
@@ -762,7 +515,7 @@ func (l Labels) LookupLabel(label *Label) (value string, exists bool) {
 // HasSource returns true if l contains the given label source.
 func (l Labels) HasSource(source string) bool {
 	for _, lbl := range l {
-		if lbl.Source == source {
+		if lbl.Source() == source {
 			return true
 		}
 	}
@@ -773,112 +526,22 @@ func (l Labels) HasSource(source string) bool {
 func (l Labels) CollectSources() map[string]struct{} {
 	sources := make(map[string]struct{})
 	for _, lbl := range l {
-		sources[lbl.Source] = struct{}{}
+		sources[lbl.Source()] = struct{}{}
 	}
 	return sources
-}
-
-// parseSource returns the parsed source of the given str. It also returns the next piece
-// of text that is after the source.
-// Example:
-//
-//	src, next := parseSource("foo:bar==value")
-//
-// Println(src) // foo
-// Println(next) // bar==value
-// For Cilium format 'delim' must be passed in as ':'
-// For k8s format 'delim' must be passed in as '.'
-func parseSource(str string, delim labelSourceDelimiter) (src, next string) {
-	if str == "" {
-		return "", ""
-	}
-	if str[0] == '$' {
-		return LabelSourceReserved, str[1:]
-	}
-	i := strings.IndexByte(str, byte(delim))
-	if i < 0 {
-		return "", str
-	}
-	return str[:i], str[i+1:]
 }
 
 // ParseLabel returns the label representation of the given string. The str should be
 // in the form of Source:Key=Value or Source:Key if Value is empty. It also parses short
 // forms, for example: $host will be Label{Key: "host", Source: "reserved", Value: ""}.
-func ParseLabel(str string) Label {
-	return parseLabel(str, sourceDelimiter)
-}
-
-// parseLabel returns the label representation of the given string by value.
-// For Cilium format 'delim' must be passed in as ':'
-// For k8s format 'delim' must be passed in as '.'
-func parseLabel(str string, delim labelSourceDelimiter) (lbl Label) {
-	src, next := parseSource(str, delim)
-	if src != "" {
-		lbl.Source = src
-	} else {
-		lbl.Source = LabelSourceUnspec
-	}
-
-	i := strings.IndexByte(next, '=')
-	if i < 0 {
-		lbl.Key = next
-	} else {
-		if i == 0 && src == LabelSourceReserved {
-			lbl.Key = next[i+1:]
-		} else {
-			lbl.Key = next[:i]
-			lbl.Value = next[i+1:]
-		}
-	}
-
-	if lbl.Source == LabelSourceCIDR {
-		if lbl.Value != "" {
-			// slogloggercheck: it's safe to use the default logger here as it has been initialized by the program up to this point.
-			logging.DefaultSlogLogger.Error("Invalid CIDR label: labels with source cidr cannot have values.",
-				logfields.Label, lbl,
-			)
-		}
-		c, err := keyToPrefix(lbl.Key)
-		if err != nil {
-			// slogloggercheck: it's safe to use the default logger here as it has been initialized by the program up to this point.
-			logging.DefaultSlogLogger.Error("Failed to parse CIDR label: invalid prefix.",
-				logfields.Label, lbl,
-			)
-		} else {
-			lbl.cidr = &c
-		}
-	}
-	return lbl
-}
+var ParseLabel = v2.ParseLabel
 
 // ParseSelectLabel returns a selecting label representation of the given
 // string. Unlike ParseLabel, if source is unspecified, the source defaults to
 // LabelSourceAny
-func ParseSelectLabel(str string) Label {
-	return parseSelectLabel(str, sourceDelimiter)
-}
-
-// parseSelectLabel returns a selecting label representation of the given
-// string by value.
-// For Cilium format 'delim' must be passed in as ':'
-func parseSelectLabel(str string, delim labelSourceDelimiter) Label {
-	lbl := parseLabel(str, delim)
-
-	if lbl.Source == LabelSourceUnspec {
-		lbl.Source = LabelSourceAny
-	}
-
-	return lbl
-}
+var ParseSelectLabel = v2.ParseSelectLabel
 
 // NewSourceEncodedLabelKey returns the label key with source information encoded.
 // Source encoded label key is of the format `<source>:<label-key>`.
 // If the provided key already contains a source prefix its returned as is.
-func NewSourceEncodedLabelKey(sourcePrefix, key string) string {
-	src, next := parseSource(key, sourceDelimiter)
-	if len(src) == 0 {
-		return sourcePrefix + next
-	}
-	return src + SourceDelimiter + next
-}
+var NewSourceEncodedLabelKey = v2.NewSourceEncodedLabelKey

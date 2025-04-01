@@ -95,11 +95,7 @@ func constructLabelArrayListFromAPIType(in models.LabelArrayList) labels.LabelAr
 	for _, la := range in {
 		lbls := make(labels.LabelArray, 0, len(la))
 		for _, l := range la {
-			lbls = append(lbls, labels.Label{
-				Key:    l.Key,
-				Value:  l.Value,
-				Source: l.Source,
-			})
+			lbls = append(lbls, labels.NewLabel(l.Key, l.Value, l.Source))
 		}
 		list = append(list, lbls)
 	}

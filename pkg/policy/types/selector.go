@@ -189,14 +189,14 @@ func (ps Selectors) CIDRRules() api.CIDRRuleSlice {
 		if ps, ok := v.(*CIDRSelector); ok && len(ps.requirements) > 0 {
 			var cidrRule api.CIDRRule
 			for lbl, exists := range ps.requirements.KeyOnlyRequirements() {
-				str, err := lbl.ToCIDRString()
+				str, err := labelToCIDRString(lbl)
 				if err != nil {
 					// Not a CIDR label
 					continue
 				}
 				if exists {
 					cidrRule.Cidr = api.CIDR(str)
-				} else if lbl.Source == labels.LabelSourceCIDR {
+				} else if lbl.Source() == labels.LabelSourceCIDR {
 					cidrRule.ExceptCIDRs = append(cidrRule.ExceptCIDRs, api.CIDR(str))
 				}
 			}
@@ -205,6 +205,21 @@ func (ps Selectors) CIDRRules() api.CIDRRuleSlice {
 		}
 	}
 	return result
+}
+
+func labelToCIDRString(lbl labels.Label) (string, error) {
+	if lbl.Source() != labels.LabelSourceCIDR {
+		return "", fmt.Errorf("label %q is not a CIDR label", lbl)
+	}
+	c := lbl.CIDR()
+	if c == nil {
+		prefix, err := labels.LabelToPrefix(lbl.Key())
+		if err != nil {
+			return "", err
+		}
+		c = &prefix
+	}
+	return c.String(), nil
 }
 
 // GetRuleTypes returns booleans for some features used in Selectors.
@@ -305,7 +320,7 @@ func NewLabelSelector(es api.EndpointSelector) *LabelSelector {
 func NewLabelSelectorFromLabels(lbls ...labels.Label) *LabelSelector {
 	ml := map[string]string{}
 	for _, lbl := range lbls {
-		ml[lbl.GetExtendedKey()] = lbl.Value
+		ml[lbl.GetExtendedKey()] = lbl.Value()
 	}
 
 	labelSelector := &slim_metav1.LabelSelector{

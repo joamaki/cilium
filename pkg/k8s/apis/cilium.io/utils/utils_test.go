@@ -69,26 +69,26 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				),
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "parse-in-namespace",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.namespace",
-						Value:  "default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"parse-in-namespace",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.namespace",
+						"default",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -119,26 +119,26 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				),
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "parse-in-namespace-with-ns-selector",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.namespace",
-						Value:  "default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"parse-in-namespace-with-ns-selector",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.namespace",
+						"default",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -170,21 +170,21 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				),
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumClusterwideNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "parse-init-policy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumClusterwideNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"parse-init-policy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -248,26 +248,26 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				},
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "parse-init-policy-namespaced",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.namespace",
-						Value:  "default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"parse-init-policy-namespaced",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.namespace",
+						"default",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -324,26 +324,26 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				},
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "set-any-source-for-namespace",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.namespace",
-						Value:  "default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"set-any-source-for-namespace",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.namespace",
+						"default",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -415,26 +415,10 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				},
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "set-cluster-by-default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.namespace",
-						Value:  "default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel("io.cilium.k8s.policy.derived-from", "CiliumNetworkPolicy", labels.LabelSourceK8s),
+					labels.NewLabel("io.cilium.k8s.policy.name", "set-cluster-by-default", labels.LabelSourceK8s),
+					labels.NewLabel("io.cilium.k8s.policy.namespace", "default", labels.LabelSourceK8s),
+					labels.NewLabel("io.cilium.k8s.policy.uid", string(uuid), labels.LabelSourceK8s),
 				},
 			),
 		},
@@ -493,26 +477,26 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				},
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "parse-in-namespace-with-ns-labels-selector",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.namespace",
-						Value:  "default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"parse-in-namespace-with-ns-labels-selector",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.namespace",
+						"default",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -574,21 +558,21 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				},
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumClusterwideNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "wildcard-to-from-endpoints-with-ccnp",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumClusterwideNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"wildcard-to-from-endpoints-with-ccnp",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -658,26 +642,26 @@ func Test_ParseToCiliumRule(t *testing.T) {
 				},
 			).WithLabels(
 				labels.LabelArray{
-					{
-						Key:    "io.cilium.k8s.policy.derived-from",
-						Value:  "CiliumNetworkPolicy",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.name",
-						Value:  "parse-from-to-nodes-rule",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.namespace",
-						Value:  "default",
-						Source: labels.LabelSourceK8s,
-					},
-					{
-						Key:    "io.cilium.k8s.policy.uid",
-						Value:  string(uuid),
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"io.cilium.k8s.policy.derived-from",
+						"CiliumNetworkPolicy",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.name",
+						"parse-from-to-nodes-rule",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.namespace",
+						"default",
+						labels.LabelSourceK8s,
+					),
+					labels.NewLabel(
+						"io.cilium.k8s.policy.uid",
+						string(uuid),
+						labels.LabelSourceK8s,
+					),
 				},
 			),
 		},
@@ -720,39 +704,39 @@ func TestParseToCiliumLabels(t *testing.T) {
 				namespace: "bar",
 				uid:       uuid,
 				ruleLbs: labels.LabelArray{
-					{
-						Key:    "hello",
-						Value:  "world",
-						Source: labels.LabelSourceK8s,
-					},
+					labels.NewLabel(
+						"hello",
+						"world",
+						labels.LabelSourceK8s,
+					),
 				},
 			},
 			want: labels.LabelArray{
-				{
-					Key:    "hello",
-					Value:  "world",
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "io.cilium.k8s.policy.derived-from",
-					Value:  "CiliumNetworkPolicy",
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "io.cilium.k8s.policy.name",
-					Value:  "foo",
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "io.cilium.k8s.policy.namespace",
-					Value:  "bar",
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "io.cilium.k8s.policy.uid",
-					Value:  string(uuid),
-					Source: labels.LabelSourceK8s,
-				},
+				labels.NewLabel(
+					"hello",
+					"world",
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.derived-from",
+					"CiliumNetworkPolicy",
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.name",
+					"foo",
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.namespace",
+					"bar",
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.uid",
+					string(uuid),
+					labels.LabelSourceK8s,
+				),
 			},
 		},
 		{
@@ -762,59 +746,59 @@ func TestParseToCiliumLabels(t *testing.T) {
 				namespace: "default",
 				uid:       uuid,
 				ruleLbs: labels.LabelArray{
-					{
-						Key:    "policy-comment",
-						Value:  "allow all traffic inside namespace",
-						Source: "",
-					},
-					{
-						Key:    "team",
-						Value:  "platform",
-						Source: labels.LabelSourceUnspec,
-					},
-					{
-						Key:    "explicit-source",
-						Value:  "test",
-						Source: "custom",
-					},
+					labels.NewLabel(
+						"policy-comment",
+						"allow all traffic inside namespace",
+						"",
+					),
+					labels.NewLabel(
+						"team",
+						"platform",
+						labels.LabelSourceUnspec,
+					),
+					labels.NewLabel(
+						"explicit-source",
+						"test",
+						"custom",
+					),
 				},
 			},
 			want: labels.LabelArray{
-				{
-					Key:    "explicit-source",
-					Value:  "test",
-					Source: "custom",
-				},
-				{
-					Key:    "io.cilium.k8s.policy.derived-from",
-					Value:  "CiliumNetworkPolicy",
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "io.cilium.k8s.policy.name",
-					Value:  "test-policy",
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "io.cilium.k8s.policy.namespace",
-					Value:  "default",
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "io.cilium.k8s.policy.uid",
-					Value:  string(uuid),
-					Source: labels.LabelSourceK8s,
-				},
-				{
-					Key:    "policy-comment",
-					Value:  "allow all traffic inside namespace",
-					Source: labels.LabelSourceUnspec,
-				},
-				{
-					Key:    "team",
-					Value:  "platform",
-					Source: labels.LabelSourceUnspec,
-				},
+				labels.NewLabel(
+					"explicit-source",
+					"test",
+					"custom",
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.derived-from",
+					"CiliumNetworkPolicy",
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.name",
+					"test-policy",
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.namespace",
+					"default",
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"io.cilium.k8s.policy.uid",
+					string(uuid),
+					labels.LabelSourceK8s,
+				),
+				labels.NewLabel(
+					"policy-comment",
+					"allow all traffic inside namespace",
+					labels.LabelSourceUnspec,
+				),
+				labels.NewLabel(
+					"team",
+					"platform",
+					labels.LabelSourceUnspec,
+				),
 			},
 		},
 	}

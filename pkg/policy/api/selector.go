@@ -115,7 +115,7 @@ func (n EndpointSelector) GetMatch(key string) ([]string, bool) {
 func NewESFromLabels(lbls ...labels.Label) EndpointSelector {
 	ml := map[string]string{}
 	for _, lbl := range lbls {
-		ml[lbl.GetExtendedKey()] = lbl.Value
+		ml[lbl.GetExtendedKey()] = lbl.Value()
 	}
 
 	return NewESFromMatchRequirements(ml, nil)

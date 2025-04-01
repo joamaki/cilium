@@ -220,8 +220,12 @@ func TestL3WithIngressDenyWildcard(t *testing.T) {
 	repo := td.repo
 	td.bootstrapRepo(GenerateL3IngressDenyRules, 1000, t)
 
-	idFooLabels := labels.ParseLabelArray("id=foo").Labels()
-	fooIdentity := identity.NewIdentity(12345, idFooLabels)
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
+	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -286,8 +290,13 @@ func TestL3WithLocalHostWildcardd(t *testing.T) {
 	repo := td.repo
 	td.bootstrapRepo(GenerateL3IngressDenyRules, 1000, t)
 
-	idFooLabels := labels.ParseLabelArray("id=foo").Labels()
-	fooIdentity := identity.NewIdentity(12345, idFooLabels)
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
+
+	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 
 	// Emulate Kubernetes mode with allow from localhost
@@ -376,8 +385,12 @@ func TestMapStateWithIngressDenyWildcard(t *testing.T) {
 		labels.NewLabel(LabelKeyPolicyDerivedFrom, LabelAllowAnyEgress, labels.LabelSourceReserved),
 	}
 
-	idFooLabels := labels.ParseLabelArray("id=foo").Labels()
-	fooIdentity := identity.NewIdentity(12345, idFooLabels)
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
+	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 
 	selFoo := api.NewESFromLabels(labels.ParseSelectLabel("id=foo"))
@@ -473,8 +486,12 @@ func TestMapStateWithIngressDeny(t *testing.T) {
 		labels.NewLabel(LabelKeyPolicyDerivedFrom, LabelAllowAnyEgress, labels.LabelSourceReserved),
 	}
 
-	idFooLabels := labels.ParseLabelArray("id=foo").Labels()
-	fooIdentity := identity.NewIdentity(12345, idFooLabels)
+	idFooSelectLabelArray := labels.ParseSelectLabelArray("id=foo")
+	idFooSelectLabels := labels.Labels{}
+	for _, lbl := range idFooSelectLabelArray {
+		idFooSelectLabels[lbl.Key()] = lbl
+	}
+	fooIdentity := identity.NewIdentity(12345, idFooSelectLabels)
 	td.addIdentity(fooIdentity)
 
 	lblTest := labels.ParseLabel("id=resolve_test_1")

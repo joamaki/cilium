@@ -15,9 +15,18 @@ import (
 // +kubebuilder:validation:Format=cidr
 type CIDR string
 
-func (s CIDR) SelectorKey() string {
-	return labels.LabelSourceCIDR + ":" + string(s)
+func (c CIDR) SelectorKey() string {
+	return labels.LabelSourceCIDR + labels.SourceDelimiter + string(c)
 }
+
+var (
+	ipv4All = CIDR("0.0.0.0/0")
+	ipv6All = CIDR("::/0")
+
+	worldLabelNonDualStack = labels.NewLabel(labels.IDNameWorld, "", labels.LabelSourceReserved)
+	worldLabelV4           = labels.NewLabel(labels.IDNameWorldIPv4, "", labels.LabelSourceReserved)
+	worldLabelV6           = labels.NewLabel(labels.IDNameWorldIPv6, "", labels.LabelSourceReserved)
+)
 
 // CIDRRule is a rule that specifies a CIDR prefix to/from which outside
 // communication  is allowed, along with an optional list of subnets within that

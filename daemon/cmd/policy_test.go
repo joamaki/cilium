@@ -370,23 +370,23 @@ func (ds *DaemonSuite) testUpdateConsumerMap(t *testing.T) {
 	ds.policyImport(rules)
 
 	// Prepare the identities necessary for testing
-	qaBarLbls := labels.Labels{lblBar.Key: lblBar, lblQA.Key: lblQA}
+	qaBarLbls := labels.Labels{lblBar.Key(): lblBar, lblQA.Key(): lblQA}
 	qaBarSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaBarLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaBarSecLblsCtx, false)
-	prodBarLbls := labels.Labels{lblBar.Key: lblBar, lblProd.Key: lblProd}
+	prodBarLbls := labels.Labels{lblBar.Key(): lblBar, lblProd.Key(): lblProd}
 	prodBarSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), prodBarLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), prodBarSecLblsCtx, false)
-	qaFooLbls := labels.Labels{lblFoo.Key: lblFoo, lblQA.Key: lblQA}
+	qaFooLbls := labels.Labels{lblFoo.Key(): lblFoo, lblQA.Key(): lblQA}
 	qaFooSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaFooLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaFooSecLblsCtx, false)
-	prodFooLbls := labels.Labels{lblFoo.Key: lblFoo, lblProd.Key: lblProd}
+	prodFooLbls := labels.Labels{lblFoo.Key(): lblFoo, lblProd.Key(): lblProd}
 	prodFooSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), prodFooLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), prodFooSecLblsCtx, false)
-	prodFooJoeLbls := labels.Labels{lblFoo.Key: lblFoo, lblProd.Key: lblProd, lblJoe.Key: lblJoe}
+	prodFooJoeLbls := labels.Labels{lblFoo.Key(): lblFoo, lblProd.Key(): lblProd, lblJoe.Key(): lblJoe}
 	prodFooJoeSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), prodFooJoeLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), prodFooJoeSecLblsCtx, false)
@@ -507,11 +507,11 @@ func TestPrivilegedL4L7ShadowingEtcd(t *testing.T) {
 
 func (ds *DaemonSuite) testL4L7Shadowing(t *testing.T) {
 	// Prepare the identities necessary for testing
-	qaBarLbls := labels.Labels{lblBar.Key: lblBar, lblQA.Key: lblQA}
+	qaBarLbls := labels.Labels{lblBar.Key(): lblBar, lblQA.Key(): lblQA}
 	qaBarSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaBarLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaBarSecLblsCtx, false)
-	qaFooLbls := labels.Labels{lblFoo.Key: lblFoo, lblQA.Key: lblQA}
+	qaFooLbls := labels.Labels{lblFoo.Key(): lblFoo, lblQA.Key(): lblQA}
 	qaFooSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaFooLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaFooSecLblsCtx, false)
@@ -600,11 +600,11 @@ func TestPrivilegedL4L7ShadowingShortCircuitEtcd(t *testing.T) {
 // envoy does not even have the HTTP rules).
 func (ds *DaemonSuite) testL4L7ShadowingShortCircuit(t *testing.T) {
 	// Prepare the identities necessary for testing
-	qaBarLbls := labels.Labels{lblBar.Key: lblBar, lblQA.Key: lblQA}
+	qaBarLbls := labels.Labels{lblBar.Key(): lblBar, lblQA.Key(): lblQA}
 	qaBarSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaBarLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaBarSecLblsCtx, false)
-	qaFooLbls := labels.Labels{lblFoo.Key: lblFoo, lblQA.Key: lblQA}
+	qaFooLbls := labels.Labels{lblFoo.Key(): lblFoo, lblQA.Key(): lblQA}
 	qaFooSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaFooLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaFooSecLblsCtx, false)
@@ -690,15 +690,15 @@ func TestPrivilegedL3DependentL7Etcd(t *testing.T) {
 
 func (ds *DaemonSuite) testL3DependentL7(t *testing.T) {
 	// Prepare the identities necessary for testing
-	qaBarLbls := labels.Labels{lblBar.Key: lblBar, lblQA.Key: lblQA}
+	qaBarLbls := labels.Labels{lblBar.Key(): lblBar, lblQA.Key(): lblQA}
 	qaBarSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaBarLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaBarSecLblsCtx, false)
-	qaFooLbls := labels.Labels{lblFoo.Key: lblFoo, lblQA.Key: lblQA}
+	qaFooLbls := labels.Labels{lblFoo.Key(): lblFoo, lblQA.Key(): lblQA}
 	qaFooSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaFooLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaFooSecLblsCtx, false)
-	qaJoeLbls := labels.Labels{lblJoe.Key: lblJoe, lblQA.Key: lblQA}
+	qaJoeLbls := labels.Labels{lblJoe.Key(): lblJoe, lblQA.Key(): lblQA}
 	qaJoeSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaJoeLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaJoeSecLblsCtx, false)
@@ -797,7 +797,7 @@ func TestPrivilegedRemovePolicyEtcd(t *testing.T) {
 }
 
 func (ds *DaemonSuite) testRemovePolicy(t *testing.T) {
-	qaBarLbls := labels.Labels{lblBar.Key: lblBar, lblQA.Key: lblQA}
+	qaBarLbls := labels.Labels{lblBar.Key(): lblBar, lblQA.Key(): lblQA}
 	qaBarSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaBarLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaBarSecLblsCtx, false)
@@ -867,7 +867,7 @@ func TestPrivilegedIncrementalPolicyEtcd(t *testing.T) {
 }
 
 func (ds *DaemonSuite) testIncrementalPolicy(t *testing.T) {
-	qaBarLbls := labels.Labels{lblBar.Key: lblBar, lblQA.Key: lblQA}
+	qaBarLbls := labels.Labels{lblBar.Key(): lblBar, lblQA.Key(): lblQA}
 	qaBarSecLblsCtx, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaBarLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaBarSecLblsCtx, false)
@@ -925,7 +925,7 @@ func (ds *DaemonSuite) testIncrementalPolicy(t *testing.T) {
 	require.Empty(t, qaBarNetworkPolicy.IngressPerPortPolicies)
 
 	// Allocate identities needed for this test
-	qaFooLbls := labels.Labels{lblFoo.Key: lblFoo, lblQA.Key: lblQA}
+	qaFooLbls := labels.Labels{lblFoo.Key(): lblFoo, lblQA.Key(): lblQA}
 	qaFooID, _, err := ds.identityAllocator.AllocateIdentity(context.Background(), qaFooLbls, true, identity.InvalidIdentity)
 	require.NoError(t, err)
 	defer ds.identityAllocator.Release(context.Background(), qaFooID, false)

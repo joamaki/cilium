@@ -757,10 +757,7 @@ func (sp *testSelectorPolicy) createSelectorCache() (policy.CachedSelector, *pol
 	sc := policy.NewSelectorCache(logging.DefaultSlogLogger,
 		identity.IdentityMap{
 			dnsServerIdentity: labels.LabelArray{
-				labels.Label{
-					Key:   "app",
-					Value: "test",
-				},
+				labels.NewLabel("app", "test", labels.LabelSourceUnspec),
 			},
 		},
 	)

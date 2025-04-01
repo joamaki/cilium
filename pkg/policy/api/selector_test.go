@@ -355,7 +355,7 @@ func TestEndpointSelectorSanitize(t *testing.T) {
 		},
 		{
 			"EndpointSelector from Cilium Labels",
-			NewESFromLabels(labels.Label{Key: "app", Source: "k8s", Value: "frontend"}),
+			NewESFromLabels(labels.NewLabel("app", "frontend", "k8s")),
 			NewESFromK8sLabelSelector("", &slim_metav1.LabelSelector{
 				MatchLabels: map[string]string{"k8s:app": "frontend"},
 			}),

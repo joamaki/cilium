@@ -133,9 +133,9 @@ func NewExceptRequirement(lbl labels.Label) Requirement {
 
 func NewEqualsRequirement(lbl labels.Label) Requirement {
 	return Requirement{
-		key:      labels.Label{Key: lbl.Key, Source: lbl.Source},
+		key:      labels.NewLabel(lbl.Key(), "", lbl.Source()),
 		operator: selection.Equals,
-		values:   set.NewSet(lbl.Value),
+		values:   set.NewSet(lbl.Value()),
 	}
 }
 
@@ -148,11 +148,21 @@ func NewRequirement(key string, op selection.Operator, values []string) Requirem
 }
 
 func (r *Requirement) GetKeyPrefix() *netip.Prefix {
-	return r.key.GetCIDRPrefix()
+	if r.key.Source() != labels.LabelSourceCIDR {
+		return nil
+	}
+	if c := r.key.CIDR(); c != nil {
+		return c
+	}
+	c, err := labels.LabelToPrefix(r.key.Key())
+	if err != nil {
+		return nil
+	}
+	return &c
 }
 
 func (r *Requirement) HasKeySource(source string) bool {
-	return r.key.Source == source
+	return r.key.Source() == source
 }
 
 func (r *Requirement) HasValue(value string) bool {
@@ -262,7 +272,7 @@ func matchesEncodedRequirements(reqs Requirements, ls labels.LabelArray) bool {
 func matchesEncodedRequirement(r *Requirement, ls labels.LabelArray) bool {
 	encodedValueExists := func() bool {
 		for val := range r.values.Members() {
-			encoded := labels.EncodedCIDRGroupLabel(r.key.Key, val, r.key.Source)
+			encoded := labels.EncodedCIDRGroupLabel(r.key.Key(), val, r.key.Source())
 			if _, exists := ls.LookupLabel(&encoded); exists {
 				return true
 			}
@@ -290,7 +300,7 @@ func matchesEncodedRequirement(r *Requirement, ls labels.LabelArray) bool {
 // values not in such intersection.
 func (reqs Requirements) GetFirstK8sMatch(key string) ([]string, bool) {
 	for _, r := range reqs {
-		if r.key.Source == labels.LabelSourceK8s && r.key.Key == key {
+		if r.key.Source() == labels.LabelSourceK8s && r.key.Key() == key {
 			switch r.operator {
 			case selection.In, selection.Equals, selection.DoubleEquals:
 				return r.values.AsSlice(), true

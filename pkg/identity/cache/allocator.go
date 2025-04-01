@@ -1010,7 +1010,7 @@ func mapLabels(allocatorKey allocator.AllocatorKey) labels.Labels {
 		idLabels = labels.Labels{}
 		for k, v := range allocatorKey.GetAsMap() {
 			label := labels.ParseLabel(k + "=" + v)
-			idLabels[label.Key] = label
+			idLabels[label.Key()] = label
 		}
 	}
 
@@ -1054,15 +1054,15 @@ func clusterNameValidator(clusterName string) allocator.CacheValidator {
 
 		var found bool
 		for _, lbl := range gi.LabelArray {
-			if lbl.Key != api.PolicyLabelCluster {
+			if lbl.Key() != api.PolicyLabelCluster {
 				continue
 			}
 
 			switch {
-			case lbl.Source != labels.LabelSourceK8s:
-				return fmt.Errorf("unexpected source for cluster label: got %s, expected %s", lbl.Source, labels.LabelSourceK8s)
-			case lbl.Value != clusterName:
-				return fmt.Errorf("unexpected cluster name: got %s, expected %s", lbl.Value, clusterName)
+			case lbl.Source() != labels.LabelSourceK8s:
+				return fmt.Errorf("unexpected source for cluster label: got %s, expected %s", lbl.Source(), labels.LabelSourceK8s)
+			case lbl.Value() != clusterName:
+				return fmt.Errorf("unexpected cluster name: got %s, expected %s", lbl.Value(), clusterName)
 			default:
 				found = true
 			}

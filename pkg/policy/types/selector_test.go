@@ -31,9 +31,9 @@ func TestCIDRRuleToCIDRSelectors(t *testing.T) {
 
 			lbl := labels.ParseSelectLabel(k)
 
-			if lbl.Value != "" {
+			if lbl.Value() != "" {
 				ps = &CIDRSelector{
-					key: fmt.Sprintf("&LabelSelector{MatchLabels:map[string]string{%s:%s: %s,},MatchExpressions:[]LabelSelectorRequirement{},}", lbl.Source, lbl.Key, lbl.Value),
+					key: fmt.Sprintf("&LabelSelector{MatchLabels:map[string]string{%s:%s: %s,},MatchExpressions:[]LabelSelectorRequirement{},}", lbl.Source(), lbl.Key(), lbl.Value()),
 					requirements: Requirements{
 						NewEqualsRequirement(lbl),
 					},

@@ -361,20 +361,20 @@ type labelsMatcher labels.Labels
 
 // Get implements labels.LabelMatcher; label source is ignored
 func (l labelsMatcher) GetLabel(label *labels.Label) (value string) {
-	v := l[label.Key]
-	return v.Value
+	v := l[label.Key()]
+	return v.Value()
 }
 
 // Has implements labels.LabelMatcher.
 func (l labelsMatcher) HasLabel(label *labels.Label) (exists bool) {
-	_, ok := l[label.Key]
+	_, ok := l[label.Key()]
 	return ok
 }
 
 // Lookup implements labels.LabelMatcher
 func (l labelsMatcher) LookupLabel(label *labels.Label) (value string, exists bool) {
-	v, ok := l[label.Key]
-	return v.Value, ok
+	v, ok := l[label.Key()]
+	return v.Value(), ok
 }
 
 var _ labels.LabelMatcher = labelsMatcher{}

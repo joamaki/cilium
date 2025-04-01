@@ -15,8 +15,8 @@ type LabelMatcher interface {
 type K8sSet map[string]string
 
 func (s K8sSet) LookupLabel(l *Label) (value string, exists bool) {
-	if l.IsAnySource() || l.Source == LabelSourceK8s {
-		value, exists = s[l.Key]
+	if l.IsAnySource() || l.Source() == LabelSourceK8s {
+		value, exists = s[l.Key()]
 	}
 	return value, exists
 }

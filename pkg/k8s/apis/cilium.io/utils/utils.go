@@ -419,9 +419,9 @@ func ParseToCiliumLabels(namespace, name string, uid types.UID, ruleLbs labels.L
 	// Ensure user-defined labels have consistent source
 	userLbls := make(labels.LabelArray, len(ruleLbs))
 	for i, lbl := range ruleLbs {
-		if lbl.Source == "" {
+		if lbl.Source() == "" {
 			// If source is empty, set it to unspec
-			userLbls[i] = labels.NewLabel(lbl.Key, lbl.Value, labels.LabelSourceUnspec)
+			userLbls[i] = labels.NewLabel(lbl.Key(), lbl.Value(), labels.LabelSourceUnspec)
 		} else {
 			userLbls[i] = lbl
 		}

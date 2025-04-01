@@ -101,9 +101,9 @@ func TestNamedPortsIdentityLabel(t *testing.T) {
 		"http":  {Port: 80, Proto: u8proto.TCP},
 	})
 	require.True(t, ok)
-	require.Equal(t, ciliumio.NamedPortsIdentityLabelName, label.Key)
-	require.Equal(t, "dns:UDP:53,http:TCP:80,https:TCP:443", label.Value)
-	require.Equal(t, ciliumLabels.LabelSourceGenerated, label.Source)
+	require.Equal(t, ciliumio.NamedPortsIdentityLabelName, label.Key())
+	require.Equal(t, "dns:UDP:53,http:TCP:80,https:TCP:443", label.Value())
+	require.Equal(t, ciliumLabels.LabelSourceGenerated, label.Source())
 
 	_, ok = NamedPortsIdentityLabel(nil)
 	require.False(t, ok)

@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/cilium/pkg/identity"
 	k8sConst "github.com/cilium/cilium/pkg/k8s/apis/cilium.io"
 	"github.com/cilium/cilium/pkg/k8s/utils"
+	ciliumLabels "github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/time"
@@ -140,10 +141,12 @@ func (r *EndpointResolver) ResolveEndpoint(ip netip.Addr, datapathSecurityIdenti
 		if ep, ok := r.endpointGetter.GetEndpointInfo(ip); ok {
 			epIdentity := resolveIdentityConflict(ep.GetIdentity(), true)
 			labels := ep.GetLabels()
+			clusterLabel := ciliumLabels.NewLabel(k8sConst.PolicyLabelCluster, "", ciliumLabels.LabelSourceK8s)
+			clusterName, _ := labels.LookupLabel(&clusterLabel)
 			e := &pb.Endpoint{
 				ID:          uint32(ep.GetID()),
 				Identity:    epIdentity,
-				ClusterName: (labels[k8sConst.PolicyLabelCluster]).Value,
+				ClusterName: clusterName,
 				Namespace:   ep.GetK8sNamespace(),
 				Labels:      SortAndFilterLabels(r.log, labels.GetModel(), identity.NumericIdentity(epIdentity)),
 				PodName:     ep.GetK8sPodName(),
@@ -180,7 +183,8 @@ func (r *EndpointResolver) ResolveEndpoint(ip netip.Addr, datapathSecurityIdenti
 			)
 		} else {
 			labels = SortAndFilterLabels(r.log, id.Labels.GetModel(), identity.NumericIdentity(numericIdentity))
-			clusterName = (id.Labels[k8sConst.PolicyLabelCluster]).Value
+			clusterLabel := ciliumLabels.NewLabel(k8sConst.PolicyLabelCluster, "", ciliumLabels.LabelSourceK8s)
+			clusterName, _ = id.Labels.LookupLabel(&clusterLabel)
 		}
 	}
 

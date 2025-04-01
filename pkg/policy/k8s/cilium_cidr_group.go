@@ -46,12 +46,12 @@ func (p *policyWatcher) cidrsAndLabelsForCIDRGroup(name string) (sets.Set[netip.
 		lbls = make(labels.Labels, len(filtered)*2+1) // +1 for CIDRGroupRef label
 		for k, v := range filtered {
 			l := labels.NewLabel(k, v, labels.LabelSourceCIDRGroup)
-			lbls[l.Key] = l // may collide; only used for Exists
-			encoded := labels.EncodedCIDRGroupLabel(l.Key, l.Value, l.Source)
-			lbls[encoded.Key] = encoded
+			lbls[l.Key()] = l // may collide; only used for Exists
+			encoded := labels.EncodedCIDRGroupLabel(l.Key(), l.Value(), l.Source())
+			lbls[encoded.Key()] = encoded
 		}
 		lbl := api.LabelForCIDRGroupRef(name)
-		lbls[lbl.Key] = lbl
+		lbls[lbl.Key()] = lbl
 
 		for i, c := range cidrGroup.Spec.ExternalCIDRs {
 			pfx, err := netip.ParsePrefix(string(c))

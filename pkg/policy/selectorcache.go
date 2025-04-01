@@ -328,6 +328,22 @@ func (sc *SelectorCache) GetModel() models.SelectorCache {
 	return selCacheMdl
 }
 
+func labelArrayListToModel(ls labels.LabelArrayList) models.LabelArrayList {
+	out := make(models.LabelArrayList, 0, len(ls))
+	for _, la := range ls {
+		labelsModel := make(models.LabelArray, 0, len(la))
+		for _, l := range la {
+			labelsModel = append(labelsModel, &models.Label{
+				Key:    l.Key(),
+				Value:  l.Value(),
+				Source: l.Source(),
+			})
+		}
+		out = append(out, labelsModel)
+	}
+	return out
+}
+
 func (sc *SelectorCache) Stats() selectorStats {
 	result := newSelectorStats()
 
@@ -357,18 +373,14 @@ func (sc *SelectorCache) Stats() selectorStats {
 	return result
 }
 
-func labelArrayListToModel(list labels.LabelArrayList) models.LabelArrayList {
-	lbls := make(models.LabelArrayList, 0, len(list))
-	for _, arr := range list {
-		lblArray := make(models.LabelArray, 0, len(arr))
-		for _, l := range arr {
-			lblArray = append(lblArray, &models.Label{
-				Key:    l.Key,
-				Value:  l.Value,
-				Source: l.Source,
-			})
-		}
-		lbls = append(lbls, lblArray)
+func labelArrayToModel(arr labels.LabelArray) models.LabelArray {
+	lbls := make(models.LabelArray, 0, len(arr))
+	for _, l := range arr {
+		lbls = append(lbls, &models.Label{
+			Key:    l.Key(),
+			Value:  l.Value(),
+			Source: l.Source(),
+		})
 	}
 	return lbls
 }

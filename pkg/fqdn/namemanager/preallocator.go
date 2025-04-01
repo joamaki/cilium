@@ -73,15 +73,15 @@ func labelsForSelector(v4, v6 bool, sel api.FQDNSelector) []labels.Labels {
 	out := make([]labels.Labels, 0, 2)
 	if v4 && v6 {
 		l4 := labels.NewFrom(labels.LabelWorldIPv4)
-		l4[lbl.Key] = lbl
+		l4[lbl.Key()] = lbl
 		out = append(out, l4)
 
 		l6 := labels.NewFrom(labels.LabelWorldIPv6)
-		l6[lbl.Key] = lbl
+		l6[lbl.Key()] = lbl
 		out = append(out, l6)
 	} else {
 		lw := labels.NewFrom(labels.LabelWorld)
-		lw[lbl.Key] = lbl
+		lw[lbl.Key()] = lbl
 		out = append(out, lw)
 	}
 	return out

@@ -63,7 +63,7 @@ func (cemf *cachedEndpointMetadataFetcher) FetchK8sMetadataForEndpoint(nsName, p
 	if err == nil && newPod {
 		lbl, haveLbl := k8s.NamedPortsIdentityLabel(metadata.NamedPorts)
 		if haveLbl {
-			metadata.IdentityLabels[lbl.Key] = lbl
+			metadata.IdentityLabels[lbl.Key()] = lbl
 		}
 	}
 

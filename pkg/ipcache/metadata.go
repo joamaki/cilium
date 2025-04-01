@@ -317,12 +317,12 @@ func (m *metadata) mergeParentLabels(lbls labels.Labels, prefixCluster cmtypes.P
 		parent, _ := prefix.Addr().Unmap().Prefix(bits) // canonical
 		if info := m.getLocked(cmtypes.NewPrefixCluster(parent, prefixCluster.ClusterID())); info != nil {
 			for k, v := range info.ToLabels() {
-				if v.Source == labels.LabelSourceCIDR && hasCIDR {
+				if v.Source() == labels.LabelSourceCIDR && hasCIDR {
 					continue
 				}
 				if _, ok := lbls[k]; !ok {
 					lbls[k] = v
-					if v.Source == labels.LabelSourceCIDR {
+					if v.Source() == labels.LabelSourceCIDR {
 						hasCIDR = true
 					}
 				}
