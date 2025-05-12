@@ -7,6 +7,7 @@ import (
 	"github.com/cilium/hive/cell"
 
 	"github.com/cilium/cilium/pkg/endpoint"
+	"github.com/cilium/cilium/pkg/k8s/watchers"
 )
 
 // The node discovery cell provides the local node configuration and node discovery
@@ -16,7 +17,11 @@ var Cell = cell.Module(
 	"Communicate changes in local node information to the API server or KVStore",
 
 	// Node discovery communicates changes in local node information to the API server or KVStore
-	cell.Provide(NewNodeDiscovery),
+	cell.Provide(newNodeDiscovery),
+
+	cell.ProvidePrivate(
+		func(nw *watchers.K8sCiliumNodeWatcher) k8sGetters { return nw },
+	),
 
 	// Provide the function used to wait for completion of node synchronization from
 	// the kvstore. This is provided as a separate type (rather than having the

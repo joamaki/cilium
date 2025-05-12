@@ -28,7 +28,6 @@ import (
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/client"
-	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
@@ -71,14 +70,14 @@ type NodeDiscovery struct {
 	ctrlmgr               *controller.Manager
 }
 
-// NewNodeDiscovery returns a pointer to new node discovery object
-func NewNodeDiscovery(
+// newNodeDiscovery returns a pointer to new node discovery object
+func newNodeDiscovery(
 	logger *slog.Logger,
 	manager nodemanager.NodeManager,
 	clientset client.Clientset,
 	lns *node.LocalNodeStore,
 	cniConfigManager cni.CNIConfigManager,
-	k8sNodeWatcher *watchers.K8sCiliumNodeWatcher,
+	k8sNodeWatcher k8sGetters,
 ) *NodeDiscovery {
 	return &NodeDiscovery{
 		logger:                logger,
