@@ -9,13 +9,10 @@ import (
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
 	"github.com/cilium/statedb"
-	"github.com/cilium/statedb/reconciler"
 	"github.com/go-openapi/runtime/middleware"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/cilium/cilium/api/v1/models"
 	serviceapi "github.com/cilium/cilium/api/v1/server/restapi/service"
-	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/loadbalancer"
 	"github.com/cilium/cilium/pkg/loadbalancer/legacy/service"
@@ -49,16 +46,6 @@ type adapterParams struct {
 
 // newAdapters constructs the ServiceCache and ServiceManager adapters
 func newAdapters(p adapterParams) service.ServiceManager {
-	// If we are not running in tests we should register a table initializer to
-	// delay pruning until ClusterMesh has catched up. This happens via
-	// (*Daemon).initRestore in daemon/cmd/state.go. Once ClusterMesh has switched
-	// to using the Writer directly this can be removed.
-	var initDone func(writer.WriteTxn)
-	if p.TestConfig == nil && p.Clientset.IsEnabled() {
-		initDone = p.Writer.RegisterInitializer("adapters")
-	} else {
-		initDone = func(writer.WriteTxn) {}
-	}
 	sma := &serviceManagerAdapter{
 		log:          p.Log,
 		daemonConfig: p.DaemonConfig,
@@ -66,7 +53,6 @@ func newAdapters(p adapterParams) service.ServiceManager {
 		services:     p.Services,
 		frontends:    p.Frontends,
 		writer:       p.Writer,
-		initDone:     initDone,
 	}
 	return sma
 }
@@ -78,8 +64,6 @@ type serviceManagerAdapter struct {
 	services     statedb.Table[*loadbalancer.Service]
 	frontends    statedb.Table[*loadbalancer.Frontend]
 	writer       *writer.Writer
-
-	initDone func(writer.WriteTxn)
 }
 
 // GetCurrentTs implements service.ServiceManager.
@@ -162,30 +146,6 @@ func (s *serviceManagerAdapter) GetLastUpdatedTs() time.Time {
 	// Used by kubeproxyhealthz. Unclear how important it is to have real last updated time here.
 	// We could e.g. keep a timestamp behind an atomic in BPFOps to implement that.
 	return time.Now()
-}
-
-// SyncWithK8sFinished implements service.ServiceManager.
-func (s *serviceManagerAdapter) SyncWithK8sFinished(localOnly bool, localServices sets.Set[k8s.ServiceID]) (stale []k8s.ServiceID, err error) {
-	if !localOnly {
-		txn := s.writer.WriteTxn()
-		s.initDone(txn)
-		txn.Commit()
-	}
-	return
-}
-
-// GetServiceIDs implements service.ServiceReader.
-func (s *serviceManagerAdapter) GetServiceIDs() []loadbalancer.ServiceID {
-	// Used by pkg/act.
-
-	txn := s.db.ReadTxn()
-	ids := make([]loadbalancer.ServiceID, 0, s.frontends.NumObjects(txn))
-	for fe := range s.frontends.All(txn) {
-		if fe.Status.Kind == reconciler.StatusKindDone {
-			ids = append(ids, fe.ID)
-		}
-	}
-	return ids
 }
 
 // GetServiceNameByAddr implements service.ServiceReader.
