@@ -587,6 +587,7 @@ func testHive(maps lbmaps.LBMaps,
 			lbreconciler.Cell,
 
 			cell.Provide(lbmaps.NetnsCookieSupportFunc),
+			cell.Provide(lbmaps.NewRestored),
 
 			cell.Provide(
 				tables.NewNodeAddressTable,

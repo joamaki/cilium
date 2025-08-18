@@ -21,6 +21,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/datapath/tables"
 	"github.com/cilium/cilium/pkg/loadbalancer"
+	"github.com/cilium/cilium/pkg/loadbalancer/maps"
 	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/source"
@@ -47,6 +48,13 @@ type Writer struct {
 	isServiceHealthCheckedFunc IsServiceHealthCheckedFunc
 
 	extCfg *loadbalancer.ExternalConfig
+
+	restored *maps.Restored
+}
+
+type oldHealth interface {
+	GetOldBackendHealth(fe, be loadbalancer.L3n4Addr) (healthy bool, found bool)
+	ForgetOldBackendHealth(fe, be loadbalancer.L3n4Addr)
 }
 
 type SelectBackendsFunc = func(iter.Seq2[loadbalancer.BackendParams, statedb.Revision], *loadbalancer.Service, *loadbalancer.Frontend) iter.Seq2[loadbalancer.BackendParams, statedb.Revision]
@@ -66,6 +74,7 @@ type writerParams struct {
 	Frontends      statedb.RWTable[*loadbalancer.Frontend]
 	Backends       statedb.RWTable[*loadbalancer.Backend]
 	LocalNodeStore *node.LocalNodeStore
+	Restored       *maps.Restored
 
 	SourcePriorities source.Sources
 
@@ -88,6 +97,7 @@ func NewWriter(p writerParams) (*Writer, error) {
 		nodeAddrs:        p.NodeAddresses,
 		sourcePriorities: priorityMapFromSlice(p.SourcePriorities),
 		extCfg:           &p.ExtCfg,
+		restored:         p.Restored,
 	}
 	w.selectBackendsFunc = w.DefaultSelectBackends
 	return w, nil
@@ -105,20 +115,24 @@ func (w *Writer) SetIsServiceHealthCheckedFunc(fn IsServiceHealthCheckedFunc) {
 // by frontend IP family, protocol and port name.
 func (w *Writer) SelectBackends(bes iter.Seq2[loadbalancer.BackendParams, statedb.Revision], svc *loadbalancer.Service, optionalFrontend *loadbalancer.Frontend) iter.Seq2[loadbalancer.BackendParams, statedb.Revision] {
 	selectedBackends := w.selectBackendsFunc(bes, svc, optionalFrontend)
-
-	// return all selected backends for services that should not be health checked
 	if w.isServiceHealthCheckedFunc == nil || !w.isServiceHealthCheckedFunc(svc) {
 		return selectedBackends
 	}
 
+	// Health checking is requested for backends associated with this service. Set
+	// the [BackendParams.Unhealthy] for backends that are not health checked yet.
 	return func(yield func(loadbalancer.BackendParams, statedb.Revision) bool) {
 		for be, rev := range selectedBackends {
-
-			// filter backends that haven't been health checked yet
 			if be.State == loadbalancer.BackendStateActive && be.UnhealthyUpdatedAt == nil {
-				continue
+				var feAddr loadbalancer.L3n4Addr
+				if optionalFrontend != nil {
+					feAddr = optionalFrontend.Address
+				}
+				// Try to reuse the previous health of the backend if possible.
+				// If none exist mark the backend unhealthy until it is health checked.
+				healthy, found := w.restored.BackendHealth.Load(maps.FrontendBackendAddress{Frontend: feAddr, Backend: be.Address})
+				be.Unhealthy = !found || !healthy
 			}
-
 			if !yield(be, rev) {
 				return
 			}
@@ -277,6 +291,7 @@ func (w *Writer) UpdateBackendHealth(txn WriteTxn, serviceName loadbalancer.Serv
 	if inst == nil {
 		return false, loadbalancer.ErrServiceNotFound
 	}
+
 	if inst.Unhealthy == !healthy && inst.UnhealthyUpdatedAt != nil {
 		return false, nil
 	}

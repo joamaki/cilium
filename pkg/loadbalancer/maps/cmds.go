@@ -22,6 +22,7 @@ type scriptCommandsParams struct {
 	Config     loadbalancer.Config
 	TestConfig *loadbalancer.TestConfig `optional:"true"`
 	LBMaps     LBMaps
+	Restored   *Restored
 }
 
 func scriptCommands(p scriptCommandsParams) hive.ScriptCmdsOut {
@@ -32,7 +33,7 @@ func scriptCommands(p scriptCommandsParams) hive.ScriptCmdsOut {
 		var snapshot mapSnapshots
 		cmds["lb/maps-empty"] = lbmapEmpty(p.LBMaps)
 		cmds["lb/maps-snapshot"] = lbmapSnapshotCommand(p.LBMaps, &snapshot)
-		cmds["lb/maps-restore"] = lbmapRestoreCommand(p.LBMaps, &snapshot)
+		cmds["lb/maps-restore"] = lbmapRestoreCommand(p.LBMaps, p.Restored, &snapshot)
 	}
 
 	return hive.NewScriptCmds(cmds)
@@ -119,7 +120,7 @@ func lbmapSnapshotCommand(m LBMaps, snapshot *mapSnapshots) script.Cmd {
 	)
 }
 
-func lbmapRestoreCommand(m LBMaps, snapshot *mapSnapshots) script.Cmd {
+func lbmapRestoreCommand(m LBMaps, restored *Restored, snapshot *mapSnapshots) script.Cmd {
 	if f, ok := m.(*FaultyLBMaps); ok {
 		m = f.impl
 	}
@@ -139,7 +140,13 @@ func lbmapRestoreCommand(m LBMaps, snapshot *mapSnapshots) script.Cmd {
 		},
 		func(s *script.State, args ...string) (script.WaitFunc, error) {
 			anyProto, _ := s.Flags.GetBool("any-proto")
-			return nil, snapshot.restore(m, anyProto)
+			if err := snapshot.restore(m, anyProto); err != nil {
+				return nil, err
+			}
+			if err := restored.reset(); err != nil {
+				return nil, err
+			}
+			return nil, nil
 		},
 	)
 }

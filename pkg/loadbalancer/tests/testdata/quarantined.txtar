@@ -17,9 +17,9 @@ k8s/add service.yaml endpointslice.yaml
 db/cmp services services.table
 db/cmp backends backends_healthy1.table
 
-# Check BPF maps
+# Check BPF maps. Both backends should be quarantined as health not yet reported.
 lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=0 QCOUNT=0' maps_init.expected
+* grep 'SLOT=0.*COUNT=0 QCOUNT=2' maps.actual
 * cmp maps.actual maps_init.expected
 
 # Report health of first backend as healthy (explicitly - due to SetIsServiceHealthchecked)
@@ -28,7 +28,7 @@ db/cmp backends backends_healthy1.table
 
 # Check BPF maps
 lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=1 QCOUNT=0' maps0.expected
+* grep 'SLOT=0.*COUNT=1 QCOUNT=1' maps.actual
 * cmp maps.actual maps0.expected
 
 # Mark the second backend as unhealthy (for this service)
@@ -37,14 +37,14 @@ db/cmp backends backends_unhealthy.table
 
 # Check BPF maps
 lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=1 QCOUNT=1' maps1.expected
+* grep 'SLOT=0.*COUNT=1 QCOUNT=1' maps.actual
 * cmp maps.actual maps1.expected
 
 # Take a snapshot of the BPF maps and clean up
 lb/maps-snapshot
 k8s/delete service.yaml endpointslice.yaml
 
-# Check that everything empty
+# Check that everything is empty
 * db/empty frontends services backends
 * lb/maps-empty
 
@@ -57,6 +57,12 @@ test/bpfops-reset
 k8s/add endpointslice2.yaml
 db/cmp backends backends_healthy2.table
 k8s/add service.yaml
+
+# Check BPF maps. '10.244.1.1:80/TCP' stays healthy, '10.244.1.2:80/TCP' stays unhealthy
+# and the new '10.244.1.3:80/TCP' starts out unhealthy.
+lb/maps-dump maps.actual
+* grep 'SLOT=0.*COUNT=1 QCOUNT=2' maps.actual
+* cmp maps.actual maps2.expected
 
 # Report health of all backends
 test/update-backend-health test/echo 10.244.1.1:80/TCP true
@@ -71,17 +77,11 @@ db/show frontends --columns=Address,Status -o frontends.actual
 # has been removed.
 lb/prune
 
-# Wait until prune is done by checking that internal state
-# is clean.
-test/bpfops-summary
-* stdout 'restoredServiceIDs: 0'
-stdout 'restoredBackendIDs: 0'
-
 # Check BPF maps. We should get the same contents as before but
 # with 10.244.1.1 gone and 10.244.1.3 added.
 lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=2 QCOUNT=1' maps2.expected
-* cmp maps.actual maps2.expected
+* grep 'SLOT=0.*COUNT=2 QCOUNT=1' maps.actual
+* cmp maps.actual maps3.expected
 
 # Mark the quarantined backend as healthy again
 test/update-backend-health test/echo 10.244.1.2:80/TCP true
@@ -89,23 +89,23 @@ db/cmp backends backends_healthy2.table
 
 # Check BPF maps
 lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=3 QCOUNT=0' maps3.expected
-* cmp maps.actual maps3.expected
-
-# The quarantined restored state is clean now.
-test/bpfops-summary
-stdout 'restoredQuarantines: 0'
-stdout 'restoredServiceIDs: 0'
-stdout 'restoredBackendIDs: 0'
+* grep 'SLOT=0.*COUNT=3 QCOUNT=0' maps.actual
+* cmp maps.actual maps4.expected
 
 -- maps_init.expected --
+BE: ID=1 ADDR=10.244.1.1:80/TCP STATE=active
+BE: ID=2 ADDR=10.244.1.2:80/TCP STATE=active
 REV: ID=1 ADDR=10.96.50.104:80
-SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=0 QCOUNT=2 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
 -- maps0.expected --
 BE: ID=1 ADDR=10.244.1.1:80/TCP STATE=active
+BE: ID=2 ADDR=10.244.1.2:80/TCP STATE=active
 REV: ID=1 ADDR=10.96.50.104:80
-SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=1 FLAGS=ClusterIP+non-routable
 SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
 -- maps1.expected --
 BE: ID=1 ADDR=10.244.1.1:80/TCP STATE=active
 BE: ID=2 ADDR=10.244.1.2:80/TCP STATE=active
@@ -118,11 +118,20 @@ BE: ID=1 ADDR=10.244.1.1:80/TCP STATE=active
 BE: ID=2 ADDR=10.244.1.2:80/TCP STATE=active
 BE: ID=3 ADDR=10.244.1.3:80/TCP STATE=active
 REV: ID=1 ADDR=10.96.50.104:80
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=1 QCOUNT=2 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=2 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=3 BEID=3 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
+-- maps3.expected --
+BE: ID=1 ADDR=10.244.1.1:80/TCP STATE=active
+BE: ID=2 ADDR=10.244.1.2:80/TCP STATE=active
+BE: ID=3 ADDR=10.244.1.3:80/TCP STATE=active
+REV: ID=1 ADDR=10.96.50.104:80
 SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=0 LBALG=undef AFFTimeout=0 COUNT=2 QCOUNT=1 FLAGS=ClusterIP+non-routable
 SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=1 BEID=1 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
 SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=2 BEID=3 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
 SVC: ID=1 ADDR=10.96.50.104:80/TCP SLOT=3 BEID=2 COUNT=0 QCOUNT=0 FLAGS=ClusterIP+non-routable
--- maps3.expected --
+-- maps4.expected --
 BE: ID=1 ADDR=10.244.1.1:80/TCP STATE=active
 BE: ID=2 ADDR=10.244.1.2:80/TCP STATE=active
 BE: ID=3 ADDR=10.244.1.3:80/TCP STATE=active
@@ -139,7 +148,6 @@ test/echo
 Address             Instances
 10.244.1.1:80/TCP   test/echo (http)
 10.244.1.2:80/TCP   test/echo [unhealthy] (http)
-
 
 -- backends_healthy1.table --
 Address             Instances

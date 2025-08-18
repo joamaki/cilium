@@ -212,7 +212,7 @@ func (tc testCommands) opsReset() script.Cmd {
 			Summary: "Reset and restart BPF ops",
 		},
 		func(s *script.State, args ...string) (script.WaitFunc, error) {
-			return nil, tc.ops.ResetAndRestore()
+			return nil, tc.ops.Reset()
 		})
 }
 

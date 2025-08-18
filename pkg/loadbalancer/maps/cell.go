@@ -18,14 +18,19 @@ var Cell = cell.Module(
 	"loadbalancer-maps",
 	"Load-balancing BPF maps",
 
-	// Provide [lbmaps], abstraction for the load-balancing BPF map access.
-	cell.Provide(newLBMaps),
+	cell.Provide(
+		// [LBMaps], abstraction for the load-balancing BPF map access.
+		newLBMaps,
 
-	// Provide the 'lb/' script commands for debugging and testing.
-	cell.Provide(scriptCommands),
+		// 'lb/' script commands for debugging and testing.
+		scriptCommands,
 
-	// Provide [HaveNetNSCookieSupport] to probe for netns cookie support.
-	cell.Provide(NetnsCookieSupportFunc),
+		// [HaveNetNSCookieSupport] to probe for netns cookie support.
+		NetnsCookieSupportFunc,
+
+		// [Restored] for access to previous contents of the LB maps.
+		NewRestored,
+	),
 
 	// Register a periodic job to update the BPF map pressure metrics.
 	cell.Invoke(registerPressureMetricsReporter),

@@ -24,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/kpr"
 	"github.com/cilium/cilium/pkg/loadbalancer"
+	"github.com/cilium/cilium/pkg/loadbalancer/maps"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/source"
@@ -55,6 +56,7 @@ func fixture(t testing.TB) (p testParams) {
 			statedb.RWTable[tables.NodeAddress].ToTable,
 			source.NewSources,
 			func() kpr.KPRConfig { return kpr.KPRConfig{} },
+			func() *maps.Restored { return &maps.Restored{} },
 		),
 		cell.Invoke(func(p_ testParams) { p = p_ }),
 	)

@@ -116,3 +116,8 @@ func (m *Map[K, V]) IsEmpty() bool {
 	m.Range(check)
 	return empty
 }
+
+// Clear deletes all the entries, resulting in an empty Map.
+func (m *Map[K, V]) Clear() {
+	(*sync.Map)(m).Clear()
+}

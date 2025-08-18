@@ -1237,6 +1237,7 @@ func TestBPFOps(t *testing.T) {
 					Maglev:         maglev,
 					DB:             db,
 					NodeAddresses:  nodeAddrs,
+					Restored:       maps.NewRestored(lc, lbmaps),
 				}
 
 				ops := newBPFOps(p)
@@ -1263,6 +1264,7 @@ func TestBPFOps(t *testing.T) {
 				Maglev:         maglev,
 				DB:             db,
 				NodeAddresses:  nodeAddrs,
+				Restored:       maps.NewRestored(lc, lbmaps),
 			}
 			ops := newBPFOps(p)
 			runTests(ops, setWithAlgo.testCaseSet, setWithAlgo.algo, addr, true)
