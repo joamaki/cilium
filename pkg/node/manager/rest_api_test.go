@@ -14,7 +14,6 @@ import (
 
 	"github.com/cilium/cilium/api/v1/models"
 	. "github.com/cilium/cilium/api/v1/server/restapi/daemon"
-	fakeipset "github.com/cilium/cilium/pkg/datapath/iptables/ipset/fake"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 )
@@ -26,7 +25,7 @@ type GetNodesSuite struct {
 func setupGetNodesSuite(tb testing.TB) *GetNodesSuite {
 	logger := hivetest.Logger(tb)
 	h, _ := cell.NewSimpleHealth()
-	nm, err := New(logger, &fakeipset.IPSet{}, nil, NewNodeMetrics(), h, nil, nil, nil, nil)
+	nm, err := New(logger, NewNodeMetrics(), h, nil, nil, nil, nil)
 	require.NoError(tb, err)
 
 	g := &GetNodesSuite{
