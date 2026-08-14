@@ -14,27 +14,19 @@ import (
 
 	"github.com/cilium/cilium/api/v1/models"
 	. "github.com/cilium/cilium/api/v1/server/restapi/daemon"
-	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	fakeipset "github.com/cilium/cilium/pkg/datapath/iptables/ipset/fake"
-	"github.com/cilium/cilium/pkg/datapath/tunnel"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
-	fakewireguard "github.com/cilium/cilium/pkg/wireguard/fake"
 )
 
 type GetNodesSuite struct {
 	nm NodeManager
 }
 
-var fakeConfig = &option.DaemonConfig{
-	RoutingMode: option.RoutingModeTunnel,
-	EncryptNode: true,
-}
-
 func setupGetNodesSuite(tb testing.TB) *GetNodesSuite {
 	logger := hivetest.Logger(tb)
 	h, _ := cell.NewSimpleHealth()
-	nm, err := New(logger, fakeConfig, cmtypes.DefaultClusterInfo, tunnel.Config{}, nil, &fakeipset.IPSet{}, nil, NewNodeMetrics(), h, nil, nil, nil, fakewireguard.Config{}, nil)
+	nm, err := New(logger, &fakeipset.IPSet{}, nil, NewNodeMetrics(), h, nil, nil, nil, nil)
 	require.NoError(tb, err)
 
 	g := &GetNodesSuite{
