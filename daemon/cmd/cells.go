@@ -32,6 +32,7 @@ import (
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/crypto/certificatemanager"
 	"github.com/cilium/cilium/pkg/datapath"
+	datapathConfig "github.com/cilium/cilium/pkg/datapath/config"
 	debugapi "github.com/cilium/cilium/pkg/debug/api"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/dial"
@@ -73,7 +74,6 @@ import (
 	"github.com/cilium/cilium/pkg/metrics/features"
 	"github.com/cilium/cilium/pkg/networkdriver"
 	"github.com/cilium/cilium/pkg/node"
-	nodeManager "github.com/cilium/cilium/pkg/node/manager"
 	"github.com/cilium/cilium/pkg/node/neighbordiscovery"
 	noderestapi "github.com/cilium/cilium/pkg/node/restapi"
 	nodesync "github.com/cilium/cilium/pkg/node/sync"
@@ -234,8 +234,7 @@ var (
 		// Endpoint cell provides the Endpoint modules.
 		endpoint.Cell,
 
-		// NodeManager maintains a collection of other nodes in the cluster.
-		nodeManager.Cell,
+		datapathConfig.NodeConfigNotifierCell,
 
 		// Node REST API serves snapshots and changes from the node table.
 		noderestapi.Cell,
