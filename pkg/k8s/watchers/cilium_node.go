@@ -23,6 +23,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/node"
 	nm "github.com/cilium/cilium/pkg/node/manager"
 )
 
@@ -38,6 +39,7 @@ type k8sCiliumNodeWatcherParams struct {
 
 	NodeManager nm.NodeManager
 	ClusterInfo cmtypes.ClusterInfo
+	NodeWriter  *node.NodeWriter
 }
 
 func newK8sCiliumNodeWatcher(params k8sCiliumNodeWatcherParams) *K8sCiliumNodeWatcher {
@@ -49,6 +51,7 @@ func newK8sCiliumNodeWatcher(params k8sCiliumNodeWatcherParams) *K8sCiliumNodeWa
 		ciliumNode:        params.CiliumNode,
 		nodeManager:       params.NodeManager,
 		clusterInfo:       params.ClusterInfo,
+		nodeWriter:        params.NodeWriter,
 	}
 }
 
@@ -68,6 +71,7 @@ type K8sCiliumNodeWatcher struct {
 
 	nodeManager nodeManager
 	clusterInfo cmtypes.ClusterInfo
+	nodeWriter  *node.NodeWriter
 
 	ciliumNodeStore atomic.Pointer[resource.Store[*cilium_v2.CiliumNode]]
 }
@@ -127,8 +131,7 @@ func (k *K8sCiliumNodeWatcher) onCiliumNodeInsert(ciliumNode *cilium_v2.CiliumNo
 		return false
 	}
 	n := k8s.ParseCiliumNode(ciliumNode, k.clusterInfo)
-	k.nodeManager.NodeUpdated(n)
-	return true
+	return k.nodeWriter.Upsert(&node.Node{Node: n})
 }
 
 func (k *K8sCiliumNodeWatcher) onCiliumNodeUpdate(oldNode, newNode *cilium_v2.CiliumNode) bool {
@@ -146,7 +149,7 @@ func (k *K8sCiliumNodeWatcher) onCiliumNodeDelete(ciliumNode *cilium_v2.CiliumNo
 		return
 	}
 	n := k8s.ParseCiliumNode(ciliumNode, k.clusterInfo)
-	k.nodeManager.NodeDeleted(n)
+	k.nodeWriter.Delete(&node.Node{Node: n})
 }
 
 // GetCiliumNode returns the CiliumNode "nodeName" from the local Resource[T] store. If the
