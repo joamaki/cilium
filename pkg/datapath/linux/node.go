@@ -116,8 +116,7 @@ type linuxNodeOps struct {
 }
 
 // NewNodeHandler constructs the Linux node datapath and registers its node
-// table reconciler. It continues to expose the legacy handler interfaces for
-// node ID lookups and explicit datapath validation while those APIs remain.
+// table reconciler.
 func NewNodeHandler(
 	lifecycle cell.Lifecycle,
 	log *slog.Logger,
@@ -131,7 +130,7 @@ func NewNodeHandler(
 	nodes statedb.Table[*node.Node],
 	health cell.Health,
 	daemonConfig *option.DaemonConfig,
-) (node.Handler, node.IDHandler) {
+) node.IDHandler {
 	datapathConfig := DatapathConfiguration{
 		HostDevice:   defaults.HostDevice,
 		TunnelDevice: tunnelConfig.DeviceName(),
@@ -158,7 +157,6 @@ func NewNodeHandler(
 		daemonConfig.StateDir,
 	)
 	nodeTable := nodes.(statedb.RWTable[*node.Node])
-
 	nodeConfigNotifier.Subscribe(handler)
 
 	lifecycle.Append(cell.Hook{
@@ -216,7 +214,7 @@ func NewNodeHandler(
 		},
 	})
 
-	return handler, handler
+	return handler
 }
 
 // refreshLinuxNodes marks reconciled nodes for periodic refresh. This is done
@@ -242,15 +240,16 @@ func refreshLinuxNodes(
 		case <-time.After(interval):
 		}
 
-		markLinuxNodesRefreshing(log, db, nodes)
+		if _, err := markLinuxNodesRefreshing(db, nodes); err != nil {
+			log.Error("Failed to mark Linux nodes for refresh", logfields.Error, err)
+		}
 	}
 }
 
 func markLinuxNodesRefreshing(
-	log *slog.Logger,
 	db *statedb.DB,
 	nodes statedb.RWTable[*node.Node],
-) {
+) (statedb.Revision, error) {
 	txn := db.WriteTxn(nodes)
 	defer txn.Abort()
 
@@ -265,13 +264,12 @@ func markLinuxNodesRefreshing(
 			reconciler.StatusRefreshing(),
 		)
 		if _, _, err := nodes.Insert(txn, n); err != nil {
-			log.Error("Failed to mark Linux node for refresh",
-				logfields.Node, n.Name,
-				logfields.Error, err,
-			)
+			return 0, fmt.Errorf("marking Linux node %s for refresh: %w", n.Name, err)
 		}
 	}
+	revision := nodes.Revision(txn)
 	txn.Commit()
+	return revision, nil
 }
 
 // newNodeHandler constructs the implementation of Linux node datapath
