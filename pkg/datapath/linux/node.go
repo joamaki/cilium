@@ -24,7 +24,6 @@ import (
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/cilium/cilium/pkg/backoff"
 	"github.com/cilium/cilium/pkg/cidr"
 	"github.com/cilium/cilium/pkg/datapath/config"
 	"github.com/cilium/cilium/pkg/datapath/linux/ipsec"
@@ -46,14 +45,12 @@ import (
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	cslices "github.com/cilium/cilium/pkg/slices"
-	"github.com/cilium/cilium/pkg/time"
 )
 
 const (
-	wildcardIPv4             = "0.0.0.0"
-	wildcardIPv6             = "0::0"
-	linuxNodeReconcilerName  = "linux-node"
-	linuxNodeRefreshInterval = time.Minute
+	wildcardIPv4            = "0.0.0.0"
+	wildcardIPv6            = "0::0"
+	linuxNodeReconcilerName = "linux-node"
 )
 
 // NeighLink contains the details of a NeighLink
@@ -184,12 +181,6 @@ func NewNodeHandler(
 				return fmt.Errorf("registering Linux node reconciler: %w", err)
 			}
 			params.JobGroup.Add(
-				job.OneShot(
-					"linux-node-refresh",
-					func(ctx context.Context, health cell.Health) error {
-						return refreshLinuxNodes(ctx, health, log, params.DB, nodeTable)
-					},
-				),
 				job.OneShot("linux-node-checkpoint-writer", checkpoint.watch),
 				job.OneShot(
 					"linux-node-restored-pruning",
@@ -213,61 +204,6 @@ func NewNodeHandler(
 	})
 
 	return handler
-}
-
-// refreshLinuxNodes marks reconciled nodes for periodic refresh. This is done
-// explicitly instead of with reconciler.WithRefreshing so that the refresh
-// interval can grow with the cluster size.
-func refreshLinuxNodes(
-	ctx context.Context,
-	health cell.Health,
-	log *slog.Logger,
-	db *statedb.DB,
-	nodes statedb.RWTable[*node.Node],
-) error {
-	for {
-		interval := backoff.ClusterSizeDependantInterval(
-			linuxNodeRefreshInterval,
-			nodes.NumObjects(db.ReadTxn()),
-		)
-		health.OK(fmt.Sprintf("Next refresh in %s", interval))
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(interval):
-		}
-
-		if _, err := markLinuxNodesRefreshing(db, nodes); err != nil {
-			log.Error("Failed to mark Linux nodes for refresh", logfields.Error, err)
-		}
-	}
-}
-
-func markLinuxNodesRefreshing(
-	db *statedb.DB,
-	nodes statedb.RWTable[*node.Node],
-) (statedb.Revision, error) {
-	txn := db.WriteTxn(nodes)
-	defer txn.Abort()
-
-	for n := range nodes.All(txn) {
-		if n.Statuses.Get(linuxNodeReconcilerName).Kind != reconciler.StatusKindDone {
-			continue
-		}
-
-		n = n.DeepCopy()
-		n.Statuses = n.Statuses.Set(
-			linuxNodeReconcilerName,
-			reconciler.StatusRefreshing(),
-		)
-		if _, _, err := nodes.Insert(txn, n); err != nil {
-			return 0, fmt.Errorf("marking Linux node %s for refresh: %w", n.Name, err)
-		}
-	}
-	revision := nodes.Revision(txn)
-	txn.Commit()
-	return revision, nil
 }
 
 // newNodeHandler constructs the implementation of Linux node datapath
