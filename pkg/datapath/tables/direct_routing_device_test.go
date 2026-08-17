@@ -34,7 +34,7 @@ func TestDirectRoutingDevice(t *testing.T) {
 		cell.Provide(
 			func() node.LocalNode {
 				return node.LocalNode{
-					Node: types.Node{
+					Node: &types.Node{
 						IPAddresses: []types.Address{
 							{
 								Type: addressing.NodeInternalIP,
@@ -164,7 +164,7 @@ func TestDirectRoutingDevice_withConfig(t *testing.T) {
 				cell.Provide(
 					func() node.LocalNode {
 						return node.LocalNode{
-							Node: types.Node{
+							Node: &types.Node{
 								IPAddresses: []types.Address{
 									{
 										Type: addressing.NodeInternalIP,

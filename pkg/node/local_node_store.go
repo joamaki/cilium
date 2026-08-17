@@ -90,7 +90,7 @@ func NewNodeTableAndLocalNodeStore(params LocalNodeStoreParams) (
 	// Insert the skeleton local node.
 	nodeTable.Insert(wtxn,
 		&LocalNode{
-			Node: types.Node{
+			Node: &types.Node{
 				Name:      types.GetName(),
 				Cluster:   params.ClusterInfo.Name,
 				ClusterID: params.ClusterInfo.ID,
@@ -113,7 +113,7 @@ func NewNodeTableAndLocalNodeStore(params LocalNodeStoreParams) (
 			// Delete the initial one as name might change.
 			nodeTable.Delete(wtxn, n)
 
-			n = n.DeepCopy()
+			n = n.deepCopyForUpdate()
 			err := params.Sync.InitLocalNode(ctx, n)
 			nodeTable.Insert(wtxn, n)
 			initDone(wtxn)
@@ -228,7 +228,7 @@ func (s *LocalNodeStore) Update(update func(*LocalNode)) {
 		panic("BUG: No local node exists")
 	}
 	orig := ln
-	ln = ln.DeepCopy()
+	ln = ln.deepCopyForUpdate()
 	update(ln)
 	if ln.Local == nil {
 		panic("BUG: Updated LocalNode has nil Local")
@@ -261,6 +261,9 @@ func NewTestLocalNodeStore(mockNode LocalNode) *LocalNodeStore {
 	}
 	if mockNode.Local == nil {
 		mockNode.Local = &LocalNodeInfo{}
+	}
+	if mockNode.Node == nil {
+		mockNode.Node = &types.Node{}
 	}
 	txn := db.WriteTxn(tbl)
 	tbl.Insert(txn, &mockNode)

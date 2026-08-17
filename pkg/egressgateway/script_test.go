@@ -175,7 +175,7 @@ func (m *mockNodeSync) WaitForNodeInformation(ctx context.Context, store *node.L
 }
 
 func (m *mockNodeSync) InitLocalNode(ctx context.Context, n *node.LocalNode) error {
-	n.Node = nodeTypes.Node{
+	n.Node = &nodeTypes.Node{
 		Name: "localnode1",
 		IPAddresses: []nodeTypes.Address{
 			{Type: addressing.NodeInternalIP, IP: net.ParseIP("172.18.0.3")},

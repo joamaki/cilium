@@ -219,7 +219,7 @@ func (c *linuxNodeCheckpoint) checkpoint() error {
 
 	for n := range c.nodes.All(c.db.ReadTxn()) {
 		if !n.IsLocal() {
-			nodesByIdentity[n.Identity()] = n.Node
+			nodesByIdentity[n.Identity()] = *n.Node
 		}
 	}
 

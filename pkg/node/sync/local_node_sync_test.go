@@ -106,7 +106,7 @@ func (fln *fakeLocalNode) Store(context.Context) (resource.Store[*slim_corev1.No
 func TestLocalNodeSync(t *testing.T) {
 	var (
 		local = node.LocalNode{
-			Node: types.Node{
+			Node: &types.Node{
 				Labels:      map[string]string{"ex": "label"},
 				Annotations: map[string]string{"ex": "annot"},
 			},
@@ -235,7 +235,7 @@ func TestInitLocalNode_initFromK8s(t *testing.T) {
 		},
 	)
 	n := &node.LocalNode{
-		Node: types.Node{
+		Node: &types.Node{
 			Labels: map[string]string{},
 		},
 		Local: &node.LocalNodeInfo{},
@@ -335,7 +335,7 @@ func testNodeDeletion(t *testing.T, nodeEvent resource.Event[*slim_corev1.Node])
 	})
 
 	// Initialize local node
-	local := node.LocalNode{Node: types.Node{Name: "test-node"}, Local: &node.LocalNodeInfo{}}
+	local := node.LocalNode{Node: &types.Node{Name: "test-node"}, Local: &node.LocalNodeInfo{}}
 	store := node.NewTestLocalNodeStore(local)
 
 	// Start observing updates

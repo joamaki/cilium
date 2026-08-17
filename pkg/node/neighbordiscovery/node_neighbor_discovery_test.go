@@ -94,7 +94,7 @@ func TestNodeNeighborObserver(t *testing.T) {
 	go func() { initErr <- observer.finishInitialization(ctx, nil) }()
 
 	n1 := &node.Node{
-		Node: nodeTypes.Node{
+		Node: &nodeTypes.Node{
 			Name:    "node-1",
 			Cluster: "cluster-1",
 			Source:  source.CustomResource,
@@ -105,7 +105,7 @@ func TestNodeNeighborObserver(t *testing.T) {
 		},
 	}
 	local := &node.Node{
-		Node: nodeTypes.Node{
+		Node: &nodeTypes.Node{
 			Name:    "local",
 			Cluster: "cluster-1",
 			Source:  source.Local,
@@ -152,7 +152,7 @@ func TestNodeNeighborObserver(t *testing.T) {
 
 	// An update unrelated to node IPs must not touch the forwardable-IP set.
 	_, insertsBefore, deletesBefore := manager.snapshot()
-	n1WithLabel := &node.Node{Node: n1.Node}
+	n1WithLabel := &node.Node{Node: n1.Node.DeepCopy()}
 	n1WithLabel.Labels = map[string]string{"unrelated": "label"}
 	wtxn = db.WriteTxn(nodes)
 	nodes.Insert(wtxn, n1WithLabel)
@@ -164,7 +164,7 @@ func TestNodeNeighborObserver(t *testing.T) {
 
 	// Changing an address removes only the old address and inserts the new one.
 	n1Updated := &node.Node{
-		Node: nodeTypes.Node{
+		Node: &nodeTypes.Node{
 			Name:    n1.Name,
 			Cluster: n1.Cluster,
 			Source:  n1.Source,

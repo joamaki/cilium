@@ -178,7 +178,7 @@ func TestPrivileged_TestIPSecCell(t *testing.T) {
 						LBConfig:         loadbalancer.DefaultConfig,
 						LBExternalConfig: loadbalancer.ExternalConfig{},
 						LocalNode: node.LocalNode{
-							Node: nodeTypes.Node{
+							Node: &nodeTypes.Node{
 								Name: k8s1NodeName,
 								IPAddresses: []nodeTypes.Address{
 									{

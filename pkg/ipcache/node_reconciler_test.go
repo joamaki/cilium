@@ -95,7 +95,7 @@ func TestNodeReconcilerMetadataLifecycle(t *testing.T) {
 		&option.DaemonConfig{},
 		fakewireguard.Config{},
 	)
-	n := &node.Node{Node: nodeTypes.Node{
+	n := &node.Node{Node: &nodeTypes.Node{
 		Name:    "node1",
 		Cluster: "cluster1",
 		Source:  source.Kubernetes,
@@ -165,6 +165,7 @@ func TestNodeReconcilerMetadataLifecycle(t *testing.T) {
 	))
 
 	updated := n.DeepCopy()
+	updated.Node = updated.Node.DeepCopy()
 	updated.IPAddresses = updated.IPAddresses[:2]
 	updated.IPv4SecondaryAllocCIDRs = nil
 	updated.IPv6SecondaryAllocCIDRs = nil
@@ -231,7 +232,7 @@ func TestNodeReconcilerNodeEncryption(t *testing.T) {
 		fakewireguard.Config{},
 	)
 	local := &node.Node{
-		Node:  nodeTypes.Node{Name: "local", Source: source.Local},
+		Node:  &nodeTypes.Node{Name: "local", Source: source.Local},
 		Local: &node.LocalNodeInfo{OptOutNodeEncryption: true},
 	}
 	txn := db.WriteTxn(nodes)
@@ -239,7 +240,7 @@ func TestNodeReconcilerNodeEncryption(t *testing.T) {
 	require.NoError(t, err)
 	txn.Commit()
 
-	remote := &node.Node{Node: nodeTypes.Node{
+	remote := &node.Node{Node: &nodeTypes.Node{
 		Name:          "remote",
 		Cluster:       cmtypes.DefaultClusterInfo.Name,
 		EncryptionKey: 42,
@@ -260,6 +261,7 @@ func TestNodeReconcilerNodeEncryption(t *testing.T) {
 	))
 
 	local = local.DeepCopy()
+	local.Local = local.Local.DeepCopy()
 	local.Local.OptOutNodeEncryption = false
 	txn = db.WriteTxn(nodes)
 	_, _, err = nodes.Insert(txn, local)
@@ -297,7 +299,7 @@ func TestNodeReconcilerNodeIdentityLabels(t *testing.T) {
 	)
 
 	local := &node.Node{
-		Node: nodeTypes.Node{
+		Node: &nodeTypes.Node{
 			Name:    "local",
 			Cluster: "cluster1",
 			Labels:  map[string]string{"role": "worker"},
@@ -317,6 +319,7 @@ func TestNodeReconcilerNodeIdentityLabels(t *testing.T) {
 	require.True(t, want.Equals(ops.nodeIdentityLabels(local)))
 
 	remote := local.DeepCopy()
+	remote.Node = remote.Node.DeepCopy()
 	remote.Name = "remote"
 	remote.Local = nil
 	want = labels.NewFrom(labels.LabelRemoteNode)
@@ -334,11 +337,11 @@ func TestNodeReconcilerInvalidatesRemoteNodes(t *testing.T) {
 		fakewireguard.Config{},
 	)
 	local := &node.Node{
-		Node:  nodeTypes.Node{Name: "local", Source: source.Local},
+		Node:  &nodeTypes.Node{Name: "local", Source: source.Local},
 		Local: &node.LocalNodeInfo{OptOutNodeEncryption: true},
 	}
 	local.Statuses = local.Statuses.Set(nodeReconcilerName, reconciler.StatusDone())
-	remote := &node.Node{Node: nodeTypes.Node{Name: "remote"}}
+	remote := &node.Node{Node: &nodeTypes.Node{Name: "remote"}}
 	remote.Statuses = remote.Statuses.Set(nodeReconcilerName, reconciler.StatusDone())
 	txn := db.WriteTxn(nodes)
 	_, _, err := nodes.Insert(txn, local)

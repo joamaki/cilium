@@ -25,7 +25,7 @@ func TestClusterSizeDependantInterval(t *testing.T) {
 
 	txn := db.WriteTxn(nodes)
 	for _, name := range []string{"node-1", "node-2", "node-3"} {
-		_, _, err := nodes.Insert(txn, &Node{Node: nodeTypes.Node{Name: name}})
+		_, _, err := nodes.Insert(txn, &Node{Node: &nodeTypes.Node{Name: name}})
 		require.NoError(t, err)
 	}
 	txn.Commit()

@@ -874,7 +874,7 @@ func TestMissingNodeLabelsUpdate(t *testing.T) {
 
 	// Initialize the local node watcher before the host endpoint is created.
 	// These labels are not propagated to the endpoint manager.
-	mgr.localNodeStore = node.NewTestLocalNodeStore(node.LocalNode{Node: types.Node{}})
+	mgr.localNodeStore = node.NewTestLocalNodeStore(node.LocalNode{Node: &types.Node{}})
 	mgr.startNodeLabelsObserver(nil)
 	mgr.localNodeStore.Update(func(ln *node.LocalNode) { ln.Labels = map[string]string{"k1": "v1"} })
 	_, ok := mgr.endpoints[hostEPID]
@@ -1047,7 +1047,7 @@ func TestUpdateHostEndpointLabels(t *testing.T) {
 		tt.preTestRun()
 		args := tt.setupArgs()
 		want := tt.setupWant()
-		mgr.localNodeStore = node.NewTestLocalNodeStore(node.LocalNode{Node: types.Node{
+		mgr.localNodeStore = node.NewTestLocalNodeStore(node.LocalNode{Node: &types.Node{
 			Labels: args.oldLabels,
 		}})
 		mgr.startNodeLabelsObserver(args.oldLabels)

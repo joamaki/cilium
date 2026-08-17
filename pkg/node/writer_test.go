@@ -98,7 +98,7 @@ func TestSourceWriterDoesNotOverwriteLocalNode(t *testing.T) {
 	w := NewNodeWriter(hivetest.Logger(t), db, nodes, NewNodeMetrics())
 
 	local := &Node{
-		Node:  types.Node{Name: "local", Source: source.Local},
+		Node:  &types.Node{Name: "local", Source: source.Local},
 		Local: &LocalNodeInfo{},
 	}
 	txn := db.WriteTxn(nodes)
@@ -123,7 +123,7 @@ func TestNodeWriterRefresh(t *testing.T) {
 	metrics := NewNodeMetrics()
 	w := NewNodeWriter(hivetest.Logger(t), db, nodes, metrics)
 
-	n := &Node{Node: types.Node{Name: "node-1", Source: source.Kubernetes}}
+	n := &Node{Node: &types.Node{Name: "node-1", Source: source.Kubernetes}}
 	n.Statuses = n.Statuses.Set("test", reconciler.StatusDone())
 	txn := db.WriteTxn(nodes)
 	_, _, err = nodes.Insert(txn, n)

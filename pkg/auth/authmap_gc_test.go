@@ -474,7 +474,7 @@ func newTestNodeTable(t testing.TB, initial ...nodeTypes.Node) (*statedb.DB, sta
 func insertTestNode(t testing.TB, db *statedb.DB, nodes statedb.RWTable[*node.Node], n nodeTypes.Node) {
 	t.Helper()
 	txn := db.WriteTxn(nodes)
-	_, _, err := nodes.Insert(txn, &node.Node{Node: n})
+	_, _, err := nodes.Insert(txn, &node.Node{Node: &n})
 	require.NoError(t, err)
 	txn.Commit()
 }
@@ -482,7 +482,7 @@ func insertTestNode(t testing.TB, db *statedb.DB, nodes statedb.RWTable[*node.No
 func deleteTestNode(t testing.TB, db *statedb.DB, nodes statedb.RWTable[*node.Node], n nodeTypes.Node) {
 	t.Helper()
 	txn := db.WriteTxn(nodes)
-	_, _, err := nodes.Delete(txn, &node.Node{Node: n})
+	_, _, err := nodes.Delete(txn, &node.Node{Node: &n})
 	require.NoError(t, err)
 	txn.Commit()
 }

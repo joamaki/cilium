@@ -17,7 +17,7 @@ import (
 )
 
 func TestNodeTableRow(t *testing.T) {
-	n := &Node{Node: types.Node{
+	n := &Node{Node: &types.Node{
 		Name:    "node-1",
 		Cluster: "cluster-1",
 		Source:  source.Kubernetes,
@@ -41,6 +41,18 @@ func TestNodeTableRow(t *testing.T) {
 		},
 		n.TableRow(),
 	)
+}
+
+func TestNodeDeepCopySharesImmutableData(t *testing.T) {
+	n := &Node{
+		Node:  &types.Node{Name: "node-1"},
+		Local: &LocalNodeInfo{ProviderID: "provider-1"},
+	}
+
+	copy := n.DeepCopy()
+	require.NotSame(t, n, copy)
+	require.Same(t, n.Node, copy.Node)
+	require.Same(t, n.Local, copy.Local)
 }
 
 func TestNodeTableStatus(t *testing.T) {

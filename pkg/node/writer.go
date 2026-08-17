@@ -95,7 +95,7 @@ func reconciliationFinished(n *Node) bool {
 // allowed to overwrite the current owner. The caller must not modify n after
 // calling Upsert. It reports whether the table changed.
 func (w *NodeWriter) Upsert(txn statedb.WriteTxn, n *nodeTypes.Node) bool {
-	obj := &Node{Node: *n}
+	obj := &Node{Node: n}
 
 	old, _, found := w.nodes.Get(txn, NodeByName(obj.Fullname()))
 	if found {
@@ -103,7 +103,7 @@ func (w *NodeWriter) Upsert(txn statedb.WriteTxn, n *nodeTypes.Node) bool {
 		if old.Local != nil || !source.AllowOverwrite(old.Source, obj.Source) {
 			return false
 		}
-		if old.Node.DeepEqual(&obj.Node) {
+		if old.Node.DeepEqual(obj.Node) {
 			return false
 		}
 		obj.Statuses = old.Statuses.Pending()

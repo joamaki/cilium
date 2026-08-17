@@ -845,7 +845,7 @@ func newNodeTableFixture(t testing.TB, nodes []types.Node) *nodeTableFixture {
 
 	txn := db.WriteTxn(table)
 	for _, n := range nodes {
-		_, _, err := table.Insert(txn, &node.Node{Node: n})
+		_, _, err := table.Insert(txn, &node.Node{Node: &n})
 		require.NoError(t, err)
 	}
 	txn.Commit()
@@ -856,7 +856,7 @@ func newNodeTableFixture(t testing.TB, nodes []types.Node) *nodeTableFixture {
 func (f *nodeTableFixture) notifyAdd(t testing.TB, n types.Node) {
 	t.Helper()
 	txn := f.db.WriteTxn(f.nodes)
-	_, _, err := f.nodes.Insert(txn, &node.Node{Node: n})
+	_, _, err := f.nodes.Insert(txn, &node.Node{Node: &n})
 	require.NoError(t, err)
 	txn.Commit()
 }
@@ -864,7 +864,7 @@ func (f *nodeTableFixture) notifyAdd(t testing.TB, n types.Node) {
 func (f *nodeTableFixture) notifyDelete(t testing.TB, n types.Node) {
 	t.Helper()
 	txn := f.db.WriteTxn(f.nodes)
-	_, _, err := f.nodes.Delete(txn, &node.Node{Node: n})
+	_, _, err := f.nodes.Delete(txn, &node.Node{Node: &n})
 	require.NoError(t, err)
 	txn.Commit()
 }
@@ -873,10 +873,10 @@ func (f *nodeTableFixture) notifyUpdate(t testing.TB, old, updated types.Node) {
 	t.Helper()
 	txn := f.db.WriteTxn(f.nodes)
 	if old.Fullname() != updated.Fullname() {
-		_, _, err := f.nodes.Delete(txn, &node.Node{Node: old})
+		_, _, err := f.nodes.Delete(txn, &node.Node{Node: &old})
 		require.NoError(t, err)
 	}
-	_, _, err := f.nodes.Insert(txn, &node.Node{Node: updated})
+	_, _, err := f.nodes.Insert(txn, &node.Node{Node: &updated})
 	require.NoError(t, err)
 	txn.Commit()
 }

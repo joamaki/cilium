@@ -661,7 +661,7 @@ func TestLocalObserverServer_NodeLabels(t *testing.T) {
 
 	// local node stuff setup.
 	localNode := node.LocalNode{
-		Node: types.Node{
+		Node: &types.Node{
 			Name: "ip-1-2-3-4.us-west-2.compute.internal",
 			Labels: map[string]string{
 				"kubernetes.io/arch":            "amd64",

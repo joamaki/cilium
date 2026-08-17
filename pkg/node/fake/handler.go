@@ -23,7 +23,7 @@ func (n *Handler) Observe(ctx context.Context, db *statedb.DB, nodes statedb.Tab
 		all, watch := nodes.AllWatch(txn)
 		current := map[string]types.Node{}
 		for obj := range all {
-			current[obj.Name] = obj.Node
+			current[obj.Name] = *obj.Node
 		}
 
 		n.mu.Lock()

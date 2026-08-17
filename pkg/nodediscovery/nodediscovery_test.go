@@ -86,7 +86,7 @@ func TestUpdateCiliumNodeResourceTransientErrorCausesFatal(t *testing.T) {
 	}
 
 	ln := &node.LocalNode{
-		Node:  nodeTypes.Node{Name: nodeName},
+		Node:  &nodeTypes.Node{Name: nodeName},
 		Local: &node.LocalNodeInfo{},
 	}
 

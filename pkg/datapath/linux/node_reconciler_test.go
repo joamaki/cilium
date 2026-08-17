@@ -66,7 +66,7 @@ func TestLinuxNodeOpsUpdateAndDelete(t *testing.T) {
 	handler.isInitialized = true
 	close(handler.configReady)
 
-	n := &node.Node{Node: nodeTypes.Node{
+	n := &node.Node{Node: &nodeTypes.Node{
 		Name:    "node-1",
 		Cluster: "cluster-1",
 		IPAddresses: []nodeTypes.Address{{
@@ -78,7 +78,7 @@ func TestLinuxNodeOpsUpdateAndDelete(t *testing.T) {
 	require.NoError(t, ops.Update(t.Context(), nil, statedb.Revision(1), n))
 	stored, found := handler.nodes[n.Identity()]
 	require.True(t, found)
-	require.True(t, stored.DeepEqual(&n.Node))
+	require.True(t, stored.DeepEqual(n.Node))
 
 	require.NoError(t, ops.Delete(t.Context(), nil, statedb.Revision(2), n))
 	_, found = handler.nodes[n.Identity()]
@@ -96,7 +96,7 @@ func TestLinuxNodeOpsRetriesFailedUpdate(t *testing.T) {
 	}
 	handler.nodeIDs = idpool.NewIDPool(1, 1)
 
-	n := &node.Node{Node: nodeTypes.Node{
+	n := &node.Node{Node: &nodeTypes.Node{
 		Name:    "node-1",
 		Cluster: "cluster-1",
 		IPAddresses: []nodeTypes.Address{{

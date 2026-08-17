@@ -29,7 +29,7 @@ func TestNodeReconciler(t *testing.T) {
 	)
 	t.Cleanup(func() { require.NoError(t, ipCache.Shutdown()) })
 
-	n := &node.Node{Node: nodeTypes.Node{
+	n := &node.Node{Node: &nodeTypes.Node{
 		Name:            k8s1NodeName,
 		WireguardPubKey: k8s1PubKey,
 		IPAddresses: []nodeTypes.Address{{
@@ -55,7 +55,7 @@ func TestWaitForNodeReconciliationWaitsForRetries(t *testing.T) {
 	nodes, err := node.NewNodeTable(db)
 	require.NoError(t, err)
 
-	n := &node.Node{Node: nodeTypes.Node{Name: "node-1"}}
+	n := &node.Node{Node: &nodeTypes.Node{Name: "node-1"}}
 	n.Statuses = n.Statuses.Set(
 		wireGuardNodeReconcilerName,
 		reconciler.StatusError(errors.New("injected failure")),

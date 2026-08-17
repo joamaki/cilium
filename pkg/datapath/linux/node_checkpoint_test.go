@@ -35,7 +35,7 @@ func TestLinuxNodeCheckpointPruning(t *testing.T) {
 	require.NoError(t, file.Close())
 
 	txn := db.WriteTxn(nodes)
-	nodes.Insert(txn, &node.Node{Node: live})
+	nodes.Insert(txn, &node.Node{Node: &live})
 	txn.Commit()
 
 	cleaned := []nodeTypes.Identity{}

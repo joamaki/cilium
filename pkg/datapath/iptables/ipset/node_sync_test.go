@@ -164,7 +164,7 @@ func TestNodeIPSetSync(t *testing.T) {
 }
 
 func testNode(name string, addresses ...nodeTypes.Address) *node.Node {
-	return &node.Node{Node: nodeTypes.Node{
+	return &node.Node{Node: &nodeTypes.Node{
 		Name:        name,
 		IPAddresses: addresses,
 	}}

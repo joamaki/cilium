@@ -187,7 +187,7 @@ func mustAddNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, n nodeTy
 	tb.Helper()
 	require.NoError(tb, ns.Do(func() error {
 		return (&linuxNodeOps{handler: lnh}).Update(
-			context.Background(), nil, 0, &node.Node{Node: n},
+			context.Background(), nil, 0, &node.Node{Node: &n},
 		)
 	}))
 }
@@ -196,7 +196,7 @@ func mustUpdateNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, _, ne
 	tb.Helper()
 	require.NoError(tb, ns.Do(func() error {
 		return (&linuxNodeOps{handler: lnh}).Update(
-			context.Background(), nil, 0, &node.Node{Node: new},
+			context.Background(), nil, 0, &node.Node{Node: &new},
 		)
 	}))
 }
@@ -205,7 +205,7 @@ func mustDeleteNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, n nod
 	tb.Helper()
 	require.NoError(tb, ns.Do(func() error {
 		return (&linuxNodeOps{handler: lnh}).Delete(
-			context.Background(), nil, 0, &node.Node{Node: n},
+			context.Background(), nil, 0, &node.Node{Node: &n},
 		)
 	}))
 }

@@ -22,10 +22,11 @@ import (
 type LocalNode = Node
 
 // Node is a Cilium node. It is the local node if [Node.Local] is non-nil.
+// Node and Local are immutable once the object is inserted into the table.
 //
 // +deepequal-gen=true
 type Node struct {
-	types.Node
+	*types.Node
 
 	// Local is non-nil if this is the local node. This carries additional
 	// information about the local node that is not shared outside.
@@ -37,12 +38,26 @@ type Node struct {
 	Statuses reconciler.StatusSet
 }
 
-// DeepCopy returns a deep copy of the node.
+// DeepCopy copies the table object while sharing its immutable desired data.
 func (n *Node) DeepCopy() *Node {
+	if n == nil {
+		return nil
+	}
 	n2 := *n
-	n2.Node = *n2.Node.DeepCopy()
-	n2.Local = n2.Local.DeepCopy()
 	return &n2
+}
+
+// deepCopyForUpdate returns an independent mutable copy of the node. This is
+// only for LocalNodeStore, whose update callback predates immutable table
+// objects.
+func (n *Node) deepCopyForUpdate() *Node {
+	n2 := n.DeepCopy()
+	if n2 == nil {
+		return nil
+	}
+	n2.Node = n2.Node.DeepCopy()
+	n2.Local = n2.Local.DeepCopy()
+	return n2
 }
 
 // TableHeader implements statedb.TableWritable.

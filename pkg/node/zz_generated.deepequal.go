@@ -15,8 +15,12 @@ func (in *Node) DeepEqual(other *Node) bool {
 		return false
 	}
 
-	if !in.Node.DeepEqual(&other.Node) {
+	if (in.Node == nil) != (other.Node == nil) {
 		return false
+	} else if in.Node != nil {
+		if !in.Node.DeepEqual(other.Node) {
+			return false
+		}
 	}
 
 	if (in.Local == nil) != (other.Local == nil) {

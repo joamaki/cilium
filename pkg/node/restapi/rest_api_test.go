@@ -64,7 +64,7 @@ func deleteNode(
 
 func TestGetClusterNodes(t *testing.T) {
 	h, db, nodes := newTestHandler(t)
-	n1 := &node.Node{Node: nodeTypes.Node{
+	n1 := &node.Node{Node: &nodeTypes.Node{
 		Name:          "node-1",
 		Cluster:       "cluster-1",
 		Source:        source.CustomResource,
@@ -109,6 +109,7 @@ func TestGetClusterNodes(t *testing.T) {
 	// Desired node changes are returned as removal of the old object and
 	// addition of the new object.
 	n1Updated := n1WithStatus.DeepCopy()
+	n1Updated.Node = n1Updated.Node.DeepCopy()
 	n1Updated.EncryptionKey = 2
 	upsertNode(db, nodes, n1Updated)
 	payload = responsePayload(t, h.Handle(
@@ -147,7 +148,7 @@ func TestGetClusterNodesCoalescesChanges(t *testing.T) {
 	clientID := payload.ClientID
 
 	// A node added and removed between polls was never visible to the client.
-	n := &node.Node{Node: nodeTypes.Node{
+	n := &node.Node{Node: &nodeTypes.Node{
 		Name:    "transient",
 		Cluster: "cluster-1",
 		Source:  source.CustomResource,
