@@ -36,13 +36,13 @@ func (m *mockServiceInterface) GetLastUpdatedAt() time.Time {
 }
 
 type mockLocalNodeStore struct {
-	node        *node.LocalNode
+	node        *node.Node
 	returnError bool
 }
 
-func (m *mockLocalNodeStore) Get(ctx context.Context) (node.LocalNode, error) {
+func (m *mockLocalNodeStore) Get(ctx context.Context) (node.Node, error) {
 	if m.returnError {
-		return node.LocalNode{}, assert.AnError
+		return node.Node{}, assert.AnError
 	}
 	return *m.node, nil
 }
@@ -116,7 +116,7 @@ func TestKubeproxyHealthzHandler(t *testing.T) {
 			}
 
 			mockNode := &mockLocalNodeStore{
-				node: &node.LocalNode{
+				node: &node.Node{
 					Local: &node.LocalNodeInfo{IsBeingDeleted: tc.nodeIsBeingDeleted},
 				},
 				returnError: tc.nodeStoreReturnErr,

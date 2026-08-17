@@ -365,7 +365,7 @@ func (tc testCommands) setNodeLabels() script.Cmd {
 				}
 				labels[key] = value
 			}
-			tc.lns.Update(func(n *node.LocalNode) {
+			tc.lns.Update(func(n *node.Node) {
 				n.Labels = labels
 				s.Logf("Labels set to %v\n", labels)
 			})
@@ -381,7 +381,7 @@ func (tc testCommands) setNodeIP() script.Cmd {
 				return nil, fmt.Errorf("%w: expected 'ip'", script.ErrUsage)
 			}
 			ip := net.ParseIP(args[0])
-			tc.lns.Update(func(n *node.LocalNode) {
+			tc.lns.Update(func(n *node.Node) {
 				n.IPAddresses = []nodeTypes.Address{
 					{Type: addressing.NodeExternalIP, IP: ip},
 				}

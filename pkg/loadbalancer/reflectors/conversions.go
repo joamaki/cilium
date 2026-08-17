@@ -50,7 +50,7 @@ func isHeadless(svc *slim_corev1.Service) bool {
 	return headless
 }
 
-func convertService(cfg loadbalancer.Config, extCfg loadbalancer.ExternalConfig, rawlog *slog.Logger, localNode *node.LocalNode, svc *slim_corev1.Service, source source.Source) (s *loadbalancer.Service, fes []loadbalancer.FrontendParams) {
+func convertService(cfg loadbalancer.Config, extCfg loadbalancer.ExternalConfig, rawlog *slog.Logger, localNode *node.Node, svc *slim_corev1.Service, source source.Source) (s *loadbalancer.Service, fes []loadbalancer.FrontendParams) {
 	// Lazily construct the augmented logger as we very rarely log here. This improves throughput by 20% and avoids an allocation.
 	log := sync.OnceValue(func() *slog.Logger {
 		return rawlog.With(
@@ -408,7 +408,7 @@ func getAnnotationTopologyAwareHints(svc *slim_corev1.Service) bool {
 
 // CheckServiceNodeExposure returns true if the service should be installed onto the
 // local node, and false if the node should ignore and not install the service.
-func CheckServiceNodeExposure(localNode *node.LocalNode, annotations map[string]string) (bool, error) {
+func CheckServiceNodeExposure(localNode *node.Node, annotations map[string]string) (bool, error) {
 	if serviceAnnotationValue, serviceAnnotationExists := annotations[annotation.ServiceNodeSelectorExposure]; serviceAnnotationExists {
 		selector, err := k8sLabels.Parse(serviceAnnotationValue)
 		if err != nil {

@@ -690,7 +690,7 @@ func TestENIMultiPoolAllocator(t *testing.T) {
 	h := hive.New(
 		k8s.ResourcesCell,
 		k8sClient.FakeClientCell(),
-		cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.LocalNode{}) }),
+		cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.Node{}) }),
 		cell.Invoke(
 			func(
 				jg_ job.Group,
@@ -791,7 +791,7 @@ func TestDeriveENIVpcCIDRs(t *testing.T) {
 func TestAutoDetectENINativeRoutingCIDR(t *testing.T) {
 	t.Run("auto-detects VPC CIDR when not configured", func(t *testing.T) {
 		logger := hivetest.Logger(t)
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 
 		primaryCIDR := netip.MustParsePrefix("10.0.0.0/16")
 		conf := &option.DaemonConfig{}
@@ -805,7 +805,7 @@ func TestAutoDetectENINativeRoutingCIDR(t *testing.T) {
 
 	t.Run("does not overwrite when already configured", func(t *testing.T) {
 		logger := hivetest.Logger(t)
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 
 		primaryCIDR := netip.MustParsePrefix("10.0.0.0/16")
 		conf := &option.DaemonConfig{
@@ -824,7 +824,7 @@ func TestAutoDetectENINativeRoutingCIDR(t *testing.T) {
 		// CIDR (e.g. a single availability-zone subnet) is a valid, supported
 		// configuration. It must not be rejected.
 		logger := hivetest.Logger(t)
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 
 		primaryCIDR := netip.MustParsePrefix("192.168.0.0/16")
 		conf := &option.DaemonConfig{
@@ -842,7 +842,7 @@ func TestAutoDetectENINativeRoutingCIDR(t *testing.T) {
 		// Regression test: pod subnets are commonly carved out of a secondary
 		// VPC CIDR association rather than the primary CIDR.
 		logger := hivetest.Logger(t)
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 
 		primaryCIDR := netip.MustParsePrefix("10.1.128.0/19")
 		secondaryCIDRs := []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}
@@ -859,7 +859,7 @@ func TestAutoDetectENINativeRoutingCIDR(t *testing.T) {
 
 	t.Run("rejects a native routing CIDR that overlaps no VPC CIDR", func(t *testing.T) {
 		logger := hivetest.Logger(t)
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 
 		primaryCIDR := netip.MustParsePrefix("10.1.128.0/19")
 		secondaryCIDRs := []netip.Prefix{netip.MustParsePrefix("100.64.0.0/16")}

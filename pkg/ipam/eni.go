@@ -93,7 +93,7 @@ func startENINativeRoutingCIDRSync(
 	logger *slog.Logger,
 	jg job.Group,
 	nodeResource agentK8s.LocalCiliumNodeResource,
-	localNodeStore *node.LocalNodeStore,
+	localNodeStore *node.NodeStore,
 	conf *option.DaemonConfig,
 ) <-chan struct{} {
 	ready := make(chan struct{})
@@ -174,7 +174,7 @@ func autoDetectENINativeRoutingCIDR(
 	logger *slog.Logger,
 	primaryCIDR netip.Prefix,
 	secondaryCIDRs []netip.Prefix,
-	localNodeStore *node.LocalNodeStore,
+	localNodeStore *node.NodeStore,
 	conf *option.DaemonConfig,
 ) error {
 	if nativeCIDR := conf.IPv4NativeRoutingCIDR; nativeCIDR.IsValid() {
@@ -200,7 +200,7 @@ func autoDetectENINativeRoutingCIDR(
 		"Using autodetected VPC primary CIDR as native routing CIDR.",
 		logfields.VPCCIDR, primaryCIDR,
 	)
-	localNodeStore.Update(func(n *node.LocalNode) {
+	localNodeStore.Update(func(n *node.Node) {
 		n.Local.IPv4NativeRoutingCIDR = primaryCIDR
 	})
 	return nil
@@ -721,7 +721,7 @@ type ENIMultiPoolAllocatorParams struct {
 	CiliumNodeUpdateRate time.Duration
 
 	Node           agentK8s.LocalCiliumNodeResource
-	LocalNodeStore *node.LocalNodeStore
+	LocalNodeStore *node.NodeStore
 	CNClient       cilium_v2.CiliumNodeInterface
 	JobGroup       job.Group
 

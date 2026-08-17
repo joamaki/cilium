@@ -79,7 +79,7 @@ type reflectorParams struct {
 	ExtConfig              loadbalancer.ExternalConfig
 	HaveNetNSCookieSupport HaveNetNSCookieSupport
 	TestConfig             *loadbalancer.TestConfig `optional:"true"`
-	Nodes                  statedb.Table[*node.LocalNode]
+	Nodes                  statedb.Table[*node.Node]
 	SVCMetrics             SVCMetrics `optional:"true"`
 }
 

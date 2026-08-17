@@ -85,7 +85,7 @@ func TestUpdateCiliumNodeResourceTransientErrorCausesFatal(t *testing.T) {
 		cniConfigManager: &mockCNIConfigManager{},
 	}
 
-	ln := &node.LocalNode{
+	ln := &node.Node{
 		Node:  &nodeTypes.Node{Name: nodeName},
 		Local: &node.LocalNodeInfo{},
 	}

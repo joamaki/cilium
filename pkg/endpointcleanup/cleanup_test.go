@@ -149,7 +149,7 @@ func TestGC(t *testing.T) {
 					return &fakeRestorer{}
 				}),
 				cell.Provide(func() *node.LocalNodeStore {
-					return node.NewTestLocalNodeStore(node.LocalNode{})
+					return node.NewTestLocalNodeStore(node.Node{})
 				}),
 				cell.Invoke(func(clientset *k8sFakeClient.FakeClientset) error {
 					clientset.CiliumFakeClientset.PrependReactor("get", "ciliumendpoints", k8stesting.ReactionFunc(

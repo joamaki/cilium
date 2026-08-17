@@ -119,7 +119,7 @@ func (f fakePoolAllocator) RestoreFinished() {}
 
 func TestLock(t *testing.T) {
 	fakeAddressing := fakenode.NewAddressing()
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),
 		NodeAddressing: fakeAddressing,
@@ -152,7 +152,7 @@ func TestLock(t *testing.T) {
 
 func TestExcludeIP(t *testing.T) {
 	fakeAddressing := fakenode.NewAddressing()
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),
 		NodeAddressing: fakeAddressing,
@@ -194,7 +194,7 @@ func TestDeriveFamily(t *testing.T) {
 
 func TestIPAMMetadata(t *testing.T) {
 	fakeAddressing := fakenode.NewAddressing()
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	fakeMetadata := fakeMetadataFunc(func(owner string, family Family) (pool string, err error) {
 		// use namespace to determine pool name
 		namespace, _, _ := strings.Cut(owner, "/")
@@ -277,7 +277,7 @@ func TestLegacyAllocatorIPAMMetadata(t *testing.T) {
 	// AllocationResult is always set to PoolDefault(), regardless of the requested
 	// pool
 	fakeAddressing := fakenode.NewAddressing()
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	fakeMetadata := fakeMetadataFunc(func(owner string, family Family) (pool string, err error) { return "some-pool", nil })
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),

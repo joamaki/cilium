@@ -73,7 +73,7 @@ func registerCECK8sReflector(
 	g job.Group,
 	db *statedb.DB,
 	tbl statedb.RWTable[*CEC],
-	nodes statedb.Table[*node.LocalNode],
+	nodes statedb.Table[*node.Node],
 ) error {
 	if !dcfg.EnableL7Proxy || !dcfg.EnableEnvoyConfig {
 		return nil

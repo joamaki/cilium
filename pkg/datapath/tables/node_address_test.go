@@ -774,7 +774,7 @@ func TestNodeAddressNodeIPChange(t *testing.T) {
 	}
 
 	// Make the 10.0.0.1 the new NodeIP.
-	localNodeStore.Update(func(n *node.LocalNode) {
+	localNodeStore.Update(func(n *node.Node) {
 		n.SetNodeExternalIP(net.ParseIP("10.0.0.1"))
 	})
 	<-watch
@@ -837,7 +837,7 @@ func fixture(t *testing.T, addressScopeMax int, beforeStart func(*hive.Hive)) (*
 type testLocalNodeSync struct{}
 
 // InitLocalNode implements node.LocalNodeSynchronizer.
-func (t testLocalNodeSync) InitLocalNode(_ context.Context, n *node.LocalNode) error {
+func (t testLocalNodeSync) InitLocalNode(_ context.Context, n *node.Node) error {
 	n.SetNodeExternalIP(testNodeIPv4.AsSlice())
 	n.SetNodeExternalIP(testNodeIPv6.AsSlice())
 	return nil

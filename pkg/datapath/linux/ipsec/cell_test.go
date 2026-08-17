@@ -74,7 +74,7 @@ type paramsOut struct {
 	DaemonConfig          *option.DaemonConfig
 	LBConfig              loadbalancer.Config
 	LBExternalConfig      loadbalancer.ExternalConfig
-	LocalNode             node.LocalNode
+	LocalNode             node.Node
 	IPCache               *ipcache.IPCache
 	CNIConfigManager      cnicell.CNIConfigManager
 	K8SAPIGroups          *k8sSynced.APIGroups
@@ -177,7 +177,7 @@ func TestPrivileged_TestIPSecCell(t *testing.T) {
 						DaemonConfig:     option.Config,
 						LBConfig:         loadbalancer.DefaultConfig,
 						LBExternalConfig: loadbalancer.ExternalConfig{},
-						LocalNode: node.LocalNode{
+						LocalNode: node.Node{
 							Node: &nodeTypes.Node{
 								Name: k8s1NodeName,
 								IPAddresses: []nodeTypes.Address{

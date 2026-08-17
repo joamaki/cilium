@@ -118,8 +118,8 @@ func TestNodeReconcilerMetadataLifecycle(t *testing.T) {
 		)},
 		IPv4HealthIP:  ip.AddrFrom(netip.MustParseAddr("10.0.0.4")),
 		IPv6HealthIP:  ip.AddrFrom(netip.MustParseAddr("f00d::4")),
-		IPv4IngressIP: net.ParseIP("10.0.0.5"),
-		IPv6IngressIP: net.ParseIP("f00d::5"),
+		IPv4IngressIP: ip.AddrFrom(netip.MustParseAddr("10.0.0.5")),
+		IPv6IngressIP: ip.AddrFrom(netip.MustParseAddr("f00d::5")),
 		EncryptionKey: 42,
 	}}
 

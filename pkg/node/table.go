@@ -17,10 +17,6 @@ import (
 	"github.com/cilium/cilium/pkg/node/types"
 )
 
-// LocalNode is an alias for the [Node] type to mark that we expect this
-// to be the local node.
-type LocalNode = Node
-
 // Node is a Cilium node. It is the local node if [Node.Local] is non-nil.
 // Node and Local are immutable once the object is inserted into the table.
 //
@@ -189,7 +185,7 @@ const (
 var (
 	NodeNameIndex = statedb.Index[*Node, string]{
 		Name: "name",
-		FromObject: func(obj *LocalNode) index.KeySet {
+		FromObject: func(obj *Node) index.KeySet {
 			return index.NewKeySet(index.String(obj.Fullname()))
 		},
 		FromKey:    index.String,
@@ -200,7 +196,7 @@ var (
 
 	NodeLocalIndex = statedb.Index[*Node, bool]{
 		Name: "local",
-		FromObject: func(obj *LocalNode) index.KeySet {
+		FromObject: func(obj *Node) index.KeySet {
 			if obj.Local == nil {
 				// Don't add remote nodes to this index at all.
 				return index.KeySet{}

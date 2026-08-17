@@ -82,7 +82,7 @@ func newFakeLocalNode() *fakeLocalNode {
 	fake.events <- event("uid1", "provider://foobar", map[string]string{"foo": "bar"}, map[string]string{"cilium.io/baz": "qux"})
 	fake.events <- event("uid1", "provider://foobar", map[string]string{"foo": "bar", "qux": "baz"},
 		map[string]string{"cilium.io/baz": "qux", "cilium.io/bar": "foo"})
-	// Same object, should not cause a LocalNode event to be emitted.
+	// Same object, should not cause a local node event to be emitted.
 	fake.events <- event("uid1", "provider://foobar", map[string]string{"foo": "bar", "qux": "baz"},
 		map[string]string{"cilium.io/baz": "qux", "cilium.io/bar": "foo"})
 	fake.events <- event("uid1", "provider://foobar", map[string]string{"qux": "baz"}, map[string]string{"cilium.io/bar": "foo"})
@@ -105,7 +105,7 @@ func (fln *fakeLocalNode) Store(context.Context) (resource.Store[*slim_corev1.No
 
 func TestLocalNodeSync(t *testing.T) {
 	var (
-		local = node.LocalNode{
+		local = node.Node{
 			Node: &types.Node{
 				Labels:      map[string]string{"ex": "label"},
 				Annotations: map[string]string{"ex": "annot"},
@@ -130,7 +130,7 @@ func TestLocalNodeSync(t *testing.T) {
 			},
 			IPsecConfig: fakeipsec.Config{},
 			ExtraInitFuncs: []InitFunc{
-				func(_ context.Context, n *node.LocalNode) error {
+				func(_ context.Context, n *node.Node) error {
 					n.Annotations["extra-init-func"] = "called"
 					return nil
 				},
@@ -234,7 +234,7 @@ func TestInitLocalNode_initFromK8s(t *testing.T) {
 			},
 		},
 	)
-	n := &node.LocalNode{
+	n := &node.Node{
 		Node: &types.Node{
 			Labels: map[string]string{},
 		},
@@ -335,7 +335,7 @@ func testNodeDeletion(t *testing.T, nodeEvent resource.Event[*slim_corev1.Node])
 	})
 
 	// Initialize local node
-	local := node.LocalNode{Node: &types.Node{Name: "test-node"}, Local: &node.LocalNodeInfo{}}
+	local := node.Node{Node: &types.Node{Name: "test-node"}, Local: &node.LocalNodeInfo{}}
 	store := node.NewTestLocalNodeStore(local)
 
 	// Start observing updates

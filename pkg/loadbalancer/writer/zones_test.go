@@ -111,7 +111,7 @@ func TestZoneWatcher(t *testing.T) {
 
 		// --- Scenario 1: Initial Zone Discovery ---
 		t.Log("Scenario 1: Setting initial zone")
-		p.LocalNodeStore.Update(func(n *node.LocalNode) {
+		p.LocalNodeStore.Update(func(n *node.Node) {
 			if n.Labels == nil {
 				n.Labels = map[string]string{}
 			}
@@ -130,14 +130,14 @@ func TestZoneWatcher(t *testing.T) {
 
 		// --- Scenario 2: Unrelated Node Update ---
 		t.Log("Scenario 2: Updating unrelated node label (zone remains same)")
-		p.LocalNodeStore.Update(func(n *node.LocalNode) {
+		p.LocalNodeStore.Update(func(n *node.Node) {
 			n.Labels["dummy-label"] = "dummy-value"
 		})
 		synctest.Wait()
 
 		// --- Scenario 3: Zone Change ---
 		t.Log("Scenario 3: Changing zone")
-		p.LocalNodeStore.Update(func(n *node.LocalNode) {
+		p.LocalNodeStore.Update(func(n *node.Node) {
 			n.Labels[corev1.LabelTopologyZone] = "zone-b"
 		})
 		synctest.Wait()

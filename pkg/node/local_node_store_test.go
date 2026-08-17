@@ -23,14 +23,14 @@ import (
 
 type testSynchronizer struct{ identity chan uint32 }
 
-func (testSynchronizer) InitLocalNode(ctx context.Context, n *LocalNode) error {
+func (testSynchronizer) InitLocalNode(ctx context.Context, n *Node) error {
 	n.ClusterID = 1
 	return nil
 }
 
 func (ts testSynchronizer) SyncLocalNode(ctx context.Context, lns *LocalNodeStore) {
 	id := <-ts.identity
-	lns.Update(func(n *LocalNode) { n.ClusterID = id })
+	lns.Update(func(n *Node) { n.ClusterID = id })
 	<-ctx.Done()
 }
 
@@ -51,7 +51,7 @@ func TestLocalNodeStore(t *testing.T) {
 	// waitObserve after the last change has been observed.
 	observe := func(store *LocalNodeStore) {
 		store.Observe(context.TODO(),
-			func(n LocalNode) {
+			func(n Node) {
 				observed = append(observed, n.ClusterID)
 
 				if n.ClusterID == expected[len(expected)-1] {
@@ -74,7 +74,7 @@ func TestLocalNodeStore(t *testing.T) {
 						continue
 					}
 
-					store.Update(func(n *LocalNode) {
+					store.Update(func(n *Node) {
 						n.ClusterID = i
 					})
 				}
@@ -154,12 +154,12 @@ func TestLocalNodeStoreUpdateMarksStatusesPending(t *testing.T) {
 	require.NoError(t, err)
 	txn.Commit()
 
-	store.Update(func(*LocalNode) {})
+	store.Update(func(*Node) {})
 	local, _, found = nodes.Get(db.ReadTxn(), LocalNodeQuery)
 	require.True(t, found)
 	require.Equal(t, reconciler.StatusKindDone, local.Statuses.Get("test").Kind)
 
-	store.Update(func(n *LocalNode) { n.ClusterID++ })
+	store.Update(func(n *Node) { n.ClusterID++ })
 	local, _, found = nodes.Get(db.ReadTxn(), LocalNodeQuery)
 	require.True(t, found)
 	require.Equal(t, reconciler.StatusKindPending, local.Statuses.Get("test").Kind)
@@ -204,7 +204,7 @@ func TestWaitForLocalNodeInit(t *testing.T) {
 
 func BenchmarkLocalNodeStoreGet(b *testing.B) {
 	ctx := context.Background()
-	lns := NewTestLocalNodeStore(LocalNode{})
+	lns := NewTestLocalNodeStore(Node{})
 
 	b.ReportAllocs()
 

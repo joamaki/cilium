@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"iter"
-	"net"
 	"net/netip"
 	"reflect"
 
@@ -270,8 +269,8 @@ func (ops *nodeReconcilerOps) metadataForNode(
 		}
 	}
 
-	for _, address := range []net.IP{n.IPv4IngressIP, n.IPv6IngressIP} {
-		prefix := ip.IPToNetPrefix(address)
+	for _, address := range []netip.Addr{n.IPv4IngressIP.Addr, n.IPv6IngressIP.Addr} {
+		prefix := netip.PrefixFrom(address, address.BitLen())
 		if prefix.IsValid() {
 			add(cmtypes.PrefixClusterFrom(prefix),
 				labels.LabelIngress,

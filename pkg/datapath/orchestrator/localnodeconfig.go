@@ -62,7 +62,7 @@ func prefixToCIDR(p netip.Prefix) *cidr.CIDR {
 func newLocalNodeConfig(
 	ctx context.Context,
 	daemon *option.DaemonConfig,
-	localNode node.LocalNode,
+	localNode node.Node,
 	sysctlOps sysctl.Sysctl,
 	tunnelCfg tunnel.Config,
 	txn statedb.ReadTxn,

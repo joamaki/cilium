@@ -17,7 +17,7 @@ import (
 type LocalNodeWatcher struct {
 	mu    lock.Mutex
 	cache struct {
-		// labels are represented as a Go map in node.LocalNode, but we need a
+		// labels are represented as a Go map in node.Node, but we need a
 		// key=val slice for Hubble flows.
 		labels []string
 	}
@@ -50,8 +50,8 @@ func (w *LocalNodeWatcher) OnDecodedFlow(_ context.Context, flow *flowpb.Flow) (
 	return false, nil
 }
 
-// update synchronize the LocalNodeWatcher cache with the given LocalNode info.
-func (w *LocalNodeWatcher) update(n node.LocalNode) {
+// update synchronizes the LocalNodeWatcher cache with the given local node.
+func (w *LocalNodeWatcher) update(n node.Node) {
 	labels := sortedLabelSlice(n.Labels)
 	w.mu.Lock()
 	defer w.mu.Unlock()

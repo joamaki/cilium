@@ -56,7 +56,7 @@ func TestCreateNodeRoute(t *testing.T) {
 	}
 	log := hivetest.Logger(t)
 
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	nodeHandler := newNodeHandler(log, dpConfig, nil, kpr.KPRConfig{}, &fakeipsec.Agent{}, fakeipsec.Config{}, lns)
 	nodeHandler.NodeConfigurationChanged(nodeConfig)
 

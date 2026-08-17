@@ -83,7 +83,7 @@ func (r *IPAMInitializer) ConfigureAndStartIPAM(ctx context.Context) {
 			)
 		}
 
-		r.localNodeStore.Update(func(n *node.LocalNode) {
+		r.localNodeStore.Update(func(n *node.Node) {
 			n.IPv4AllocCIDR = nodeTypes.PrefixFrom(allocCIDR)
 		})
 	}
@@ -99,7 +99,7 @@ func (r *IPAMInitializer) ConfigureAndStartIPAM(ctx context.Context) {
 			)
 		}
 
-		r.localNodeStore.Update(func(n *node.LocalNode) {
+		r.localNodeStore.Update(func(n *node.Node) {
 			n.IPv6AllocCIDR = nodeTypes.PrefixFrom(allocCIDR)
 		})
 	}
@@ -130,7 +130,7 @@ func (r *IPAMInitializer) AutoComplete(ctx context.Context) error {
 	// default values derived from the system. device can be set to the primary
 	// network device of the system in which case the first address with global
 	// scope will be regarded as the system's node address.
-	r.localNodeStore.Update(func(n *node.LocalNode) {
+	r.localNodeStore.Update(func(n *node.Node) {
 		r.setDefaultPrefix(directRoutingDevice, n)
 	})
 
@@ -160,7 +160,7 @@ func (r *IPAMInitializer) makeIPv6HostIP() netip.Addr {
 	return addr
 }
 
-func (r *IPAMInitializer) setDefaultPrefix(device string, localNode *node.LocalNode) {
+func (r *IPAMInitializer) setDefaultPrefix(device string, localNode *node.Node) {
 	if r.daemonConfig.EnableIPv4 {
 		isIPv6 := false
 

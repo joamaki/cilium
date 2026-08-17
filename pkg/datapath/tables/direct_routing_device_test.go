@@ -32,8 +32,8 @@ func TestDirectRoutingDevice(t *testing.T) {
 
 	h := hive.New(
 		cell.Provide(
-			func() node.LocalNode {
-				return node.LocalNode{
+			func() node.Node {
+				return node.Node{
 					Node: &types.Node{
 						IPAddresses: []types.Address{
 							{
@@ -162,8 +162,8 @@ func TestDirectRoutingDevice_withConfig(t *testing.T) {
 
 			h := hive.New(
 				cell.Provide(
-					func() node.LocalNode {
-						return node.LocalNode{
+					func() node.Node {
+						return node.Node{
 							Node: &types.Node{
 								IPAddresses: []types.Address{
 									{

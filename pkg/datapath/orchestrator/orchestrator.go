@@ -178,7 +178,7 @@ func (o *orchestrator) reconciler(ctx context.Context, health cell.Health) error
 	health.OK("Waiting for Cilium internal IP")
 	localNodes := stream.ToTruncatingChannel(ctx,
 		stream.Filter(o.params.LocalNodeStore,
-			func(n node.LocalNode) bool {
+			func(n node.Node) bool {
 				if agentConfig.EnableIPv4 {
 					loopback := n.Local.ServiceLoopbackIPv4.IsValid()
 					ipv4GW := n.GetCiliumInternalIP(false) != nil

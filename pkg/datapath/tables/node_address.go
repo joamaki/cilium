@@ -155,7 +155,7 @@ var (
 	//
 	// The Table[NodeAddress] contains the actual assigned addresses on the node,
 	// but not for example external Kubernetes node addresses that may be merely
-	// NATd to a private address. Those can be queried through Table[*node.LocalNode].
+	// NATd to a private address. Those can be queried through Table[*node.Node].
 	NodeAddressCell = cell.Module(
 		"node-address",
 		"Table of node addresses derived from system network devices",
@@ -215,7 +215,7 @@ type nodeAddressControllerParams struct {
 	Routes          statedb.Table[*Route]
 	NodeAddresses   statedb.RWTable[NodeAddress]
 	AddressScopeMax AddressScopeMax
-	Nodes           statedb.Table[*node.LocalNode]
+	Nodes           statedb.Table[*node.Node]
 }
 
 type nodeAddressController struct {

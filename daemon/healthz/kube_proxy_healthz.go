@@ -28,7 +28,7 @@ import (
 
 // LocalNodeGetter is an interface for getting the local node state
 type LocalNodeGetter interface {
-	Get(ctx context.Context) (node.LocalNode, error)
+	Get(ctx context.Context) (node.Node, error)
 }
 
 type lastUpdatedAter interface {

@@ -25,7 +25,7 @@ type RouterInfo interface {
 
 // GetCiliumEndpointNodeIP is the node IP that will be referenced by CiliumEndpoints with endpoints
 // running on this node.
-func GetCiliumEndpointNodeIP(localNode LocalNode) string {
+func GetCiliumEndpointNodeIP(localNode Node) string {
 	if option.Config.EnableIPv4 && localNode.Local.UnderlayProtocol == tunnel.IPv4 {
 		return localNode.GetNodeIP(false).String()
 	}
@@ -53,7 +53,7 @@ func SetRouterInfo(info RouterInfo) {
 // Note that the key index returned by this function is only valid for _endpoints_
 // of the local node. If you want to obtain the key index of the local node itself,
 // access the `EncryptionKey` field via the LocalNodeStore.
-func GetEndpointEncryptKeyIndex(localNode LocalNode, wgEnabled, ipsecEnabled bool) uint8 {
+func GetEndpointEncryptKeyIndex(localNode Node, wgEnabled, ipsecEnabled bool) uint8 {
 	switch {
 	case ipsecEnabled:
 		return localNode.EncryptionKey

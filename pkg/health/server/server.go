@@ -415,7 +415,7 @@ func (s *Server) newServer(logger *slog.Logger, spec *healthApi.Spec) *healthApi
 }
 
 // NewServer creates a server to handle health requests.
-func NewServer(logger *slog.Logger, config Config, enableActiveChecks bool, localNode node.LocalNode) (*Server, error) {
+func NewServer(logger *slog.Logger, config Config, enableActiveChecks bool, localNode node.Node) (*Server, error) {
 	server := &Server{
 		logger:             logger,
 		startTime:          time.Now(),
@@ -440,7 +440,7 @@ func NewServer(logger *slog.Logger, config Config, enableActiveChecks bool, loca
 
 // Get internal node ipv4/ipv6 addresses based on config enabled.
 // If it fails to get either of internal node address, it returns "0.0.0.0" if ipv4 or "::" if ipv6.
-func getAddresses(localNode node.LocalNode) []string {
+func getAddresses(localNode node.Node) []string {
 	addresses := make([]string, 0, 2)
 
 	if option.Config.EnableIPv4 {

@@ -39,7 +39,7 @@ type Writer struct {
 	svcs      statedb.RWTable[*loadbalancer.Service]
 	fes       statedb.RWTable[*loadbalancer.Frontend]
 	bes       statedb.RWTable[*loadbalancer.Backend]
-	nodes     statedb.Table[*node.LocalNode]
+	nodes     statedb.Table[*node.Node]
 
 	sourcePriorities map[source.Source]uint8 // The smaller the int, the more preferred the source. Use via sourcePriority().
 
@@ -64,7 +64,7 @@ type writerParams struct {
 	Services      statedb.RWTable[*loadbalancer.Service]
 	Frontends     statedb.RWTable[*loadbalancer.Frontend]
 	Backends      statedb.RWTable[*loadbalancer.Backend]
-	Nodes         statedb.Table[*node.LocalNode]
+	Nodes         statedb.Table[*node.Node]
 
 	SourcePriorities source.Sources
 }

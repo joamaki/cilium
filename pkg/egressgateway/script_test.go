@@ -174,7 +174,7 @@ func (m *mockNodeSync) WaitForNodeInformation(ctx context.Context, store *node.L
 	return nil
 }
 
-func (m *mockNodeSync) InitLocalNode(ctx context.Context, n *node.LocalNode) error {
+func (m *mockNodeSync) InitLocalNode(ctx context.Context, n *node.Node) error {
 	n.Node = &nodeTypes.Node{
 		Name: "localnode1",
 		IPAddresses: []nodeTypes.Address{

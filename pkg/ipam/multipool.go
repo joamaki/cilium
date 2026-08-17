@@ -262,7 +262,7 @@ func startLocalNodeAllocCIDRsSync(
 					// just pass a dummy value to avoid having to propagate a ClusterInfo
 					cmtypes.ClusterInfo{ID: 0, Name: "should-not-be-used"},
 				)
-				localNodeStore.Update(func(n *node.LocalNode) {
+				localNodeStore.Update(func(n *node.Node) {
 					if enableIPv4 && no.IPv4AllocCIDR.IsValid() {
 						n.IPv4AllocCIDR = no.IPv4AllocCIDR
 						n.IPv4SecondaryAllocCIDRs = no.IPv4SecondaryAllocCIDRs

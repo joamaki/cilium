@@ -58,7 +58,7 @@ var mtuMock = fakeMTU{}
 
 func TestAllocatedIPDump(t *testing.T) {
 	fakeAddressing := fakenode.NewAddressing()
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),
 		NodeAddressing: fakeAddressing,
@@ -88,7 +88,7 @@ func TestExpirationTimer(t *testing.T) {
 	timeout := 50 * time.Millisecond
 
 	fakeAddressing := fakenode.NewAddressing()
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),
 		NodeAddressing: fakeAddressing,
@@ -164,7 +164,7 @@ func TestAllocateNextWithExpiration(t *testing.T) {
 	timeout := 50 * time.Millisecond
 
 	fakeAddressing := fakenode.NewAddressing()
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	fakeMetadata := fakeMetadataFunc(func(owner string, family Family) (pool string, err error) { return "some-pool", nil })
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),

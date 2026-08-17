@@ -1557,7 +1557,7 @@ func TestEnvoyAdsLocalityClusterEndpointsACK(t *testing.T) {
 
 	starter := &onDemandXdsStarter{
 		logger: logger,
-		localNodeStore: node.NewTestLocalNodeStore(node.LocalNode{
+		localNodeStore: node.NewTestLocalNodeStore(node.Node{
 			Node: &nodetypes.Node{
 				Labels: map[string]string{
 					corev1.LabelTopologyZone: "zone-a",

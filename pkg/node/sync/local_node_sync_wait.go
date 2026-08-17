@@ -130,12 +130,12 @@ func (ini *localNodeSynchronizer) WaitForNodeInformation(ctx context.Context, st
 
 		// Set allocation CIDRs
 		if n.IPv4AllocCIDR.IsValid() && option.Config.EnableIPv4 {
-			store.Update(func(ln *node.LocalNode) {
+			store.Update(func(ln *node.Node) {
 				ln.IPv4AllocCIDR = n.IPv4AllocCIDR
 			})
 		}
 		if n.IPv6AllocCIDR.IsValid() && option.Config.EnableIPv6 {
-			store.Update(func(ln *node.LocalNode) {
+			store.Update(func(ln *node.Node) {
 				ln.IPv6AllocCIDR = n.IPv6AllocCIDR
 			})
 		}

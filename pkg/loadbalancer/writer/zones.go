@@ -15,8 +15,9 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 )
 
-// registerNodeZoneWatcher registers a background job that watches Table[LocalNode] and
-// refreshes the frontends with a configured TrafficDistribution to re-select backends.
+// registerNodeZoneWatcher registers a background job that watches
+// `Table[*node.Node]` and refreshes frontends with a configured
+// TrafficDistribution to re-select backends.
 func registerNodeZoneWatcher(jg job.Group, p zoneWatcherParams) {
 	if p.Config.EnableServiceTopology {
 		jg.Add(job.OneShot("zone-watcher", zoneWatcher{p}.run))
@@ -28,7 +29,7 @@ type zoneWatcherParams struct {
 
 	Config loadbalancer.Config
 	Writer *Writer
-	Nodes  statedb.Table[*node.LocalNode]
+	Nodes  statedb.Table[*node.Node]
 }
 
 type zoneWatcher struct {

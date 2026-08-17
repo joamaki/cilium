@@ -89,7 +89,7 @@ type parserParams struct {
 
 	PortAllocator PortAllocator
 	DB            *statedb.DB
-	Nodes         statedb.Table[*node.LocalNode]
+	Nodes         statedb.Table[*node.Node]
 
 	DaemonConfig *option.DaemonConfig
 	CecConfig    CECConfig

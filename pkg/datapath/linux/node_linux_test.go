@@ -277,7 +277,7 @@ func testUpdateNodeRoute(t *testing.T, family string) {
 
 	dpConfig := DatapathConfiguration{HostDevice: hostDevice}
 	log := hivetest.Logger(t)
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 
 	a, err := ipsec.NewTestIPsecAgent(t, nil)
 	require.NoError(t, err)
@@ -322,7 +322,7 @@ func testAuxiliaryPrefixes(t *testing.T, family string) {
 
 	dpConfig := DatapathConfiguration{HostDevice: hostDevice}
 	log := hivetest.Logger(t)
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	ipsecAgent, err := ipsec.NewTestIPsecAgent(t, nil)
 	require.NoError(t, err)
 
@@ -402,7 +402,7 @@ func commonNodeUpdateEncapsulation(t *testing.T, family string, encap bool, over
 
 	dpConfig := DatapathConfiguration{HostDevice: hostDevice}
 	log := hivetest.Logger(t)
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	ipsecAgent, err := ipsec.NewTestIPsecAgent(t, nil)
 	require.NoError(t, err)
 	lnh := newNodeHandler(log, dpConfig, nodemapfake.NewFakeNodeMapV2(), kpr.KPRConfig{}, ipsecAgent, fakeipsec.Config{}, lns)
@@ -566,7 +566,7 @@ func testNodeUpdateIDs(t *testing.T, family string) {
 
 	dpConfig := DatapathConfiguration{HostDevice: hostDevice}
 	log := hivetest.Logger(t)
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	ipsecAgent, err := ipsec.NewTestIPsecAgent(t, nil)
 	require.NoError(t, err)
 
@@ -729,7 +729,7 @@ func testNodeChurnXFRMLeaksWithConfig(t *testing.T, s *nodeSuite, config config.
 	require.NoError(t, err)
 
 	dpConfig := DatapathConfiguration{HostDevice: hostDevice}
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	lnh := newNodeHandler(log, dpConfig, nodemapfake.NewFakeNodeMapV2(), kpr.KPRConfig{}, a, fakeipsec.Config{}, lns)
 
 	mustConfigureNode(t, s.ns, lnh, config)
@@ -822,7 +822,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 
 	dpConfig := DatapathConfiguration{HostDevice: hostDevice}
 	log := hivetest.Logger(t)
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	ipsecAgent, err := ipsec.NewTestIPsecAgent(t, nil)
 	require.NoError(t, err)
 
@@ -1062,7 +1062,7 @@ func testNodeValidationDirectRouting(t *testing.T, family string) {
 
 	dpConfig := DatapathConfiguration{HostDevice: hostDevice}
 	log := hivetest.Logger(t)
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	ipsecAgent, err := ipsec.NewTestIPsecAgent(t, nil)
 	require.NoError(t, err)
 
@@ -1210,7 +1210,7 @@ func testNodePodCIDRsChurnIPSec(t *testing.T, family string) {
 	log := hivetest.Logger(t)
 	a, err := ipsec.NewTestIPsecAgent(t, bytes.NewReader([]byte("6+ rfc4106(gcm(aes)) 44434241343332312423222114131211f4f3f2f1 128\n")))
 	require.NoError(t, err)
-	lns := node.NewTestLocalNodeStore(node.LocalNode{})
+	lns := node.NewTestLocalNodeStore(node.Node{})
 	lnh := newNodeHandler(log, dpConfig, nodemapfake.NewFakeNodeMapV2(), kpr.KPRConfig{}, a, fakeipsec.Config{}, lns)
 
 	nodeConfig := s.nodeConfigTemplate

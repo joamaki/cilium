@@ -243,7 +243,7 @@ func TestScript(t *testing.T) {
 					}
 					labels[key] = value
 				}
-				lns.Update(func(n *node.LocalNode) {
+				lns.Update(func(n *node.Node) {
 					n.Labels = labels
 					s.Logf("Labels set to %v\n", labels)
 				})

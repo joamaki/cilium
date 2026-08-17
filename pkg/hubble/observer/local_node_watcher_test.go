@@ -18,7 +18,7 @@ import (
 func Test_LocalNodeWatcher(t *testing.T) {
 	ctx := t.Context()
 
-	localNode := node.LocalNode{
+	localNode := node.Node{
 		Node: &types.Node{
 			Name: "ip-1-2-3-4.us-west-2.compute.internal",
 			Labels: map[string]string{
@@ -38,7 +38,7 @@ func Test_LocalNodeWatcher(t *testing.T) {
 		"topology.kubernetes.io/region=us-west-2",
 		"topology.kubernetes.io/zone=us-west-2d",
 	}
-	updatedNode := node.LocalNode{
+	updatedNode := node.Node{
 		Node: &types.Node{
 			Name: "kind-kind",
 			Labels: map[string]string{
@@ -74,7 +74,7 @@ func Test_LocalNodeWatcher(t *testing.T) {
 	})
 
 	t.Run("update", func(t *testing.T) {
-		store.Update(func(ln *node.LocalNode) {
+		store.Update(func(ln *node.Node) {
 			*ln = updatedNode
 		})
 		require.EventuallyWithT(

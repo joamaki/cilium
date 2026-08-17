@@ -86,7 +86,7 @@ type nodeStore struct {
 
 // newNodeStore initializes a new store which reflects the CiliumNode custom
 // resource of the specified node name
-func newNodeStore(logger *slog.Logger, nodeName string, conf *option.DaemonConfig, owner Owner, localNodeStore *node.LocalNodeStore, clientset client.Clientset, k8sEventReg K8sEventRegister, mtuConfig MtuConfiguration, sysctl sysctl.Sysctl) *nodeStore {
+func newNodeStore(logger *slog.Logger, nodeName string, conf *option.DaemonConfig, owner Owner, localNodeStore *node.NodeStore, clientset client.Clientset, k8sEventReg K8sEventRegister, mtuConfig MtuConfiguration, sysctl sysctl.Sysctl) *nodeStore {
 	logger.Info("Subscribed to CiliumNode custom resource", fieldName, nodeName)
 
 	store := &nodeStore{
@@ -272,7 +272,7 @@ func deriveVpcCIDRs(node *ciliumv2.CiliumNode) (primaryCIDR netip.Prefix, second
 	return
 }
 
-func (n *nodeStore) autoDetectIPv4NativeRoutingCIDR(localNodeStore *node.LocalNodeStore) bool {
+func (n *nodeStore) autoDetectIPv4NativeRoutingCIDR(localNodeStore *node.NodeStore) bool {
 	if primaryCIDR, secondaryCIDRs := deriveVpcCIDRs(n.ownNode); primaryCIDR.IsValid() {
 		allCIDRs := append([]netip.Prefix{primaryCIDR}, secondaryCIDRs...)
 		if nativeCIDR := n.conf.IPv4NativeRoutingCIDR; nativeCIDR.IsValid() {
@@ -306,7 +306,7 @@ func (n *nodeStore) autoDetectIPv4NativeRoutingCIDR(localNodeStore *node.LocalNo
 				"Using autodetected primary VPC CIDR.",
 				logfields.VPCCIDR, primaryCIDR,
 			)
-			localNodeStore.Update(func(n *node.LocalNode) {
+			localNodeStore.Update(func(n *node.Node) {
 				n.Local.IPv4NativeRoutingCIDR = primaryCIDR
 			})
 		}
@@ -320,7 +320,7 @@ func (n *nodeStore) autoDetectIPv4NativeRoutingCIDR(localNodeStore *node.LocalNo
 // hasMinimumIPsInPool returns true if the required number of IPs is available
 // in the allocation pool. It also returns the number of IPs required and
 // available.
-func (n *nodeStore) hasMinimumIPsInPool(localNodeStore *node.LocalNodeStore) (minimumReached bool, required, numAvailable int) {
+func (n *nodeStore) hasMinimumIPsInPool(localNodeStore *node.NodeStore) (minimumReached bool, required, numAvailable int) {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
 
@@ -683,7 +683,7 @@ type crdAllocator struct {
 }
 
 // newCRDAllocator creates a new CRD-backed IP allocator
-func newCRDAllocator(logger *slog.Logger, family Family, c *option.DaemonConfig, owner Owner, localNodeStore *node.LocalNodeStore, clientset client.Clientset, k8sEventReg K8sEventRegister, mtuConfig MtuConfiguration, sysctl sysctl.Sysctl, ipMasqAgent *ipmasq.IPMasqAgent) Allocator {
+func newCRDAllocator(logger *slog.Logger, family Family, c *option.DaemonConfig, owner Owner, localNodeStore *node.NodeStore, clientset client.Clientset, k8sEventReg K8sEventRegister, mtuConfig MtuConfiguration, sysctl sysctl.Sysctl, ipMasqAgent *ipmasq.IPMasqAgent) Allocator {
 	initNodeStore.Do(func() {
 		sharedNodeStore = newNodeStore(logger, nodeTypes.GetName(), c, owner, localNodeStore, clientset, k8sEventReg, mtuConfig, sysctl)
 	})

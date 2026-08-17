@@ -218,7 +218,7 @@ func createEndpointParams(tb testing.TB, o endpoint.Orchestrator, r policy.Polic
 		WgConfig:         fakewireguard.Config{},
 		CTMapGC:          ctmap.NewFakeGCRunner(),
 		Allocator:        testidentity.NewMockIdentityAllocator(nil),
-		LocalNodeStore:   node.NewTestLocalNodeStore(node.LocalNode{}),
+		LocalNodeStore:   node.NewTestLocalNodeStore(node.Node{}),
 		KVStoreSynchronizer: ipcache.NewIPIdentitySynchronizer(
 			logger,
 			kvstore.SetupDummy(tb, kvstore.DisabledBackendName),
@@ -1495,8 +1495,8 @@ func (p *recordingRemoveNetworkPolicyProxy) RemoveNetworkPolicy(ctx context.Cont
 	p.lastEndpointID = ep.GetID()
 }
 
-func (g fakeNodeGetter) Get(ctx context.Context) (node.LocalNode, error) {
-	return node.LocalNode{}, nil
+func (g fakeNodeGetter) Get(ctx context.Context) (node.Node, error) {
+	return node.Node{}, nil
 }
 
 type fakeNodeGetter struct{}

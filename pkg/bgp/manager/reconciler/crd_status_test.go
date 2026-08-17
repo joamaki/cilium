@@ -364,7 +364,7 @@ func TestDisableStatusReport(t *testing.T) {
 		cell.Invoke(func(jg job.Group, ln daemon_k8s.LocalCiliumNodeResource, _cs k8sClient.Clientset) {
 			cs = _cs
 
-			// Create a LocalNode to obtain local node name
+			// Create a local node to obtain the local node name.
 			_, err := cs.CiliumV2().CiliumNodes().Create(
 				ctx,
 				&v2.CiliumNode{

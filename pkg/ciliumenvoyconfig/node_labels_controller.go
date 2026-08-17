@@ -31,7 +31,7 @@ type nodeLabelControllerParams struct {
 	Log      *slog.Logger
 
 	ExpConfig loadbalancer.Config
-	Nodes     statedb.Table[*node.LocalNode]
+	Nodes     statedb.Table[*node.Node]
 	CECs      statedb.RWTable[*CEC]
 }
 

@@ -121,7 +121,7 @@ func (*dummyInfoRegistry) FillEndpointInfo(_ context.Context, _ *accesslog.Endpo
 }
 
 func newTestProxyAccessLogger(logger *slog.Logger) accesslog.ProxyAccessLogger {
-	return accesslog.NewProxyAccessLogger(logger, accesslog.ProxyAccessLoggerConfig{}, &noopNotifier{}, &dummyInfoRegistry{}, node.NewTestLocalNodeStore(node.LocalNode{}))
+	return accesslog.NewProxyAccessLogger(logger, accesslog.ProxyAccessLoggerConfig{}, &noopNotifier{}, &dummyInfoRegistry{}, node.NewTestLocalNodeStore(node.Node{}))
 }
 
 func TestFQDNDataServer(t *testing.T) {

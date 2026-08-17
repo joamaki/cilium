@@ -17,7 +17,7 @@ import (
 // mutateAzureNodeResource fills in the Azure-specific fields of the
 // CiliumNode resource. It is kept in a separate file so that the
 // Azure-specific imports are not pulled in via the main nodediscovery.go.
-func (n *NodeDiscovery) mutateAzureNodeResource(_ context.Context, nodeResource *ciliumv2.CiliumNode, ln *node.LocalNode) error {
+func (n *NodeDiscovery) mutateAzureNodeResource(_ context.Context, nodeResource *ciliumv2.CiliumNode, ln *node.Node) error {
 	if ln.Local.ProviderID == "" {
 		logging.Fatal(n.logger, "Spec.ProviderID in k8s node resource must be set for Azure IPAM")
 	}

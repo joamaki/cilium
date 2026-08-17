@@ -87,7 +87,7 @@ func TestScriptClusterPoolToMultiPool(t *testing.T) {
 					},
 					func() *node.LocalNodeStore {
 						nodeTypes.SetName("test-node")
-						localNode := node.LocalNode{
+						localNode := node.Node{
 							Node: &nodeTypes.Node{
 								Name:          nodeTypes.GetName(),
 								IPv4AllocCIDR: nodeTypes.PrefixFrom(netip.MustParsePrefix("10.244.0.0/24")),

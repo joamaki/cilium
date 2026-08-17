@@ -44,7 +44,7 @@ func TestReconciliationLoop(t *testing.T) {
 		cell.Provide(
 			tables.NewDeviceTable,
 			statedb.RWTable[*tables.Device].ToTable,
-			func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.LocalNode{}) },
+			func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.Node{}) },
 		),
 		cell.Invoke(func(
 			db_ *statedb.DB,
@@ -150,7 +150,7 @@ func TestReconciliationLoop(t *testing.T) {
 		{
 			name: "initial state",
 			action: func() {
-				store.Update(func(n *node.LocalNode) {
+				store.Update(func(n *node.Node) {
 					n.IPAddresses = []types.Address{
 						{
 							IP:   netip.MustParseAddr("1.1.1.1").AsSlice(),
@@ -205,7 +205,7 @@ func TestReconciliationLoop(t *testing.T) {
 		{
 			name: "local node update",
 			action: func() {
-				store.Update(func(n *node.LocalNode) {
+				store.Update(func(n *node.Node) {
 					n.IPAddresses = []types.Address{
 						{
 							IP:   netip.MustParseAddr("2.2.2.2").AsSlice(),

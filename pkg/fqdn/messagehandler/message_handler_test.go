@@ -106,7 +106,7 @@ func BenchmarkNotifyOnDNSMsg(b *testing.B) {
 		DNSMessageHandlerParams{
 			Logger:            logger,
 			NameManager:       nm,
-			ProxyAccessLogger: accesslog.NewProxyAccessLogger(logger, accesslog.ProxyAccessLoggerConfig{}, &noopNotifier{}, &dummyInfoRegistry{}, node.NewTestLocalNodeStore(node.LocalNode{})),
+			ProxyAccessLogger: accesslog.NewProxyAccessLogger(logger, accesslog.ProxyAccessLoggerConfig{}, &noopNotifier{}, &dummyInfoRegistry{}, node.NewTestLocalNodeStore(node.Node{})),
 		})
 
 	// Register rules (simulates applied policies).

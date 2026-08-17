@@ -44,7 +44,7 @@ var LocalNodeSyncCell = cell.Module(
 // InitFunc is called before during startup to fill in the local node before other
 // sub-systems can access it. This is called after the [node.LocalNode] is filled in
 // from configuration and k8s node.
-type InitFunc func(context.Context, *node.LocalNode) error
+type InitFunc func(context.Context, *node.Node) error
 
 type localNodeSynchronizerParams struct {
 	cell.In
@@ -65,10 +65,10 @@ type localNodeSynchronizerParams struct {
 // the selected fields of the LocalNodeStore synchronized with Kubernetes.
 type localNodeSynchronizer struct {
 	localNodeSynchronizerParams
-	old node.LocalNode
+	old node.Node
 }
 
-func (ini *localNodeSynchronizer) InitLocalNode(ctx context.Context, n *node.LocalNode) error {
+func (ini *localNodeSynchronizer) InitLocalNode(ctx context.Context, n *node.Node) error {
 	n.Source = source.Local
 
 	if err := ini.initFromConfig(n); err != nil {
@@ -106,20 +106,20 @@ func (ini *localNodeSynchronizer) SyncLocalNode(ctx context.Context, store *node
 			isBeingDeleted := ev.Object.DeletionTimestamp != nil
 			if isBeingDeleted {
 				// Update LocalNode to mark it as being deleted
-				store.Update(func(ln *node.LocalNode) {
+				store.Update(func(ln *node.Node) {
 					ln.Local.IsBeingDeleted = true
 				})
 			}
 			new := parseNode(ini.Logger, ev.Object, ini.ClusterInfo)
 			if !ini.mutableFieldsEqual(new) {
-				store.Update(func(ln *node.LocalNode) {
+				store.Update(func(ln *node.Node) {
 					ini.syncFromK8s(ln, new)
 				})
 			}
 		} else if ev.Kind == resource.Delete {
 			ini.Logger.Info("Received Local node Delete event", logfields.Node, ev.Object)
 			// Mark as being deleted on explicit delete events too
-			store.Update(func(ln *node.LocalNode) {
+			store.Update(func(ln *node.Node) {
 				ln.Local.IsBeingDeleted = true
 			})
 		}
@@ -131,11 +131,14 @@ func (ini *localNodeSynchronizer) SyncLocalNode(ctx context.Context, store *node
 func newLocalNodeSynchronizer(p localNodeSynchronizerParams) node.LocalNodeSynchronizer {
 	return &localNodeSynchronizer{
 		localNodeSynchronizerParams: p,
-		old:                         node.LocalNode{Local: &node.LocalNodeInfo{}},
+		old: node.Node{
+			Node:  &nodeTypes.Node{},
+			Local: &node.LocalNodeInfo{},
+		},
 	}
 }
 
-func (ini *localNodeSynchronizer) initFromConfig(n *node.LocalNode) error {
+func (ini *localNodeSynchronizer) initFromConfig(n *node.Node) error {
 	n.Cluster = ini.ClusterInfo.Name
 	n.ClusterID = ini.ClusterInfo.ID
 	n.Name = nodeTypes.GetName()
@@ -198,7 +201,7 @@ func (ini *localNodeSynchronizer) getK8sLocalCiliumNode(ctx context.Context) *v2
 	return nil
 }
 
-func (ini *localNodeSynchronizer) initFromK8s(ctx context.Context, node *node.LocalNode) error {
+func (ini *localNodeSynchronizer) initFromK8s(ctx context.Context, node *node.Node) error {
 	if ini.K8sLocalNode == nil {
 		return nil
 	}
@@ -257,14 +260,14 @@ func (ini *localNodeSynchronizer) initFromK8s(ctx context.Context, node *node.Lo
 	return nil
 }
 
-func (ini *localNodeSynchronizer) mutableFieldsEqual(new *node.LocalNode) bool {
+func (ini *localNodeSynchronizer) mutableFieldsEqual(new *node.Node) bool {
 	return maps.Equal(ini.old.Labels, new.Labels) &&
 		maps.Equal(ini.old.Annotations, new.Annotations) &&
 		ini.old.Local.UID == new.Local.UID && ini.old.Local.ProviderID == new.Local.ProviderID
 }
 
 // syncFromK8s synchronizes the fields that can be mutated at runtime
-func (ini *localNodeSynchronizer) syncFromK8s(ln, new *node.LocalNode) {
+func (ini *localNodeSynchronizer) syncFromK8s(ln, new *node.Node) {
 	filter := func(old, new map[string]string, key string) bool {
 		_, oldExists := old[key]
 		_, newExists := new[key]
@@ -309,8 +312,8 @@ func (ini *localNodeSynchronizer) syncFromK8s(ln, new *node.LocalNode) {
 	)
 }
 
-func parseNode(logger *slog.Logger, k8sNode *slim_corev1.Node, clusterInfo cmtypes.ClusterInfo) *node.LocalNode {
-	return &node.LocalNode{
+func parseNode(logger *slog.Logger, k8sNode *slim_corev1.Node, clusterInfo cmtypes.ClusterInfo) *node.Node {
+	return &node.Node{
 		Node: k8s.ParseNode(logger, k8sNode, source.Kubernetes, clusterInfo),
 		Local: &node.LocalNodeInfo{
 			UID:        k8sNode.GetUID(),

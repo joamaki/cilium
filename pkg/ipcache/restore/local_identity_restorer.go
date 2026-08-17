@@ -193,8 +193,8 @@ func (d *LocalIdentityRestorer) restoreIPCache(ipCache *ipcache.IPCache, localPr
 				Metadata: []ipcache.IPMetadata{labels.LabelIngress},
 			})
 
-			// Set any restored ingress IPs back on the LocalNode object
-			d.params.NodeLocalStore.Update(func(n *node.LocalNode) {
+			// Set any restored ingress IPs back on the local node object.
+			d.params.NodeLocalStore.Update(func(n *node.Node) {
 				addr := prefix.Addr()
 				if addr.Is4() {
 					n.IPv4IngressIP = iputil.AddrFrom(addr)

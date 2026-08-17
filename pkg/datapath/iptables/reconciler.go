@@ -50,7 +50,7 @@ func (lni localNodeInfo) isValid() bool {
 	}
 }
 
-func toLocalNodeInfo(n node.LocalNode) localNodeInfo {
+func toLocalNodeInfo(n node.Node) localNodeInfo {
 	internalIPv4, _ := netip.AddrFromSlice(n.GetCiliumInternalIP(false).To4())
 	internalIPv6, _ := netip.AddrFromSlice(n.GetCiliumInternalIP(true).To16())
 

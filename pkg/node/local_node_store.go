@@ -23,7 +23,7 @@ import (
 // LocalNodeSynchronizer specifies how to build, and keep synchronized the local
 // node object.
 type LocalNodeSynchronizer interface {
-	InitLocalNode(context.Context, *LocalNode) error
+	InitLocalNode(context.Context, *Node) error
 	SyncLocalNode(context.Context, *LocalNodeStore)
 	WaitForNodeInformation(context.Context, *LocalNodeStore) error
 }
@@ -31,7 +31,7 @@ type LocalNodeSynchronizer interface {
 // NodeGetter describes the behavior of a node store used for retrieving the
 // local node.
 type NodeGetter interface {
-	Get(ctx context.Context) (LocalNode, error)
+	Get(ctx context.Context) (Node, error)
 }
 
 // LocalNodeStoreCell provides the LocalNodeStore instance.
@@ -64,14 +64,14 @@ type LocalNodeStoreParams struct {
 	DB          *statedb.DB
 	Jobs        job.Group
 	ClusterInfo cmtypes.ClusterInfo
-	Nodes       statedb.RWTable[*LocalNode]
+	Nodes       statedb.RWTable[*Node]
 }
 
 // LocalNodeStore is the canonical owner for the local node object and provides
 // a reactive API for observing and updating the state.
 type LocalNodeStore struct {
 	db    *statedb.DB
-	nodes statedb.RWTable[*LocalNode]
+	nodes statedb.RWTable[*Node]
 	sync  LocalNodeSynchronizer
 }
 
@@ -89,7 +89,7 @@ func NewNodeTableAndLocalNodeStore(params LocalNodeStoreParams) (
 
 	// Insert the skeleton local node.
 	nodeTable.Insert(wtxn,
-		&LocalNode{
+		&Node{
 			Node: &types.Node{
 				Name:      types.GetName(),
 				Cluster:   params.ClusterInfo.Name,
@@ -167,13 +167,13 @@ func WaitForLocalNodeInit(ctx context.Context, db *statedb.DB, nodes statedb.Tab
 	}
 }
 
-// observeRatePerSecond sets the maximum number of [LocalNode] updates per second that
-// [LocalNodeStore.Observe] emits. This avoids unnecessary computation when there's
-// many rapid changes to the local node.
+// observeRatePerSecond sets the maximum number of local node updates per second
+// that [LocalNodeStore.Observe] emits. This avoids unnecessary computation when
+// there are many rapid changes to the local node.
 const observeRatePerSecond = 5
 
 // Observe changes to the local node state.
-func (s *LocalNodeStore) Observe(ctx context.Context, next func(LocalNode), complete func(error)) {
+func (s *LocalNodeStore) Observe(ctx context.Context, next func(Node), complete func(error)) {
 	go func() {
 		// Wait until the local node is initialized before starting to observe.
 		if _, err := WaitForLocalNodeInit(ctx, s.db, s.nodes); err != nil {
@@ -205,10 +205,10 @@ func (s *LocalNodeStore) Observe(ctx context.Context, next func(LocalNode), comp
 // Get retrieves the current local node. Use Get() only for inspecting the state,
 // e.g. in API handlers. Do not assume the value does not change over time.
 // Blocks until the store has been initialized.
-func (s *LocalNodeStore) Get(ctx context.Context) (LocalNode, error) {
+func (s *LocalNodeStore) Get(ctx context.Context) (Node, error) {
 	txn, err := WaitForLocalNodeInit(ctx, s.db, s.nodes)
 	if err != nil {
-		return LocalNode{}, err
+		return Node{}, err
 	}
 
 	ln, _, found := s.nodes.Get(txn, LocalNodeQuery)
@@ -220,7 +220,7 @@ func (s *LocalNodeStore) Get(ctx context.Context) (LocalNode, error) {
 }
 
 // Update modifies the local node with a mutator.
-func (s *LocalNodeStore) Update(update func(*LocalNode)) {
+func (s *LocalNodeStore) Update(update func(*Node)) {
 	txn := s.db.WriteTxn(s.nodes)
 	defer txn.Abort()
 	ln, _, found := s.nodes.Get(txn, LocalNodeQuery)
@@ -231,7 +231,7 @@ func (s *LocalNodeStore) Update(update func(*LocalNode)) {
 	ln = ln.deepCopyForUpdate()
 	update(ln)
 	if ln.Local == nil {
-		panic("BUG: Updated LocalNode has nil Local")
+		panic("BUG: updated local node has nil Local")
 	}
 
 	if ln.DeepEqual(orig) {
@@ -253,7 +253,7 @@ func (s *LocalNodeStore) WaitForNodeInformation(ctx context.Context) error {
 	return s.sync.WaitForNodeInformation(ctx, s)
 }
 
-func NewTestLocalNodeStore(mockNode LocalNode) *LocalNodeStore {
+func NewTestLocalNodeStore(mockNode Node) *LocalNodeStore {
 	db := statedb.New()
 	tbl, err := NewNodeTable(db)
 	if err != nil {
@@ -282,7 +282,7 @@ var LocalNodeStoreTestCell = cell.Group(
 type nopLocalNodeSynchronizer struct{}
 
 // InitLocalNode implements LocalNodeSynchronizer.
-func (n nopLocalNodeSynchronizer) InitLocalNode(context.Context, *LocalNode) error {
+func (n nopLocalNodeSynchronizer) InitLocalNode(context.Context, *Node) error {
 	return nil
 }
 

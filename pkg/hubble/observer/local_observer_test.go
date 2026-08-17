@@ -660,7 +660,7 @@ func TestLocalObserverServer_NodeLabels(t *testing.T) {
 	ctx := t.Context()
 
 	// local node stuff setup.
-	localNode := node.LocalNode{
+	localNode := node.Node{
 		Node: &types.Node{
 			Name: "ip-1-2-3-4.us-west-2.compute.internal",
 			Labels: map[string]string{

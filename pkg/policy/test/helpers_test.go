@@ -122,7 +122,7 @@ func newTestFixture(t testing.TB, log *slog.Logger, certMgr certificatemanager.C
 						Allocator:           f.allocator,
 						CTMapGC:             ctmap.NewFakeGCRunner(),
 						KVStoreSynchronizer: ipcache.NewIPIdentitySynchronizer(log, kvstore.SetupDummy(t, kvstore.DisabledBackendName)),
-						LocalNodeStore:      node.NewTestLocalNodeStore(node.LocalNode{}),
+						LocalNodeStore:      node.NewTestLocalNodeStore(node.Node{}),
 						LxcMap:              &fakeLXCMap{},
 					},
 					&fakeDNSAPI{},

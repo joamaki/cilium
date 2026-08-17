@@ -95,7 +95,7 @@ func Test_MultiPoolManager(t *testing.T) {
 		h := hive.New(
 			k8s.ResourcesCell,
 			k8sClient.FakeClientCell(),
-			cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.LocalNode{}) }),
+			cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.Node{}) }),
 			cell.Invoke(
 				func(
 					jg_ job.Group,
@@ -551,7 +551,7 @@ func Test_MultiPoolManager_ReleaseAllCIDRs(t *testing.T) {
 		h := hive.New(
 			k8s.ResourcesCell,
 			k8sClient.FakeClientCell(),
-			cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.LocalNode{}) }),
+			cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.Node{}) }),
 			cell.Invoke(
 				func(
 					jg_ job.Group,
@@ -922,7 +922,7 @@ func Test_LocalNodeCIDRsSyncer(t *testing.T) {
 	h := hive.New(
 		k8s.ResourcesCell,
 		k8sClient.FakeClientCell(),
-		cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.LocalNode{}) }),
+		cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.Node{}) }),
 		cell.Invoke(
 			func(
 				jg_ job.Group,
@@ -1624,7 +1624,7 @@ func createSkipMasqTestManager(t *testing.T, db *statedb.DB, pools statedb.Table
 	h := hive.New(
 		k8s.ResourcesCell,
 		k8sClient.FakeClientCell(),
-		cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.LocalNode{}) }),
+		cell.Provide(func() *node.LocalNodeStore { return node.NewTestLocalNodeStore(node.Node{}) }),
 		cell.Invoke(
 			func(
 				jg_ job.Group,

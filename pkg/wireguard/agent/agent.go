@@ -173,7 +173,7 @@ func (a *Agent) Start(cell.HookContext) error {
 
 	// Update local node. Must run in the agent.Start itself to ensure the node
 	// is already up-to-date when calling `StartDiscovery()` in `newDaemon()`.
-	a.localNode.Update(func(ln *node.LocalNode) {
+	a.localNode.Update(func(ln *node.Node) {
 		a.initLocalNodeFromWireGuard(ln, sel)
 	})
 
@@ -249,7 +249,7 @@ func (a *Agent) needsIPCache() bool {
 //   - If the local node opts out of node-to-node encryption, we set the
 //     localNode.EncryptKey to zero. This indicates to other nodes that they
 //     should not encrypt node-to-node traffic with us.
-func (a *Agent) initLocalNodeFromWireGuard(localNode *node.LocalNode, sel k8sLabels.Selector) {
+func (a *Agent) initLocalNodeFromWireGuard(localNode *node.Node, sel k8sLabels.Selector) {
 	a.Lock()
 	defer a.Unlock()
 

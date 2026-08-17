@@ -105,7 +105,7 @@ func TestMarkForReleaseNoAllocate(t *testing.T) {
 	sharedNodeStore = newFakeNodeStore(conf, t)
 	sharedNodeStore.ownNode = cn
 
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),
 		NodeAddressing: fakeAddressing,
@@ -232,7 +232,7 @@ func TestAzureIPMasq(t *testing.T) {
 	sharedNodeStore = newFakeNodeStore(conf, t)
 	sharedNodeStore.ownNode = cn
 
-	localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+	localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 	ipam := NewIPAM(NewIPAMParams{
 		Logger:         hivetest.Logger(t),
 		NodeAddressing: fakeAddressing,
@@ -302,7 +302,7 @@ func TestAutoDetectIPv4NativeRoutingCIDR(t *testing.T) {
 	}
 
 	t.Run("accepts a native routing CIDR that is a subnet of the VNet CIDR", func(t *testing.T) {
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 		require.True(t, newStore(t, "10.10.64.0/19").autoDetectIPv4NativeRoutingCIDR(localNodeStore))
 
 		localNode, err := localNodeStore.Get(t.Context())
@@ -312,7 +312,7 @@ func TestAutoDetectIPv4NativeRoutingCIDR(t *testing.T) {
 	})
 
 	t.Run("accepts a native routing CIDR that is a supernet of the VNet CIDR", func(t *testing.T) {
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 		require.True(t, newStore(t, "10.0.0.0/8").autoDetectIPv4NativeRoutingCIDR(localNodeStore))
 
 		localNode, err := localNodeStore.Get(t.Context())
@@ -321,7 +321,7 @@ func TestAutoDetectIPv4NativeRoutingCIDR(t *testing.T) {
 	})
 
 	t.Run("uses the autodetected primary CIDR when unset", func(t *testing.T) {
-		localNodeStore := node.NewTestLocalNodeStore(node.LocalNode{})
+		localNodeStore := node.NewTestLocalNodeStore(node.Node{})
 		n := newStore(t, "10.10.0.0/16")
 		n.conf.IPv4NativeRoutingCIDR = netip.Prefix{}
 		require.True(t, n.autoDetectIPv4NativeRoutingCIDR(localNodeStore))

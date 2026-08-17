@@ -46,7 +46,7 @@ type testParams struct {
 	ServiceTable     statedb.Table[*loadbalancer.Service]
 	FrontendTable    statedb.Table[*loadbalancer.Frontend]
 	BackendTable     statedb.Table[*loadbalancer.Backend]
-	Nodes            statedb.Table[*node.LocalNode]
+	Nodes            statedb.Table[*node.Node]
 }
 
 func fixture(t testing.TB) (p testParams) {
@@ -861,7 +861,7 @@ func TestWriter_SelectBackends_PreferCloseFallsBackFromUnhealthySameZone(t *test
 	p := fixture(t)
 	p.Writer.config.EnableServiceTopology = true
 	p.Writer.SetIsServiceHealthCheckedFunc(func(*loadbalancer.Service) bool { return true })
-	p.LocalNodeStore.Update(func(n *node.LocalNode) {
+	p.LocalNodeStore.Update(func(n *node.Node) {
 		if n.Labels == nil {
 			n.Labels = map[string]string{}
 		}
@@ -925,7 +925,7 @@ func TestWriter_SelectBackends_PreferCloseFallsBackFromUnhealthySameZone(t *test
 func TestWriter_SelectBackends_PreferCloseIgnoresTerminatingForMissingHints(t *testing.T) {
 	p := fixture(t)
 	p.Writer.config.EnableServiceTopology = true
-	p.LocalNodeStore.Update(func(n *node.LocalNode) {
+	p.LocalNodeStore.Update(func(n *node.Node) {
 		if n.Labels == nil {
 			n.Labels = map[string]string{}
 		}
@@ -1002,7 +1002,7 @@ func TestWriter_SelectBackends_PreferCloseIgnoresTerminatingForMissingHints(t *t
 func TestWriter_SelectBackends_PreferCloseFallsBackWhenOnlyTerminating(t *testing.T) {
 	p := fixture(t)
 	p.Writer.config.EnableServiceTopology = true
-	p.LocalNodeStore.Update(func(n *node.LocalNode) {
+	p.LocalNodeStore.Update(func(n *node.Node) {
 		if n.Labels == nil {
 			n.Labels = map[string]string{}
 		}

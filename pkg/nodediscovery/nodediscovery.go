@@ -189,7 +189,7 @@ func (n *NodeDiscovery) WaitForKVStoreSync(ctx context.Context) error {
 	}
 }
 
-func (n *NodeDiscovery) updateLocalNode(ctx context.Context, ln *node.LocalNode) {
+func (n *NodeDiscovery) updateLocalNode(ctx context.Context, ln *node.Node) {
 	if n.kvstoreClient.IsEnabled() {
 		n.ctrlmgr.UpdateController(
 			"propagating local node change to kv-store",
@@ -236,7 +236,7 @@ func (n *NodeDiscovery) UpdateCiliumNodeResource() {
 	n.updateCiliumNodeResource(context.TODO(), &ln)
 }
 
-func (n *NodeDiscovery) updateCiliumNodeResource(ctx context.Context, ln *node.LocalNode) {
+func (n *NodeDiscovery) updateCiliumNodeResource(ctx context.Context, ln *node.Node) {
 	if !option.Config.AutoCreateCiliumNodeResource {
 		return
 	}
@@ -311,7 +311,7 @@ func (n *NodeDiscovery) updateCiliumNodeResource(ctx context.Context, ln *node.L
 	logging.Fatal(n.logger, "Could not create or update CiliumNode resource", logfields.Error, lastErr, logfields.Retries, maxRetryCount)
 }
 
-func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ciliumv2.CiliumNode, ln *node.LocalNode) error {
+func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ciliumv2.CiliumNode, ln *node.Node) error {
 	nodeResource.ObjectMeta.OwnerReferences = []metav1.OwnerReference{{
 		APIVersion: "v1",
 		Kind:       "Node",
@@ -332,7 +332,7 @@ func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ci
 			// Only delete a CiliumInternalIP if
 			// a) its IP family is disabled,
 			// and/or
-			// b) the LocalNode store contains an IP address which we can use instead
+			// b) the local node store contains an IP address which we can use instead
 			switch net.IPFamilyOfString(address.IP) {
 			case net.IPv4:
 				return !option.Config.EnableIPv4 || ln.GetCiliumInternalIP(false) != nil
