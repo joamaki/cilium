@@ -6,6 +6,7 @@ package ciliumenvoyconfig
 import (
 	"iter"
 	"log/slog"
+	"maps"
 	"strconv"
 
 	"github.com/cilium/hive/cell"
@@ -84,7 +85,7 @@ func registerCECK8sReflector(
 
 	getLocalNodeLabels := func(txn statedb.ReadTxn) map[string]string {
 		if node, _, found := nodes.Get(txn, node.LocalNodeQuery); found {
-			return node.Labels
+			return maps.Collect(node.Labels())
 		}
 		return nil
 	}

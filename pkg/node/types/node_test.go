@@ -17,7 +17,7 @@ import (
 )
 
 func TestGetNodeIP(t *testing.T) {
-	n := Node{
+	n := KVStoreNode{
 		Name: "node-1",
 		IPAddresses: []Address{
 			{IP: net.ParseIP("192.0.2.3"), Type: addressing.NodeExternalIP},
@@ -54,7 +54,7 @@ func TestGetNodeIP(t *testing.T) {
 }
 
 func TestGetIPByType(t *testing.T) {
-	n := Node{
+	n := KVStoreNode{
 		Name: "node-1",
 		IPAddresses: []Address{
 			{IP: net.ParseIP("192.0.2.3"), Type: addressing.NodeExternalIP},
@@ -71,7 +71,7 @@ func TestGetIPByType(t *testing.T) {
 	ip = n.GetIPByType(addressing.NodeExternalIP, true)
 	require.Nil(t, ip)
 
-	n = Node{
+	n = KVStoreNode{
 		Name: "node-2",
 		IPAddresses: []Address{
 			{IP: net.ParseIP("f00b::1"), Type: addressing.NodeCiliumInternalIP},
@@ -88,7 +88,7 @@ func TestGetIPByType(t *testing.T) {
 	ip = n.GetIPByType(addressing.NodeCiliumInternalIP, true)
 	require.Equal(t, ip, net.ParseIP("f00b::1"))
 
-	n = Node{
+	n = KVStoreNode{
 		Name: "node-3",
 		IPAddresses: []Address{
 			{IP: net.ParseIP("192.42.0.3"), Type: addressing.NodeExternalIP},
@@ -110,32 +110,32 @@ func TestGetIPByType(t *testing.T) {
 func TestNodeValidate(t *testing.T) {
 	tests := []struct {
 		name   string
-		node   Node
+		node   KVStoreNode
 		assert assert.ErrorAssertionFunc
 	}{
 		{
 			name:   "empty cluster",
-			node:   Node{Name: "bar"},
+			node:   KVStoreNode{Name: "bar"},
 			assert: assert.Error,
 		},
 		{
 			name:   "empty name",
-			node:   Node{Cluster: "foo"},
+			node:   KVStoreNode{Cluster: "foo"},
 			assert: assert.Error,
 		},
 		{
 			name:   "empty cluster ID",
-			node:   Node{Cluster: "foo", Name: "bar"},
+			node:   KVStoreNode{Cluster: "foo", Name: "bar"},
 			assert: assert.NoError,
 		},
 		{
 			name:   "valid cluster ID",
-			node:   Node{Cluster: "foo", Name: "bar", ClusterID: 99},
+			node:   KVStoreNode{Cluster: "foo", Name: "bar", ClusterID: 99},
 			assert: assert.NoError,
 		},
 		{
 			name:   "invalid cluster ID",
-			node:   Node{Cluster: "foo", Name: "bar", ClusterID: 260},
+			node:   KVStoreNode{Cluster: "foo", Name: "bar", ClusterID: 260},
 			assert: assert.Error,
 		},
 	}
@@ -199,7 +199,7 @@ func TestGetIPv4AllocCIDRs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n := Node{
+			n := KVStoreNode{
 				Name:                    fmt.Sprintf("node-%s", tt.name),
 				IPv4AllocCIDR:           tt.allocCIDR,
 				IPv4SecondaryAllocCIDRs: tt.secAllocCIDRs,
@@ -255,7 +255,7 @@ func TestGetIPv6AllocCIDRs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n := Node{
+			n := KVStoreNode{
 				Name:                    fmt.Sprintf("node-%s", tt.name),
 				IPv6AllocCIDR:           tt.allocCIDR,
 				IPv6SecondaryAllocCIDRs: tt.secAllocCIDRs,
@@ -274,7 +274,7 @@ func TestGetIPv6AllocCIDRs(t *testing.T) {
 // kvstoremesh peers still parse it. Do not relax these to JSONEq: byte-exact
 // key order and mask encoding are what old agents diff against.
 func TestNodeCIDRFieldsWireGolden(t *testing.T) {
-	n := Node{
+	n := KVStoreNode{
 		Name:                    "node-1",
 		Cluster:                 "default",
 		IPv4AllocCIDR:           PrefixFrom(netip.MustParsePrefix("10.244.1.0/24")),
@@ -302,7 +302,7 @@ func TestNodeCIDRFieldsWireGolden(t *testing.T) {
 	// An unset primary CIDR still serializes to a "null" key, matching a nil
 	// *cidr.CIDR (adding omitempty/omitzero here would drop the key and change
 	// the bytes).
-	zero := Node{Name: "node-2", Cluster: "default"}
+	zero := KVStoreNode{Name: "node-2", Cluster: "default"}
 	zb, err := zero.Marshal()
 	require.NoError(t, err)
 	var zraw map[string]json.RawMessage
@@ -311,7 +311,7 @@ func TestNodeCIDRFieldsWireGolden(t *testing.T) {
 	assert.Equal(t, "null", string(zraw["IPv6AllocCIDR"]))
 
 	// Round-trip: the marshaled bytes unmarshal back into the same Node.
-	var back Node
+	var back KVStoreNode
 	require.NoError(t, back.Unmarshal(n.GetKeyName(), b))
 	require.True(t, back.DeepEqual(&n))
 }
@@ -330,7 +330,7 @@ func TestNodeCIDRFieldsUnmarshalLegacy(t *testing.T) {
 		"IPv6SecondaryAllocCIDRs": [{"IP":"fd01::","Mask":"//////////8AAAAAAAAAAA=="}]
 	}`)
 
-	var n Node
+	var n KVStoreNode
 	require.NoError(t, n.Unmarshal("default/node-1", legacy))
 
 	assert.Equal(t, netip.MustParsePrefix("10.244.1.0/24"), n.IPv4AllocCIDR.Prefix.Prefix)

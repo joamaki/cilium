@@ -76,7 +76,7 @@ func (n *linuxNodeHandler) getNodeIDForIP(nodeIP net.IP) (uint16, bool) {
 
 // getNodeIDForNode gets the node ID for the given node if one was allocated
 // for any of the node IP addresses. If none is found, 0 is returned.
-func (n *linuxNodeHandler) getNodeIDForNode(node *nodeTypes.Node) uint16 {
+func (n *linuxNodeHandler) getNodeIDForNode(node *nodeTypes.KVStoreNode) uint16 {
 	nodeID := uint16(0)
 	for _, addr := range node.IPAddresses {
 		if id, exists := n.nodeIDsByIPs[addr.IP.String()]; exists {
@@ -90,7 +90,7 @@ func (n *linuxNodeHandler) getNodeIDForNode(node *nodeTypes.Node) uint16 {
 // been assigned. If any of the node IPs have an ID associated, then all other
 // node IPs receive the same. This might happen if we allocated a node ID from
 // the ipcache, where we don't have all node IPs but only one.
-func (n *linuxNodeHandler) allocateIDForNode(oldNode *nodeTypes.Node, node *nodeTypes.Node) (uint16, error) {
+func (n *linuxNodeHandler) allocateIDForNode(oldNode *nodeTypes.KVStoreNode, node *nodeTypes.KVStoreNode) (uint16, error) {
 	var (
 		errs           error
 		newlyAllocated bool
@@ -168,7 +168,7 @@ func (n *linuxNodeHandler) allocateIDForNode(oldNode *nodeTypes.Node, node *node
 }
 
 // deallocateIDForNode deallocates the node ID for the given node, if it was allocated.
-func (n *linuxNodeHandler) deallocateIDForNode(oldNode *nodeTypes.Node) error {
+func (n *linuxNodeHandler) deallocateIDForNode(oldNode *nodeTypes.KVStoreNode) error {
 	var errs error
 	nodeIPs := make(map[string]bool)
 	nodeID := n.getNodeIDForNode(oldNode)

@@ -17,7 +17,7 @@ import (
 )
 
 func TestNodeTableRow(t *testing.T) {
-	n := &Node{Node: &types.Node{
+	n := FromKVStoreNode(&types.KVStoreNode{
 		Name:    "node-1",
 		Cluster: "cluster-1",
 		Source:  source.Kubernetes,
@@ -25,7 +25,7 @@ func TestNodeTableRow(t *testing.T) {
 			{Type: addressing.NodeInternalIP, IP: net.ParseIP("10.0.0.1")},
 			{Type: addressing.NodeCiliumInternalIP, IP: net.ParseIP("10.1.0.1")},
 		},
-	}}
+	})
 	n.Statuses = n.Statuses.Set("wireguard", reconciler.StatusDone())
 
 	require.Equal(t,
@@ -44,15 +44,13 @@ func TestNodeTableRow(t *testing.T) {
 }
 
 func TestNodeDeepCopySharesImmutableData(t *testing.T) {
-	n := &Node{
-		Node:  &types.Node{Name: "node-1"},
-		Local: &LocalNodeInfo{ProviderID: "provider-1"},
-	}
+	data := NewLocalData(types.NewKVStoreData(&types.KVStoreNode{Name: "node-1"}),
+		LocalNodeInfo{ProviderID: "provider-1"})
+	n := New(data)
 
 	copy := n.DeepCopy()
 	require.NotSame(t, n, copy)
-	require.Same(t, n.Node, copy.Node)
-	require.Same(t, n.Local, copy.Local)
+	require.True(t, EqualData(n.Data, copy.Data))
 }
 
 func TestNodeTableStatus(t *testing.T) {

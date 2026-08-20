@@ -33,18 +33,19 @@ func (mgr *endpointManager) HostEndpointExists() bool {
 
 func (mgr *endpointManager) startNodeLabelsObserver(old map[string]string) {
 	mgr.localNodeStore.Observe(context.Background(), func(ln node.Node) {
+		newLabels := maps.Collect(ln.Labels())
 		oldIdtyLabels, _ := labelsfilter.Filter(labels.Map2Labels(old, labels.LabelSourceK8s))
-		newIdtyLabels, _ := labelsfilter.Filter(labels.Map2Labels(ln.Labels, labels.LabelSourceK8s))
+		newIdtyLabels, _ := labelsfilter.Filter(labels.Map2Labels(newLabels, labels.LabelSourceK8s))
 		if maps.Equal(oldIdtyLabels.K8sStringMap(), newIdtyLabels.K8sStringMap()) {
 			mgr.logger.Debug("Host endpoint identity labels unchanged, skipping labels update")
 			return
 		}
 
-		if mgr.updateHostEndpointLabels(old, ln.Labels) {
+		if mgr.updateHostEndpointLabels(old, newLabels) {
 			// Endpoint's label update logic rejects a request if any of the old labels are
 			// not present in the endpoint manager's state. So, overwrite old labels only if
 			// the update is successful to avoid node labels being outdated indefinitely (GH-29649).
-			old = ln.Labels
+			old = newLabels
 		}
 
 	}, func(error) { /* Executed only when we are shutting down */ })

@@ -85,10 +85,10 @@ func TestUpdateCiliumNodeResourceTransientErrorCausesFatal(t *testing.T) {
 		cniConfigManager: &mockCNIConfigManager{},
 	}
 
-	ln := &node.Node{
-		Node:  &nodeTypes.Node{Name: nodeName},
-		Local: &node.LocalNodeInfo{},
-	}
+	ln := node.New(node.NewLocalData(
+		nodeTypes.NewKVStoreData(&nodeTypes.KVStoreNode{Name: nodeName}),
+		node.LocalNodeInfo{},
+	))
 
 	require.Panics(t, func() {
 		nd.updateCiliumNodeResource(context.Background(), ln)

@@ -5,6 +5,7 @@ package writer
 
 import (
 	"context"
+	"maps"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -111,11 +112,10 @@ func TestZoneWatcher(t *testing.T) {
 
 		// --- Scenario 1: Initial Zone Discovery ---
 		t.Log("Scenario 1: Setting initial zone")
-		p.LocalNodeStore.Update(func(n *node.Node) {
-			if n.Labels == nil {
-				n.Labels = map[string]string{}
-			}
-			n.Labels[corev1.LabelTopologyZone] = "zone-a"
+		p.LocalNodeStore.Update(func(n *node.LocalNodeMutator) {
+			labels := maps.Collect(n.Labels())
+			labels[corev1.LabelTopologyZone] = "zone-a"
+			n.SetLabels(labels)
 		})
 		synctest.Wait()
 
@@ -130,15 +130,19 @@ func TestZoneWatcher(t *testing.T) {
 
 		// --- Scenario 2: Unrelated Node Update ---
 		t.Log("Scenario 2: Updating unrelated node label (zone remains same)")
-		p.LocalNodeStore.Update(func(n *node.Node) {
-			n.Labels["dummy-label"] = "dummy-value"
+		p.LocalNodeStore.Update(func(n *node.LocalNodeMutator) {
+			labels := maps.Collect(n.Labels())
+			labels["dummy-label"] = "dummy-value"
+			n.SetLabels(labels)
 		})
 		synctest.Wait()
 
 		// --- Scenario 3: Zone Change ---
 		t.Log("Scenario 3: Changing zone")
-		p.LocalNodeStore.Update(func(n *node.Node) {
-			n.Labels[corev1.LabelTopologyZone] = "zone-b"
+		p.LocalNodeStore.Update(func(n *node.LocalNodeMutator) {
+			labels := maps.Collect(n.Labels())
+			labels[corev1.LabelTopologyZone] = "zone-b"
+			n.SetLabels(labels)
 		})
 		synctest.Wait()
 

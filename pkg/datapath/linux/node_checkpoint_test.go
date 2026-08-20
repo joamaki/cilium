@@ -26,16 +26,16 @@ func TestLinuxNodeCheckpointPruning(t *testing.T) {
 	nodes, err := node.NewNodeTable(db)
 	require.NoError(t, err)
 
-	live := nodeTypes.Node{Name: "live", Cluster: "cluster"}
-	stale := nodeTypes.Node{Name: "stale", Cluster: "cluster"}
+	live := nodeTypes.KVStoreNode{Name: "live", Cluster: "cluster"}
+	stale := nodeTypes.KVStoreNode{Name: "stale", Cluster: "cluster"}
 	stateDir := t.TempDir()
 	file, err := os.Create(filepath.Join(stateDir, nodesFilename))
 	require.NoError(t, err)
-	require.NoError(t, json.NewEncoder(file).Encode([]nodeTypes.Node{live, stale}))
+	require.NoError(t, json.NewEncoder(file).Encode([]nodeTypes.KVStoreNode{live, stale}))
 	require.NoError(t, file.Close())
 
 	txn := db.WriteTxn(nodes)
-	nodes.Insert(txn, &node.Node{Node: &live})
+	nodes.Insert(txn, node.FromKVStoreNode(&live))
 	txn.Commit()
 
 	cleaned := []nodeTypes.Identity{}
@@ -45,7 +45,7 @@ func TestLinuxNodeCheckpointPruning(t *testing.T) {
 		health,
 		db,
 		nodes,
-		func(_ context.Context, n nodeTypes.Node) error {
+		func(_ context.Context, n nodeTypes.KVStoreNode) error {
 			cleaned = append(cleaned, n.Identity())
 			return nil
 		},
@@ -63,7 +63,7 @@ func TestLinuxNodeCheckpointRetainsCleanupFailures(t *testing.T) {
 	nodes, err := node.NewNodeTable(db)
 	require.NoError(t, err)
 
-	stale := nodeTypes.Node{Name: "stale", Cluster: "cluster"}
+	stale := nodeTypes.KVStoreNode{Name: "stale", Cluster: "cluster"}
 	stale.Source = source.Restored
 	health, _ := cell.NewSimpleHealth()
 	checkpoint := newLinuxNodeCheckpoint(
@@ -71,7 +71,7 @@ func TestLinuxNodeCheckpointRetainsCleanupFailures(t *testing.T) {
 		health,
 		db,
 		nodes,
-		func(context.Context, nodeTypes.Node) error {
+		func(context.Context, nodeTypes.KVStoreNode) error {
 			return fmt.Errorf("cleanup failed")
 		},
 		t.TempDir(),
@@ -84,7 +84,7 @@ func TestLinuxNodeCheckpointRetainsCleanupFailures(t *testing.T) {
 
 	contents, err := os.ReadFile(filepath.Join(checkpoint.stateDir, nodesFilename))
 	require.NoError(t, err)
-	var stored []nodeTypes.Node
+	var stored []nodeTypes.KVStoreNode
 	require.NoError(t, json.Unmarshal(contents, &stored))
-	require.Equal(t, []nodeTypes.Node{stale}, stored)
+	require.Equal(t, []nodeTypes.KVStoreNode{stale}, stored)
 }

@@ -92,13 +92,13 @@ func (s *Service) Notify(_ *peerpb.NotifyRequest, stream peerpb.Peer_NotifyServe
 				n := change.Object
 				name := n.Fullname()
 				if change.Deleted {
-					h.nodeDeleted(*n.Node)
+					h.nodeDeleted(n)
 					delete(previous, name)
 				} else if old, found := previous[name]; found {
-					h.nodeUpdated(*old.Node, *n.Node)
+					h.nodeUpdated(old, n)
 					previous[name] = n
 				} else {
-					h.nodeAdded(*n.Node)
+					h.nodeAdded(n)
 					previous[name] = n
 				}
 			}

@@ -953,20 +953,21 @@ func Test_LocalNodeCIDRsSyncer(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		localNode, err := localNodeStore.Get(t.Context())
 		assert.NoError(c, err)
+		wireNode := localNode.ToKVStoreNode()
 		assert.Equalf(c,
-			nodeTypes.PrefixFrom(defaultIPv4CIDR1), localNode.IPv4AllocCIDR,
+			nodeTypes.PrefixFrom(defaultIPv4CIDR1), wireNode.IPv4AllocCIDR,
 			"IPv4 primary allocation CIDR do not match",
 		)
 		assert.ElementsMatch(c,
-			localNode.IPv4SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv4CIDR1)},
+			wireNode.IPv4SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv4CIDR1)},
 			"IPv4 secondary allocation CIDRs do not match",
 		)
 		assert.Equalf(c,
-			nodeTypes.PrefixFrom(defaultIPv6CIDR1), localNode.IPv6AllocCIDR,
+			nodeTypes.PrefixFrom(defaultIPv6CIDR1), wireNode.IPv6AllocCIDR,
 			"IPv6 primary allocation CIDR do not match",
 		)
 		assert.ElementsMatch(c,
-			localNode.IPv6SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv6CIDR1)},
+			wireNode.IPv6SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv6CIDR1)},
 			"IPv6 secondary allocation CIDRs do not match",
 		)
 	}, timeout, tick)
@@ -990,20 +991,21 @@ func Test_LocalNodeCIDRsSyncer(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		localNode, err := localNodeStore.Get(t.Context())
 		assert.NoError(c, err)
+		wireNode := localNode.ToKVStoreNode()
 		assert.Equalf(c,
-			nodeTypes.PrefixFrom(defaultIPv4CIDR1), localNode.IPv4AllocCIDR,
+			nodeTypes.PrefixFrom(defaultIPv4CIDR1), wireNode.IPv4AllocCIDR,
 			"IPv4 primary allocation CIDR do not match",
 		)
 		assert.ElementsMatch(c,
-			localNode.IPv4SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv4CIDR1), nodeTypes.PrefixFrom(jupiterIPv4CIDR)},
+			wireNode.IPv4SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv4CIDR1), nodeTypes.PrefixFrom(jupiterIPv4CIDR)},
 			"IPv4 secondary allocation CIDRs do not match",
 		)
 		assert.Equalf(c,
-			nodeTypes.PrefixFrom(defaultIPv6CIDR1), localNode.IPv6AllocCIDR,
+			nodeTypes.PrefixFrom(defaultIPv6CIDR1), wireNode.IPv6AllocCIDR,
 			"IPv6 primary allocation CIDR do not match",
 		)
 		assert.ElementsMatch(c,
-			localNode.IPv6SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv6CIDR1), nodeTypes.PrefixFrom(jupiterIPv6CIDR)},
+			wireNode.IPv6SecondaryAllocCIDRs, []nodeTypes.Prefix{nodeTypes.PrefixFrom(marsIPv6CIDR1), nodeTypes.PrefixFrom(jupiterIPv6CIDR)},
 			"IPv6 secondary allocation CIDRs do not match",
 		)
 	}, timeout, tick)
@@ -1027,20 +1029,21 @@ func Test_LocalNodeCIDRsSyncer(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		localNode, err := localNodeStore.Get(t.Context())
 		assert.NoError(c, err)
+		wireNode := localNode.ToKVStoreNode()
 		assert.Equalf(c,
-			nodeTypes.PrefixFrom(defaultIPv4CIDR1), localNode.IPv4AllocCIDR,
+			nodeTypes.PrefixFrom(defaultIPv4CIDR1), wireNode.IPv4AllocCIDR,
 			"IPv4 primary allocation CIDR do not match",
 		)
 		assert.Empty(c,
-			localNode.IPv4SecondaryAllocCIDRs,
+			wireNode.IPv4SecondaryAllocCIDRs,
 			"IPv4 secondary allocation CIDRs do not match",
 		)
 		assert.Equalf(c,
-			nodeTypes.PrefixFrom(defaultIPv6CIDR1), localNode.IPv6AllocCIDR,
+			nodeTypes.PrefixFrom(defaultIPv6CIDR1), wireNode.IPv6AllocCIDR,
 			"IPv6 primary allocation CIDR do not match",
 		)
 		assert.Empty(c,
-			localNode.IPv6SecondaryAllocCIDRs,
+			wireNode.IPv6SecondaryAllocCIDRs,
 			"IPv6 secondary allocation CIDRs do not match",
 		)
 	}, timeout, tick)

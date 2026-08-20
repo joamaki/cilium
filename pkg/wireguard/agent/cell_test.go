@@ -172,18 +172,16 @@ func TestPrivileged_TestWireGuardCell(t *testing.T) {
 						DaemonConfig:     option.Config,
 						LBConfig:         loadbalancer.DefaultConfig,
 						LBExternalConfig: loadbalancer.ExternalConfig{},
-						LocalNode: node.Node{
-							Node: &nodeTypes.Node{
-								Name: k8s1NodeName,
-								IPAddresses: []nodeTypes.Address{
-									{
-										Type: addressing.NodeInternalIP,
-										IP:   k8s1NodeIPv4,
-									},
+						LocalNode: *node.FromKVStoreNode(&nodeTypes.KVStoreNode{
+							Name: k8s1NodeName,
+							IPAddresses: []nodeTypes.Address{
+								{
+									Type: addressing.NodeInternalIP,
+									IP:   k8s1NodeIPv4,
 								},
-								Annotations: map[string]string{},
 							},
-						},
+							Annotations: map[string]string{},
+						}),
 						IPCache: ipcache.NewIPCache(&ipcache.Configuration{
 							Context:           ctx,
 							Logger:            hivetest.Logger(t),
@@ -249,7 +247,7 @@ func TestPrivileged_TestWireGuardCell(t *testing.T) {
 			require.EventuallyWithT(t, func(c *assert.CollectT) {
 				localNode, err := nodeStore.Get(ctx)
 				require.NoError(c, err)
-				assert.NotEmpty(c, localNode.WireguardPubKey)
+				assert.NotEmpty(c, localNode.WireGuardPublicKey())
 			}, TestTimeout, 50*time.Millisecond)
 
 			// 6.a Ensure obsolete peer are removed (peer-reconciler job).
@@ -297,7 +295,7 @@ func TestPrivileged_TestWireGuardCell(t *testing.T) {
 			// 7.a Ensure the agent reconciles node table changes. Upsert a new node
 			//     and verify that the agent maps contain the new peer.
 			txn := db.WriteTxn(nodes)
-			nodeWriter.Upsert(txn, &nodeTypes.Node{
+			nodeWriter.Upsert(txn, nodeTypes.NewKVStoreData(&nodeTypes.KVStoreNode{
 				Name: k8s2NodeName,
 				IPAddresses: []nodeTypes.Address{
 					{
@@ -307,7 +305,7 @@ func TestPrivileged_TestWireGuardCell(t *testing.T) {
 				},
 				Source:          source.Unspec,
 				WireguardPubKey: wgAgent.privKey.String(),
-			})
+			}))
 			txn.Commit()
 
 			// 7.b Ensure the agent has stored a peer configuration for the new node.

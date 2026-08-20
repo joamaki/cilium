@@ -6,6 +6,7 @@ package reflectors
 import (
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"slices"
 	"strings"
@@ -415,7 +416,7 @@ func CheckServiceNodeExposure(localNode *node.Node, annotations map[string]strin
 			return false, fmt.Errorf("failed to parse node label annotation: %w", err)
 		}
 
-		if selector.Matches(k8sLabels.Set(localNode.Labels)) {
+		if selector.Matches(k8sLabels.Set(maps.Collect(localNode.Labels()))) {
 			return true, nil
 		}
 
@@ -424,7 +425,7 @@ func CheckServiceNodeExposure(localNode *node.Node, annotations map[string]strin
 	}
 
 	if serviceAnnotationValue, serviceAnnotationExists := annotations[annotation.ServiceNodeExposure]; serviceAnnotationExists {
-		nodeLabelValue, nodeLabelExists := localNode.Labels[annotation.ServiceNodeExposure]
+		nodeLabelValue, nodeLabelExists := localNode.Label(annotation.ServiceNodeExposure)
 		if !nodeLabelExists || nodeLabelValue != serviceAnnotationValue {
 			return false, nil
 		}

@@ -660,18 +660,16 @@ func TestLocalObserverServer_NodeLabels(t *testing.T) {
 	ctx := t.Context()
 
 	// local node stuff setup.
-	localNode := node.Node{
-		Node: &types.Node{
-			Name: "ip-1-2-3-4.us-west-2.compute.internal",
-			Labels: map[string]string{
-				"kubernetes.io/arch":            "amd64",
-				"kubernetes.io/os":              "linux",
-				"kubernetes.io/hostname":        "ip-1-2-3-4.us-west-2.compute.internal",
-				"topology.kubernetes.io/region": "us-west-2",
-				"topology.kubernetes.io/zone":   "us-west-2d",
-			},
+	localNode := *node.FromKVStoreNode(&types.KVStoreNode{
+		Name: "ip-1-2-3-4.us-west-2.compute.internal",
+		Labels: map[string]string{
+			"kubernetes.io/arch":            "amd64",
+			"kubernetes.io/os":              "linux",
+			"kubernetes.io/hostname":        "ip-1-2-3-4.us-west-2.compute.internal",
+			"topology.kubernetes.io/region": "us-west-2",
+			"topology.kubernetes.io/zone":   "us-west-2d",
 		},
-	}
+	})
 	localNodeWatcher, err := NewLocalNodeWatcher(ctx, node.NewTestLocalNodeStore(localNode))
 	require.NoError(t, err)
 	require.NotNil(t, localNodeWatcher)
@@ -715,7 +713,7 @@ func TestLocalObserverServer_NodeLabels(t *testing.T) {
 	for range 2 {
 		m <- &observerTypes.MonitorEvent{
 			Timestamp: time.Now(),
-			NodeName:  localNode.Name,
+			NodeName:  localNode.Name(),
 			Payload: &observerTypes.PerfEvent{
 				Data: data,
 				CPU:  0,

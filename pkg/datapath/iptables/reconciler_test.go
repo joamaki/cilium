@@ -24,7 +24,6 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/node/addressing"
-	"github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/testutils"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -150,15 +149,11 @@ func TestReconciliationLoop(t *testing.T) {
 		{
 			name: "initial state",
 			action: func() {
-				store.Update(func(n *node.Node) {
-					n.IPAddresses = []types.Address{
-						{
-							IP:   netip.MustParseAddr("1.1.1.1").AsSlice(),
-							Type: addressing.NodeCiliumInternalIP,
-						},
-					}
-					n.IPv4AllocCIDR = types.PrefixFrom(netip.MustParsePrefix("5.5.5.0/24"))
-					n.IPv6AllocCIDR = types.PrefixFrom(netip.MustParsePrefix("2001:aaaa::/96"))
+				store.Update(func(n *node.LocalNodeMutator) {
+					n.SetAddress(node.AddressKindNode, addressing.NodeCiliumInternalIP,
+						false, netip.MustParseAddr("1.1.1.1"))
+					n.SetAllocationCIDRs(false, netip.MustParsePrefix("5.5.5.0/24"))
+					n.SetAllocationCIDRs(true, netip.MustParsePrefix("2001:aaaa::/96"))
 				})
 
 				txn := db.WriteTxn(devices)
@@ -205,15 +200,11 @@ func TestReconciliationLoop(t *testing.T) {
 		{
 			name: "local node update",
 			action: func() {
-				store.Update(func(n *node.Node) {
-					n.IPAddresses = []types.Address{
-						{
-							IP:   netip.MustParseAddr("2.2.2.2").AsSlice(),
-							Type: addressing.NodeCiliumInternalIP,
-						},
-					}
-					n.IPv4AllocCIDR = types.PrefixFrom(netip.MustParsePrefix("6.6.6.0/24"))
-					n.IPv6AllocCIDR = types.PrefixFrom(netip.MustParsePrefix("3002:bbbb::/96"))
+				store.Update(func(n *node.LocalNodeMutator) {
+					n.SetAddress(node.AddressKindNode, addressing.NodeCiliumInternalIP,
+						false, netip.MustParseAddr("2.2.2.2"))
+					n.SetAllocationCIDRs(false, netip.MustParsePrefix("6.6.6.0/24"))
+					n.SetAllocationCIDRs(true, netip.MustParsePrefix("3002:bbbb::/96"))
 				})
 			},
 			expected: desiredState{

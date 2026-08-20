@@ -87,14 +87,12 @@ func TestScriptClusterPoolToMultiPool(t *testing.T) {
 					},
 					func() *node.LocalNodeStore {
 						nodeTypes.SetName("test-node")
-						localNode := node.Node{
-							Node: &nodeTypes.Node{
+						localNode := *node.New(node.NewLocalData(
+							nodeTypes.NewKVStoreData(&nodeTypes.KVStoreNode{
 								Name:          nodeTypes.GetName(),
 								IPv4AllocCIDR: nodeTypes.PrefixFrom(netip.MustParsePrefix("10.244.0.0/24")),
 								IPv6AllocCIDR: nodeTypes.PrefixFrom(netip.MustParsePrefix("fd00:10:244::/96")),
-							},
-							Local: &node.LocalNodeInfo{},
-						}
+							}), node.LocalNodeInfo{}))
 						return node.NewTestLocalNodeStore(localNode)
 					},
 					func() node.Addressing { return nodeFake.NewAddressing() },

@@ -32,11 +32,12 @@ func (nn Identity) String() string {
 	return GetKeyNodeName(nn.Cluster, nn.Name)
 }
 
-// Node contains the nodes name, the list of addresses to this address
+// KVStoreNode is the stable node representation serialized into the KVStore
+// and exchanged by ClusterMesh. It is not the in-process node model.
 //
 // +k8s:deepcopy-gen=true
 // +deepequal-gen=true
-type Node struct {
+type KVStoreNode struct {
 	// Name is the name of the node. This is typically the hostname of the node.
 	Name string
 
@@ -101,7 +102,7 @@ type Node struct {
 
 // Fullname returns the node's full name including the cluster name if a
 // cluster name value other than the default value has been specified
-func (n *Node) Fullname() string {
+func (n *KVStoreNode) Fullname() string {
 	if n.Cluster != defaults.ClusterName {
 		return n.GetKeyName()
 	}
@@ -132,7 +133,7 @@ func (a Address) AddrType() addressing.AddressType {
 // IsNodeIP determines if addr is one of the node's IP addresses,
 // and returns which type of address it is. "" is returned if addr
 // is not one of the node's IP addresses.
-func (n *Node) IsNodeIP(addr netip.Addr) addressing.AddressType {
+func (n *KVStoreNode) IsNodeIP(addr netip.Addr) addressing.AddressType {
 	for _, a := range n.IPAddresses {
 		// for IPv4 this should not allocate memory
 		// this conversion will go away once net.IP is replaced with netip.Addr
@@ -155,13 +156,13 @@ func (n *Node) IsNodeIP(addr netip.Addr) addressing.AddressType {
 // - other IP address type
 // Nil is returned if GetNodeIP fails to extract an IP from the Node based
 // on the provided address family.
-func (n *Node) GetNodeIP(ipv6 bool) net.IP {
+func (n *KVStoreNode) GetNodeIP(ipv6 bool) net.IP {
 	return addressing.ExtractNodeIP[Address](n.IPAddresses, ipv6)
 }
 
 // GetExternalIP returns ExternalIP of k8s Node. If not present, then it
 // returns nil;
-func (n *Node) GetExternalIP(ipv6 bool) net.IP {
+func (n *KVStoreNode) GetExternalIP(ipv6 bool) net.IP {
 	for _, addr := range n.IPAddresses {
 		if (ipv6 && addr.IP.To4() != nil) || (!ipv6 && addr.IP.To4() == nil) {
 			continue
@@ -176,7 +177,7 @@ func (n *Node) GetExternalIP(ipv6 bool) net.IP {
 
 // GetK8sNodeIPs returns k8s Node IP (either InternalIP or ExternalIP or nil;
 // the former is preferred).
-func (n *Node) GetK8sNodeIP() net.IP {
+func (n *KVStoreNode) GetK8sNodeIP() net.IP {
 	var externalIP net.IP
 
 	for _, addr := range n.IPAddresses {
@@ -191,7 +192,7 @@ func (n *Node) GetK8sNodeIP() net.IP {
 }
 
 // GetNodeInternalIP returns the Internal IPv4 of node or nil.
-func (n *Node) GetNodeInternalIPv4() net.IP {
+func (n *KVStoreNode) GetNodeInternalIPv4() net.IP {
 	for _, addr := range n.IPAddresses {
 		if addr.IP.To4() == nil {
 			continue
@@ -205,7 +206,7 @@ func (n *Node) GetNodeInternalIPv4() net.IP {
 }
 
 // GetNodeInternalIP returns the Internal IPv6 of node or nil.
-func (n *Node) GetNodeInternalIPv6() net.IP {
+func (n *KVStoreNode) GetNodeInternalIPv6() net.IP {
 	for _, addr := range n.IPAddresses {
 		if addr.IP.To4() != nil {
 			continue
@@ -220,7 +221,7 @@ func (n *Node) GetNodeInternalIPv6() net.IP {
 
 // GetCiliumInternalIP returns the CiliumInternalIP e.g. the IP associated
 // with cilium_host on the node.
-func (n *Node) GetCiliumInternalIP(ipv6 bool) net.IP {
+func (n *KVStoreNode) GetCiliumInternalIP(ipv6 bool) net.IP {
 	for _, addr := range n.IPAddresses {
 		if (ipv6 && addr.IP.To4() != nil) ||
 			(!ipv6 && addr.IP.To4() == nil) {
@@ -238,21 +239,21 @@ func (n *Node) GetCiliumInternalIP(ipv6 bool) net.IP {
 // This must not be conflated with k8s internal IP as this IP address is only relevant within the
 // Cilium-managed network (this means within the node for direct routing mode and on the overlay
 // for tunnel mode).
-func (n *Node) SetCiliumInternalIP(newAddr net.IP) {
+func (n *KVStoreNode) SetCiliumInternalIP(newAddr net.IP) {
 	n.setAddress(addressing.NodeCiliumInternalIP, newAddr)
 }
 
 // SetNodeExternalIP sets the NodeExternalIP.
-func (n *Node) SetNodeExternalIP(newAddr net.IP) {
+func (n *KVStoreNode) SetNodeExternalIP(newAddr net.IP) {
 	n.setAddress(addressing.NodeExternalIP, newAddr)
 }
 
 // SetNodeInternalIP sets the NodeInternalIP.
-func (n *Node) SetNodeInternalIP(newAddr net.IP) {
+func (n *KVStoreNode) SetNodeInternalIP(newAddr net.IP) {
 	n.setAddress(addressing.NodeInternalIP, newAddr)
 }
 
-func (n *Node) RemoveAddresses(typ addressing.AddressType) {
+func (n *KVStoreNode) RemoveAddresses(typ addressing.AddressType) {
 	newAddresses := []Address{}
 	for _, addr := range n.IPAddresses {
 		if addr.Type != typ {
@@ -262,7 +263,7 @@ func (n *Node) RemoveAddresses(typ addressing.AddressType) {
 	n.IPAddresses = newAddresses
 }
 
-func (n *Node) setAddress(typ addressing.AddressType, newIP net.IP) {
+func (n *KVStoreNode) setAddress(typ addressing.AddressType, newIP net.IP) {
 	newAddr := Address{Type: typ, IP: newIP}
 
 	if newIP == nil {
@@ -290,7 +291,7 @@ func (n *Node) setAddress(typ addressing.AddressType, newIP net.IP) {
 	n.IPAddresses = append(n.IPAddresses, newAddr)
 }
 
-func (n *Node) GetIPByType(addrType addressing.AddressType, ipv6 bool) net.IP {
+func (n *KVStoreNode) GetIPByType(addrType addressing.AddressType, ipv6 bool) net.IP {
 	for _, addr := range n.IPAddresses {
 		if addr.Type != addrType {
 			continue
@@ -302,7 +303,7 @@ func (n *Node) GetIPByType(addrType addressing.AddressType, ipv6 bool) net.IP {
 	return nil
 }
 
-func (n *Node) getPrimaryAddress() *models.NodeAddressing {
+func (n *KVStoreNode) getPrimaryAddress() *models.NodeAddressing {
 	v4 := n.GetNodeIP(false)
 	v6 := n.GetNodeIP(true)
 
@@ -336,11 +337,11 @@ func (n *Node) getPrimaryAddress() *models.NodeAddressing {
 	}
 }
 
-func (n *Node) isPrimaryAddress(addr Address, ipv4 bool) bool {
+func (n *KVStoreNode) isPrimaryAddress(addr Address, ipv4 bool) bool {
 	return addr.IP.String() == n.GetNodeIP(!ipv4).String()
 }
 
-func (n *Node) getSecondaryAddresses() []*models.NodeAddressingElement {
+func (n *KVStoreNode) getSecondaryAddresses() []*models.NodeAddressingElement {
 	result := []*models.NodeAddressingElement{}
 
 	for _, addr := range n.IPAddresses {
@@ -358,7 +359,7 @@ func (n *Node) getSecondaryAddresses() []*models.NodeAddressingElement {
 	return result
 }
 
-func (n *Node) getHealthAddresses() *models.NodeAddressing {
+func (n *KVStoreNode) getHealthAddresses() *models.NodeAddressing {
 	if !n.IPv4HealthIP.IsValid() && !n.IPv6HealthIP.IsValid() {
 		return nil
 	}
@@ -383,7 +384,7 @@ func (n *Node) getHealthAddresses() *models.NodeAddressing {
 	}
 }
 
-func (n *Node) getIngressAddresses() *models.NodeAddressing {
+func (n *KVStoreNode) getIngressAddresses() *models.NodeAddressing {
 	if !n.IPv4IngressIP.IsValid() && !n.IPv6IngressIP.IsValid() {
 		return nil
 	}
@@ -409,7 +410,7 @@ func (n *Node) getIngressAddresses() *models.NodeAddressing {
 }
 
 // GetModel returns the API model representation of a node.
-func (n *Node) GetModel() *models.NodeElement {
+func (n *KVStoreNode) GetModel() *models.NodeElement {
 	return &models.NodeElement{
 		Name:                  n.Fullname(),
 		PrimaryAddress:        n.getPrimaryAddress(),
@@ -421,7 +422,7 @@ func (n *Node) GetModel() *models.NodeElement {
 }
 
 // Identity returns the identity of the node
-func (n *Node) Identity() Identity {
+func (n *KVStoreNode) Identity() Identity {
 	return Identity{
 		Name:    n.Name,
 		Cluster: n.Cluster,
@@ -434,11 +435,11 @@ func getCluster() string {
 
 // IsLocal returns true if this is the node on which the agent itself is
 // running on
-func (n *Node) IsLocal() bool {
+func (n *KVStoreNode) IsLocal() bool {
 	return n != nil && n.Name == GetName() && n.Cluster == getCluster()
 }
 
-func (n *Node) GetIPv4AllocCIDRs() []netip.Prefix {
+func (n *KVStoreNode) GetIPv4AllocCIDRs() []netip.Prefix {
 	result := make([]netip.Prefix, 0, len(n.IPv4SecondaryAllocCIDRs)+1)
 	if n.IPv4AllocCIDR.IsValid() {
 		result = append(result, n.IPv4AllocCIDR.Prefix.Prefix)
@@ -451,7 +452,7 @@ func (n *Node) GetIPv4AllocCIDRs() []netip.Prefix {
 	return result
 }
 
-func (n *Node) GetIPv6AllocCIDRs() []netip.Prefix {
+func (n *KVStoreNode) GetIPv6AllocCIDRs() []netip.Prefix {
 	result := make([]netip.Prefix, 0, len(n.IPv6SecondaryAllocCIDRs)+1)
 	if n.IPv6AllocCIDR.IsValid() {
 		result = append(result, n.IPv6AllocCIDR.Prefix.Prefix)
@@ -473,18 +474,18 @@ func GetKeyNodeName(cluster, node string) string {
 }
 
 // GetKeyName returns the kvstore key to be used for the node
-func (n *Node) GetKeyName() string {
+func (n *KVStoreNode) GetKeyName() string {
 	return GetKeyNodeName(n.Cluster, n.Name)
 }
 
 // Marshal returns the node object as JSON byte slice
-func (n *Node) Marshal() ([]byte, error) {
+func (n *KVStoreNode) Marshal() ([]byte, error) {
 	return json.Marshal(n)
 }
 
 // Unmarshal parses the JSON byte slice and updates the node receiver
-func (n *Node) Unmarshal(key string, data []byte) error {
-	newNode := Node{}
+func (n *KVStoreNode) Unmarshal(key string, data []byte) error {
+	newNode := KVStoreNode{}
 	if err := json.Unmarshal(data, &newNode); err != nil {
 		return err
 	}
@@ -499,7 +500,7 @@ func (n *Node) Unmarshal(key string, data []byte) error {
 }
 
 // LogRepr returns a representation of the node to be used for logging
-func (n *Node) LogRepr() string {
+func (n *KVStoreNode) LogRepr() string {
 	b, err := n.Marshal()
 	if err != nil {
 		return fmt.Sprintf("%#v", n)
@@ -507,7 +508,7 @@ func (n *Node) LogRepr() string {
 	return string(b)
 }
 
-func (n *Node) validate() error {
+func (n *KVStoreNode) validate() error {
 	switch {
 	case n.Cluster == "":
 		return errors.New("cluster is unset")

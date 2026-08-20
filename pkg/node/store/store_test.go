@@ -18,18 +18,18 @@ func TestValidatingNode(t *testing.T) {
 	tests := []struct {
 		name      string
 		key       string
-		node      types.Node
+		node      types.KVStoreNode
 		validator nodeValidator
 		errstr    string
 	}{
 		{
 			name:      "valid cluster name",
-			node:      types.Node{Cluster: "foo", Name: "qux"},
+			node:      types.KVStoreNode{Cluster: "foo", Name: "qux"},
 			validator: ClusterNameValidator("foo"),
 		},
 		{
 			name: "health IPs round-trip",
-			node: types.Node{
+			node: types.KVStoreNode{
 				Cluster:      "foo",
 				Name:         "qux",
 				IPv4HealthIP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.5")),
@@ -39,26 +39,26 @@ func TestValidatingNode(t *testing.T) {
 		},
 		{
 			name:      "invalid cluster name",
-			node:      types.Node{Cluster: "foo", Name: "qux"},
+			node:      types.KVStoreNode{Cluster: "foo", Name: "qux"},
 			validator: ClusterNameValidator("fred"),
 			errstr:    "unexpected cluster name: got foo, expected fred",
 		},
 		{
 			name:      "valid name name",
 			key:       "qux",
-			node:      types.Node{Cluster: "foo", Name: "qux"},
+			node:      types.KVStoreNode{Cluster: "foo", Name: "qux"},
 			validator: NameValidator(),
 		},
 		{
 			name:      "invalid namespaced name",
 			key:       "fred",
-			node:      types.Node{Cluster: "foo", Name: "qux"},
+			node:      types.KVStoreNode{Cluster: "foo", Name: "qux"},
 			validator: NameValidator(),
 			errstr:    "name does not match key: got qux, expected fred",
 		},
 		{
 			name: "ingress IPs round-trip",
-			node: types.Node{
+			node: types.KVStoreNode{
 				Cluster:       "foo",
 				Name:          "qux",
 				IPv4IngressIP: iputil.AddrFrom(netip.MustParseAddr("10.0.0.5")),
@@ -68,12 +68,12 @@ func TestValidatingNode(t *testing.T) {
 		},
 		{
 			name:      "valid cluster ID",
-			node:      types.Node{Cluster: "foo", Name: "qux", ClusterID: 10},
+			node:      types.KVStoreNode{Cluster: "foo", Name: "qux", ClusterID: 10},
 			validator: ClusterIDValidator(ptr.To[uint32](10)),
 		},
 		{
 			name:      "invalid cluster ID",
-			node:      types.Node{Cluster: "foo", Name: "qux", ClusterID: 10},
+			node:      types.KVStoreNode{Cluster: "foo", Name: "qux", ClusterID: 10},
 			validator: ClusterIDValidator(ptr.To[uint32](15)),
 			errstr:    "unexpected cluster ID: got 10, expected 15",
 		},
@@ -92,7 +92,7 @@ func TestValidatingNode(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.EqualExportedValues(t, tt.node, got.(*ValidatingNode).Node)
+			require.EqualExportedValues(t, tt.node, got.(*ValidatingNode).KVStoreNode)
 		})
 	}
 }

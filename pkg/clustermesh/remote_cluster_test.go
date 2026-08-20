@@ -29,6 +29,7 @@ import (
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/kvstore/store"
+	"github.com/cilium/cilium/pkg/node"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/source"
 	testidentity "github.com/cilium/cilium/pkg/testutils/identity"
@@ -258,7 +259,7 @@ func (o *fakeObserver) reset() {
 
 type fakeNodeWriter struct{ observer *fakeObserver }
 
-func (w fakeNodeWriter) Upsert(statedb.WriteTxn, *nodeTypes.Node) bool {
+func (w fakeNodeWriter) Upsert(statedb.WriteTxn, node.Data) bool {
 	w.observer.updates.Add(1)
 	return true
 }

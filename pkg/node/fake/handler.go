@@ -21,9 +21,9 @@ func (n *Handler) Observe(ctx context.Context, db *statedb.DB, nodes statedb.Tab
 	for {
 		txn := db.ReadTxn()
 		all, watch := nodes.AllWatch(txn)
-		current := map[string]types.Node{}
+		current := map[string]types.KVStoreNode{}
 		for obj := range all {
-			current[obj.Name] = *obj.Node
+			current[obj.Name()] = *obj.ToKVStoreNode()
 		}
 
 		n.mu.Lock()
@@ -40,7 +40,7 @@ func (n *Handler) Observe(ctx context.Context, db *statedb.DB, nodes statedb.Tab
 
 type Handler struct {
 	mu    lock.Mutex
-	Nodes map[string]types.Node
+	Nodes map[string]types.KVStoreNode
 }
 
 func (n *Handler) GetNodeID(_ net.IP) (uint16, bool) {
@@ -50,7 +50,7 @@ func (n *Handler) GetNodeID(_ net.IP) (uint16, bool) {
 // NewHandler returns a fake NodeHandler that stores the nodes,
 // but performs no other actions.
 func NewHandler() *Handler {
-	return &Handler{Nodes: make(map[string]types.Node)}
+	return &Handler{Nodes: make(map[string]types.KVStoreNode)}
 }
 
 func (n *Handler) GetNodeIP(_ uint16) string {

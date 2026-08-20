@@ -48,7 +48,7 @@ func newTestLinuxNodeOps(t *testing.T) (*linuxNodeHandler, *linuxNodeOps) {
 		fakeipsec.Config{},
 		node.NewTestLocalNodeStore(node.Node{}),
 	)
-	handler.enableEncapsulation = func(*nodeTypes.Node) bool { return false }
+	handler.enableEncapsulation = func(*nodeTypes.KVStoreNode) bool { return false }
 	return handler, &linuxNodeOps{handler: handler}
 }
 
@@ -66,19 +66,19 @@ func TestLinuxNodeOpsUpdateAndDelete(t *testing.T) {
 	handler.isInitialized = true
 	close(handler.configReady)
 
-	n := &node.Node{Node: &nodeTypes.Node{
+	n := node.FromKVStoreNode(&nodeTypes.KVStoreNode{
 		Name:    "node-1",
 		Cluster: "cluster-1",
 		IPAddresses: []nodeTypes.Address{{
 			Type: addressing.NodeInternalIP,
 			IP:   net.ParseIP("192.0.2.1"),
 		}},
-	}}
+	})
 
 	require.NoError(t, ops.Update(t.Context(), nil, statedb.Revision(1), n))
 	stored, found := handler.nodes[n.Identity()]
 	require.True(t, found)
-	require.True(t, stored.DeepEqual(n.Node))
+	require.True(t, stored.DeepEqual(n.ToKVStoreNode()))
 
 	require.NoError(t, ops.Delete(t.Context(), nil, statedb.Revision(2), n))
 	_, found = handler.nodes[n.Identity()]
@@ -96,14 +96,14 @@ func TestLinuxNodeOpsRetriesFailedUpdate(t *testing.T) {
 	}
 	handler.nodeIDs = idpool.NewIDPool(1, 1)
 
-	n := &node.Node{Node: &nodeTypes.Node{
+	n := node.FromKVStoreNode(&nodeTypes.KVStoreNode{
 		Name:    "node-1",
 		Cluster: "cluster-1",
 		IPAddresses: []nodeTypes.Address{{
 			Type: addressing.NodeInternalIP,
 			IP:   net.ParseIP("192.0.2.1"),
 		}},
-	}}
+	})
 
 	require.Error(t, ops.Update(t.Context(), nil, statedb.Revision(1), n))
 	require.Contains(t, handler.pendingNodes, n.Identity())

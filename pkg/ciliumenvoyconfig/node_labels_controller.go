@@ -49,7 +49,7 @@ func (c *nodeLabelController) run(ctx context.Context, _ cell.Health) error {
 		localNode, _, watch, found := c.Nodes.GetWatch(wtxn, node.LocalNodeQuery)
 		updated := false
 		if found {
-			newLabels := localNode.Labels
+			newLabels := maps.Collect(localNode.Labels())
 			if oldLabels == nil || !maps.Equal(newLabels, oldLabels) {
 				c.Log.Debug("Labels changed",
 					logfields.Old, oldLabels,

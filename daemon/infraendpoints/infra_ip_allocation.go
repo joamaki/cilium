@@ -37,6 +37,7 @@ import (
 	"github.com/cilium/cilium/pkg/mac"
 	"github.com/cilium/cilium/pkg/mtu"
 	"github.com/cilium/cilium/pkg/node"
+	nodeAddressing "github.com/cilium/cilium/pkg/node/addressing"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/rate"
 	"github.com/cilium/cilium/pkg/resiliency"
@@ -420,7 +421,9 @@ func (r *infraIPAllocator) allocateHealthIPs(ctx context.Context, oldV4HealthIP 
 			if err != nil {
 				return fmt.Errorf("unable to allocate health IPv4: %w, see https://cilium.link/ipam-range-full", err)
 			}
-			r.localNodeStore.Update(func(n *node.Node) { n.IPv4HealthIP = iputil.AddrFrom(result.IP) })
+			r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+				n.SetAddress(node.AddressKindHealth, "", false, result.IP)
+			})
 		}
 
 		// Coalescing multiple CIDRs. GH #18868
@@ -463,11 +466,15 @@ func (r *infraIPAllocator) allocateHealthIPs(ctx context.Context, oldV4HealthIP 
 			if err != nil {
 				if healthIPv4.IsValid() {
 					r.ipAllocator.ReleaseIP(healthIPv4, ipam.PoolDefault())
-					r.localNodeStore.Update(func(n *node.Node) { n.IPv4HealthIP = iputil.Addr{} })
+					r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+						n.SetAddress(node.AddressKindHealth, "", false, netip.Addr{})
+					})
 				}
 				return fmt.Errorf("unable to allocate health IPv6: %w, see https://cilium.link/ipam-range-full", err)
 			}
-			r.localNodeStore.Update(func(n *node.Node) { n.IPv6HealthIP = iputil.AddrFrom(result.IP) })
+			r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+				n.SetAddress(node.AddressKindHealth, "", true, result.IP)
+			})
 		}
 		r.logger.Debug("Allocated IPv6 health endpoint address", logfields.IPAddr, result.IP)
 	}
@@ -514,7 +521,9 @@ func (r *infraIPAllocator) allocateIngressIPs(ctx context.Context, oldV4IngressI
 		}
 
 		ingressIPv4 = result.IP
-		r.localNodeStore.Update(func(n *node.Node) { n.IPv4IngressIP = iputil.AddrFrom(result.IP) })
+		r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+			n.SetAddress(node.AddressKindIngress, "", false, result.IP)
+		})
 		r.logger.Debug("Allocated IPv4 Ingress address", logfields.IPAddr, result.IP)
 
 		// In ENI and AlibabaCloud ENI mode, we require the gateway, CIDRs, and the
@@ -569,7 +578,9 @@ func (r *infraIPAllocator) allocateIngressIPs(ctx context.Context, oldV4IngressI
 			if err != nil {
 				if ingressIPv4.IsValid() {
 					r.ipAllocator.ReleaseIP(ingressIPv4, ipam.PoolDefault())
-					r.localNodeStore.Update(func(n *node.Node) { n.IPv4IngressIP = iputil.Addr{} })
+					r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+						n.SetAddress(node.AddressKindIngress, "", false, netip.Addr{})
+					})
 				}
 				return fmt.Errorf("unable to allocate ingress IPs: %w, see https://cilium.link/ipam-range-full", err)
 			}
@@ -583,7 +594,9 @@ func (r *infraIPAllocator) allocateIngressIPs(ctx context.Context, oldV4IngressI
 			result.CIDRs = r.coalesceCIDRs(result.CIDRs)
 		}
 
-		r.localNodeStore.Update(func(n *node.Node) { n.IPv6IngressIP = iputil.AddrFrom(result.IP) })
+		r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+			n.SetAddress(node.AddressKindIngress, "", true, result.IP)
+		})
 		r.logger.Debug("Allocated IPv6 Ingress address", logfields.IPAddr, result.IP)
 	}
 
@@ -611,11 +624,11 @@ func (r *infraIPAllocator) AllocateIPs(ctx context.Context) error {
 		return fmt.Errorf("failed to allocate service loopback IPs: %w", err)
 	}
 
-	if err := r.allocateIngressIPs(ctx, localNode.IPv4IngressIP.Addr, localNode.IPv6IngressIP.Addr); err != nil {
+	if err := r.allocateIngressIPs(ctx, localNode.IngressIP(false), localNode.IngressIP(true)); err != nil {
 		return fmt.Errorf("failed to allocate ingress IPs: %w", err)
 	}
 
-	if err := r.allocateHealthIPs(ctx, localNode.IPv4HealthIP.Addr, localNode.IPv6HealthIP.Addr); err != nil {
+	if err := r.allocateHealthIPs(ctx, localNode.HealthIP(false), localNode.HealthIP(true)); err != nil {
 		return fmt.Errorf("failed to allocate health IPs: %w", err)
 	}
 
@@ -662,7 +675,9 @@ func (r *infraIPAllocator) allocateServiceLoopbackIPs() error {
 		if !serviceLoopbackIPv6.Is6() {
 			return fmt.Errorf("service-loopback-ipv6 must be an IPv6 address, got: %s", r.config.ServiceLoopbackIPv6)
 		}
-		r.localNodeStore.Update(func(n *node.Node) { n.Local.ServiceLoopbackIPv6 = serviceLoopbackIPv6 })
+		r.localNodeStore.UpdateLocalInfo(func(info *node.LocalNodeInfo) {
+			info.ServiceLoopbackIPv6 = serviceLoopbackIPv6
+		})
 		r.logger.Debug("Allocated IPv6 service loopback address", logfields.IPAddr, serviceLoopbackIPv6)
 	}
 
@@ -675,7 +690,9 @@ func (r *infraIPAllocator) allocateServiceLoopbackIPs() error {
 		if !serviceLoopbackIPv4.Is4() {
 			return fmt.Errorf("service-loopback-ipv4 must be an IPv4 address, got: %s", r.config.ServiceLoopbackIPv4)
 		}
-		r.localNodeStore.Update(func(n *node.Node) { n.Local.ServiceLoopbackIPv4 = serviceLoopbackIPv4 })
+		r.localNodeStore.UpdateLocalInfo(func(info *node.LocalNodeInfo) {
+			info.ServiceLoopbackIPv4 = serviceLoopbackIPv4
+		})
 		r.logger.Debug("Allocated IPv4 service loopback address", logfields.IPAddr, serviceLoopbackIPv4)
 	}
 
@@ -692,7 +709,10 @@ func (r *infraIPAllocator) allocateRouterIPs(ctx context.Context, restoredRouter
 			return err
 		}
 		if routerIP != nil {
-			r.localNodeStore.Update(func(n *node.Node) { n.SetCiliumInternalIP(routerIP) })
+			r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+				addr, _ := netip.AddrFromSlice(routerIP)
+				n.SetAddress(node.AddressKindNode, nodeAddressing.NodeCiliumInternalIP, false, addr)
+			})
 			r.logger.Debug("Allocated IPv4 Router address", logfields.IPAddr, routerIP)
 			v4 = routerIP
 		}
@@ -704,7 +724,10 @@ func (r *infraIPAllocator) allocateRouterIPs(ctx context.Context, restoredRouter
 			return err
 		}
 		if routerIP != nil {
-			r.localNodeStore.Update(func(n *node.Node) { n.SetCiliumInternalIP(routerIP) })
+			r.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+				addr, _ := netip.AddrFromSlice(routerIP)
+				n.SetAddress(node.AddressKindNode, nodeAddressing.NodeCiliumInternalIP, true, addr)
+			})
 			r.logger.Debug("Allocated IPv6 Router address", logfields.IPAddr, routerIP)
 			v6 = routerIP
 		}

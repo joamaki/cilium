@@ -24,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/node"
+	"github.com/cilium/cilium/pkg/node/addressing"
 	"github.com/cilium/cilium/pkg/option"
 )
 
@@ -774,8 +775,9 @@ func TestNodeAddressNodeIPChange(t *testing.T) {
 	}
 
 	// Make the 10.0.0.1 the new NodeIP.
-	localNodeStore.Update(func(n *node.Node) {
-		n.SetNodeExternalIP(net.ParseIP("10.0.0.1"))
+	localNodeStore.Update(func(n *node.LocalNodeMutator) {
+		n.SetAddress(node.AddressKindNode,
+			addressing.NodeExternalIP, false, netip.MustParseAddr("10.0.0.1"))
 	})
 	<-watch
 
@@ -837,9 +839,11 @@ func fixture(t *testing.T, addressScopeMax int, beforeStart func(*hive.Hive)) (*
 type testLocalNodeSync struct{}
 
 // InitLocalNode implements node.LocalNodeSynchronizer.
-func (t testLocalNodeSync) InitLocalNode(_ context.Context, n *node.Node) error {
-	n.SetNodeExternalIP(testNodeIPv4.AsSlice())
-	n.SetNodeExternalIP(testNodeIPv6.AsSlice())
+func (t testLocalNodeSync) InitLocalNode(_ context.Context, n *node.LocalNodeMutator) error {
+	n.SetAddress(node.AddressKindNode,
+		addressing.NodeExternalIP, false, testNodeIPv4)
+	n.SetAddress(node.AddressKindNode,
+		addressing.NodeExternalIP, true, testNodeIPv6)
 	return nil
 }
 

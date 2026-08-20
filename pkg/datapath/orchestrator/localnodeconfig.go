@@ -153,8 +153,9 @@ func newLocalNodeConfig(
 		return config.Config{}, nil, fmt.Errorf("failed to parse hardware address of '%s': %w", defaults.SecondHostDevice, err)
 	}
 
+	local, _ := localNode.Local()
 	return config.Config{
-		ClusterID:                    localNode.ClusterID,
+		ClusterID:                    localNode.ClusterID(),
 		NodeIPv4:                     ip.AddrFromIP(localNode.GetNodeIP(false)),
 		NodeIPv6:                     ip.AddrFromIP(localNode.GetNodeIP(true)),
 		CiliumInternalIPv4:           ip.AddrFromIP(localNode.GetCiliumInternalIP(false)),
@@ -163,12 +164,12 @@ func newLocalNodeConfig(
 		CiliumNetMAC:                 ciliumNetMAC,
 		CiliumHostIfIndex:            uint32(ciliumHostDevice.Index),
 		CiliumHostMAC:                ciliumHostMAC,
-		AllocCIDRIPv4:                prefixToCIDR(localNode.IPv4AllocCIDR.Prefix.Prefix),
-		AllocCIDRIPv6:                prefixToCIDR(localNode.IPv6AllocCIDR.Prefix.Prefix),
+		AllocCIDRIPv4:                prefixToCIDR(localNode.AllocationCIDR(false)),
+		AllocCIDRIPv6:                prefixToCIDR(localNode.AllocationCIDR(true)),
 		NativeRoutingCIDRIPv4:        localNode.RemoteSNATDstAddrExclusionCIDRv4(),
 		NativeRoutingCIDRIPv6:        localNode.RemoteSNATDstAddrExclusionCIDRv6(),
-		ServiceLoopbackIPv4:          localNode.Local.ServiceLoopbackIPv4,
-		ServiceLoopbackIPv6:          localNode.Local.ServiceLoopbackIPv6,
+		ServiceLoopbackIPv4:          local.ServiceLoopbackIPv4,
+		ServiceLoopbackIPv6:          local.ServiceLoopbackIPv6,
 		Devices:                      nativeDevices,
 		NodeAddresses:                statedb.Collect(nodeAddrsIter),
 		DirectRoutingDevice:          directRoutingDevice,

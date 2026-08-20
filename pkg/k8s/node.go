@@ -45,7 +45,7 @@ type nodeAddressGroup struct {
 }
 
 // ParseNode parses a kubernetes node to a cilium node
-func ParseNode(logger *slog.Logger, k8sNode *slim_corev1.Node, source source.Source, clusterInfo cmtypes.ClusterInfo) *nodeTypes.Node {
+func ParseNode(logger *slog.Logger, k8sNode *slim_corev1.Node, source source.Source, clusterInfo cmtypes.ClusterInfo) *nodeTypes.KVStoreNode {
 	addrGroups := make(map[nodeAddressGroup]struct{})
 	scopedLog := logger.With(
 		logfields.NodeName, k8sNode.Name,
@@ -106,7 +106,7 @@ func ParseNode(logger *slog.Logger, k8sNode *slim_corev1.Node, source source.Sou
 		}
 		addrs = append(addrs, na)
 	}
-	newNode := &nodeTypes.Node{
+	newNode := &nodeTypes.KVStoreNode{
 		Name:        k8sNode.Name,
 		Cluster:     clusterInfo.Name,
 		ClusterID:   clusterInfo.ID,
@@ -315,8 +315,8 @@ func ParseNode(logger *slog.Logger, k8sNode *slim_corev1.Node, source source.Sou
 
 // ParseCiliumNode parses a CiliumNode custom resource and returns a Node
 // instance. Invalid IP and CIDRs are silently ignored
-func ParseCiliumNode(n *ciliumv2.CiliumNode, clusterInfo cmtypes.ClusterInfo) (node nodeTypes.Node) {
-	var appendAllocCIDR = func(node *nodeTypes.Node, podCIDR netip.Prefix) {
+func ParseCiliumNode(n *ciliumv2.CiliumNode, clusterInfo cmtypes.ClusterInfo) (node nodeTypes.KVStoreNode) {
+	var appendAllocCIDR = func(node *nodeTypes.KVStoreNode, podCIDR netip.Prefix) {
 		prefix := nodeTypes.PrefixFrom(podCIDR)
 		if podCIDR.Addr().Is4() {
 			if !node.IPv4AllocCIDR.IsValid() {
@@ -334,7 +334,7 @@ func ParseCiliumNode(n *ciliumv2.CiliumNode, clusterInfo cmtypes.ClusterInfo) (n
 	}
 
 	wireguardPubKey, _ := annotation.Get(n, annotation.WireguardPubKey, annotation.WireguardPubKeyAlias)
-	node = nodeTypes.Node{
+	node = nodeTypes.KVStoreNode{
 		Name:            n.Name,
 		EncryptionKey:   uint8(n.Spec.Encryption.Key),
 		Cluster:         clusterInfo.Name,

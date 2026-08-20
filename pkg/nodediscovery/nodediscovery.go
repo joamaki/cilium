@@ -134,14 +134,14 @@ func (n *NodeDiscovery) StartDiscovery(ctx context.Context) {
 	go func() {
 		n.logger.Info(
 			"Adding local node to cluster",
-			logfields.Node, localNode.Name,
+			logfields.Node, localNode.Name(),
 		)
 		for {
 			if err := n.registrar.RegisterNode(
 				ctx,
 				n.logger,
 				n.kvstoreClient,
-				localNode.Node,
+				localNode.ToKVStoreNode(),
 				n.db,
 				n.nodes,
 				n.nodeWriter,
@@ -204,7 +204,7 @@ func (n *NodeDiscovery) updateLocalNode(ctx context.Context, ln *node.Node) {
 						return nil
 					}
 
-					err := n.registrar.UpdateLocalKeySync(ctx, ln.Node)
+					err := n.registrar.UpdateLocalKeySync(ctx, ln.ToKVStoreNode())
 					if err != nil && !errors.Is(err, context.Canceled) {
 						n.logger.Error("Unable to propagate local node change to kvstore", logfields.Error, err)
 					}
@@ -312,15 +312,17 @@ func (n *NodeDiscovery) updateCiliumNodeResource(ctx context.Context, ln *node.N
 }
 
 func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ciliumv2.CiliumNode, ln *node.Node) error {
+	kvNode := ln.ToKVStoreNode()
+	local, _ := ln.Local()
 	nodeResource.ObjectMeta.OwnerReferences = []metav1.OwnerReference{{
 		APIVersion: "v1",
 		Kind:       "Node",
-		Name:       ln.Name,
-		UID:        ln.Local.UID,
+		Name:       ln.Name(),
+		UID:        local.UID,
 	}}
 
-	nodeResource.ObjectMeta.Labels = ln.Labels
-	nodeResource.ObjectMeta.Annotations = ln.Annotations
+	nodeResource.ObjectMeta.Labels = kvNode.Labels
+	nodeResource.ObjectMeta.Annotations = kvNode.Annotations
 
 	// This function can be called before we have restored the CiliumInternalIP.
 	// In that case, we do not want to remove the old CiliumInternalIP, as this
@@ -344,7 +346,7 @@ func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ci
 		return true // delete all other node addresses
 	})
 
-	for _, address := range ln.IPAddresses {
+	for _, address := range kvNode.IPAddresses {
 		ip := address.IP.String()
 		nodeResource.Spec.Addresses = append(nodeResource.Spec.Addresses, ciliumv2.NodeAddress{
 			Type: address.Type,
@@ -364,38 +366,38 @@ func (n *NodeDiscovery) mutateNodeResource(ctx context.Context, nodeResource *ci
 		// make sense to copy it into the CiliumNode it either.
 		// See NodeRegistrar.RegisterNode() for the equivalent kvstore mode logic.
 		nodeResource.Spec.IPAM.PodCIDRs = []iputil.Prefix{}
-		if ln.IPv4AllocCIDR.IsValid() {
-			nodeResource.Spec.IPAM.PodCIDRs = append(nodeResource.Spec.IPAM.PodCIDRs, ln.IPv4AllocCIDR.Prefix)
+		if kvNode.IPv4AllocCIDR.IsValid() {
+			nodeResource.Spec.IPAM.PodCIDRs = append(nodeResource.Spec.IPAM.PodCIDRs, kvNode.IPv4AllocCIDR.Prefix)
 		}
 
-		if ln.IPv6AllocCIDR.IsValid() {
-			nodeResource.Spec.IPAM.PodCIDRs = append(nodeResource.Spec.IPAM.PodCIDRs, ln.IPv6AllocCIDR.Prefix)
+		if kvNode.IPv6AllocCIDR.IsValid() {
+			nodeResource.Spec.IPAM.PodCIDRs = append(nodeResource.Spec.IPAM.PodCIDRs, kvNode.IPv6AllocCIDR.Prefix)
 		}
 	}
 
-	nodeResource.Spec.Encryption.Key = int(ln.EncryptionKey)
+	nodeResource.Spec.Encryption.Key = int(ln.EncryptionKey())
 
 	nodeResource.Spec.HealthAddressing.IPv4 = ""
-	if ip := ln.IPv4HealthIP; ip.IsValid() {
+	if ip := kvNode.IPv4HealthIP; ip.IsValid() {
 		nodeResource.Spec.HealthAddressing.IPv4 = ip.String()
 	}
 
 	nodeResource.Spec.HealthAddressing.IPv6 = ""
-	if ip := ln.IPv6HealthIP; ip.IsValid() {
+	if ip := kvNode.IPv6HealthIP; ip.IsValid() {
 		nodeResource.Spec.HealthAddressing.IPv6 = ip.String()
 	}
 
 	nodeResource.Spec.IngressAddressing.IPV4 = ""
-	if ip := ln.IPv4IngressIP; ip.IsValid() {
+	if ip := kvNode.IPv4IngressIP; ip.IsValid() {
 		nodeResource.Spec.IngressAddressing.IPV4 = ip.String()
 	}
 
 	nodeResource.Spec.IngressAddressing.IPV6 = ""
-	if ip := ln.IPv6IngressIP; ip.IsValid() {
+	if ip := kvNode.IPv6IngressIP; ip.IsValid() {
 		nodeResource.Spec.IngressAddressing.IPV6 = ip.String()
 	}
 
-	nodeResource.Spec.BootID = ln.BootID
+	nodeResource.Spec.BootID = ln.BootID()
 
 	nodeResource.Spec.IPAM.StaticIPTags = n.config.IPAMStaticIPTags
 	if c := n.cniConfigManager.GetCustomNetConf(); c != nil {

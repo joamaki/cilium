@@ -5,7 +5,7 @@ package endpointmanager
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/cilium/hive/hivetest"
@@ -17,6 +17,8 @@ import (
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	"github.com/cilium/cilium/pkg/node"
+	"github.com/cilium/cilium/pkg/node/addressing"
+	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 )
 
 func Test_updateCEPUID(t *testing.T) {
@@ -114,8 +116,12 @@ func Test_updateCEPUID(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			ln := node.Node{}
-			ln.SetNodeInternalIP(net.ParseIP(test.nodeIP))
+			ln := *node.FromKVStoreNode(&nodeTypes.KVStoreNode{
+				IPAddresses: []nodeTypes.Address{{
+					Type: addressing.NodeInternalIP,
+					IP:   netip.MustParseAddr(test.nodeIP).AsSlice(),
+				}},
+			})
 			eps := &EndpointSynchronizer{
 				localNodeStore: node.NewTestLocalNodeStore(ln),
 			}

@@ -460,7 +460,7 @@ func Test_authMapGarbageCollector_observeNodeChanges(t *testing.T) {
 	require.ErrorIs(t, <-done, context.Canceled)
 }
 
-func newTestNodeTable(t testing.TB, initial ...nodeTypes.Node) (*statedb.DB, statedb.RWTable[*node.Node]) {
+func newTestNodeTable(t testing.TB, initial ...nodeTypes.KVStoreNode) (*statedb.DB, statedb.RWTable[*node.Node]) {
 	t.Helper()
 	db := statedb.New()
 	nodes, err := node.NewNodeTable(db)
@@ -471,24 +471,24 @@ func newTestNodeTable(t testing.TB, initial ...nodeTypes.Node) (*statedb.DB, sta
 	return db, nodes
 }
 
-func insertTestNode(t testing.TB, db *statedb.DB, nodes statedb.RWTable[*node.Node], n nodeTypes.Node) {
+func insertTestNode(t testing.TB, db *statedb.DB, nodes statedb.RWTable[*node.Node], n nodeTypes.KVStoreNode) {
 	t.Helper()
 	txn := db.WriteTxn(nodes)
-	_, _, err := nodes.Insert(txn, &node.Node{Node: &n})
+	_, _, err := nodes.Insert(txn, node.FromKVStoreNode(&n))
 	require.NoError(t, err)
 	txn.Commit()
 }
 
-func deleteTestNode(t testing.TB, db *statedb.DB, nodes statedb.RWTable[*node.Node], n nodeTypes.Node) {
+func deleteTestNode(t testing.TB, db *statedb.DB, nodes statedb.RWTable[*node.Node], n nodeTypes.KVStoreNode) {
 	t.Helper()
 	txn := db.WriteTxn(nodes)
-	_, _, err := nodes.Delete(txn, &node.Node{Node: &n})
+	_, _, err := nodes.Delete(txn, node.FromKVStoreNode(&n))
 	require.NoError(t, err)
 	txn.Commit()
 }
 
-func ciliumNodeEvent(nodeInternalIP string) nodeTypes.Node {
-	return nodeTypes.Node{
+func ciliumNodeEvent(nodeInternalIP string) nodeTypes.KVStoreNode {
+	return nodeTypes.KVStoreNode{
 		Name:    "test-node-" + strings.ReplaceAll(nodeInternalIP, ".", "-"),
 		Cluster: "test-cluster",
 		IPAddresses: []nodeTypes.Address{

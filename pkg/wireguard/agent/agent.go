@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -173,8 +174,8 @@ func (a *Agent) Start(cell.HookContext) error {
 
 	// Update local node. Must run in the agent.Start itself to ensure the node
 	// is already up-to-date when calling `StartDiscovery()` in `newDaemon()`.
-	a.localNode.Update(func(ln *node.Node) {
-		a.initLocalNodeFromWireGuard(ln, sel)
+	a.localNode.Update(func(n *node.LocalNodeMutator) {
+		a.initLocalNodeFromWireGuard(n, sel)
 	})
 
 	// Subscribe the agent to IPCache events if needed. The agent is instantly
@@ -249,27 +250,32 @@ func (a *Agent) needsIPCache() bool {
 //   - If the local node opts out of node-to-node encryption, we set the
 //     localNode.EncryptKey to zero. This indicates to other nodes that they
 //     should not encrypt node-to-node traffic with us.
-func (a *Agent) initLocalNodeFromWireGuard(localNode *node.Node, sel k8sLabels.Selector) {
+func (a *Agent) initLocalNodeFromWireGuard(n *node.LocalNodeMutator, sel k8sLabels.Selector) {
 	a.Lock()
 	defer a.Unlock()
 
 	a.logger.Debug("Initializing local node store with WireGuard public key and settings")
 
-	localNode.EncryptionKey = types.StaticEncryptKey
-	localNode.WireguardPubKey = a.privKey.PublicKey().String()
-	localNode.Annotations[annotation.WireguardPubKey] = localNode.WireguardPubKey
+	key := a.privKey.PublicKey().String()
+	n.SetEncryptionKey(types.StaticEncryptKey)
+	n.SetWireGuardPublicKey(key)
+	n.SetAnnotation(annotation.WireguardPubKey, key)
 
-	if a.config.EncryptNode && sel.Matches(k8sLabels.Set(localNode.Labels)) {
+	local, _ := n.Node().Local()
+	if a.config.EncryptNode && sel.Matches(k8sLabels.Set(maps.Collect(n.Labels()))) {
 		a.logger.Info(
 			"Opting out from node-to-node encryption on this node as per "+
 				types.NodeEncryptionOptOutLabels+" label selector",
 			logfields.Selector, a.config.NodeEncryptionOptOutLabels,
 		)
-		localNode.Local.OptOutNodeEncryption = true
-		localNode.EncryptionKey = 0
+		n.UpdateLocalInfo(func(info *node.LocalNodeInfo) {
+			info.OptOutNodeEncryption = true
+		})
+		n.SetEncryptionKey(0)
+		local.OptOutNodeEncryption = true
 	}
 
-	a.optOut = localNode.Local.OptOutNodeEncryption
+	a.optOut = local.OptOutNodeEncryption
 }
 
 // init creates and configures the local WireGuard tunnel device.

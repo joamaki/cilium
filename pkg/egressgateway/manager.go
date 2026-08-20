@@ -101,7 +101,7 @@ type Manager struct {
 
 	// nodes stores nodes sorted by their name. The entries are sorted
 	// to ensure consistent gateway selection across all agents.
-	nodes []nodeTypes.Node
+	nodes []nodeTypes.KVStoreNode
 	// nodesAddresses2Labels store the labels of each node so that the endpoint can match the node labels
 	// key is the IP address of the node, and value is the labels of the node.
 	nodesAddresses2Labels map[string]map[string]string
@@ -566,7 +566,7 @@ func (manager *Manager) handleNodeEvent(event resource.Event[*cilium_api_v2.Cili
 	defer manager.Unlock()
 
 	// Find the node if we already have it.
-	nidx, found := slices.BinarySearchFunc(manager.nodes, node, func(a nodeTypes.Node, b nodeTypes.Node) int {
+	nidx, found := slices.BinarySearchFunc(manager.nodes, node, func(a nodeTypes.KVStoreNode, b nodeTypes.KVStoreNode) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
 

@@ -874,9 +874,11 @@ func TestMissingNodeLabelsUpdate(t *testing.T) {
 
 	// Initialize the local node watcher before the host endpoint is created.
 	// These labels are not propagated to the endpoint manager.
-	mgr.localNodeStore = node.NewTestLocalNodeStore(node.Node{Node: &types.Node{}})
+	mgr.localNodeStore = node.NewTestLocalNodeStore(*node.FromKVStoreNode(&types.KVStoreNode{}))
 	mgr.startNodeLabelsObserver(nil)
-	mgr.localNodeStore.Update(func(ln *node.Node) { ln.Labels = map[string]string{"k1": "v1"} })
+	mgr.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+		n.SetLabels(map[string]string{"k1": "v1"})
+	})
 	_, ok := mgr.endpoints[hostEPID]
 	require.False(t, ok)
 
@@ -899,7 +901,9 @@ func TestMissingNodeLabelsUpdate(t *testing.T) {
 
 	// Update node labels and verify that the node labels are updated correctly even if the old
 	// labels {k1=v1} are not present in the endpoint manager's state.
-	mgr.localNodeStore.Update(func(ln *node.Node) { ln.Labels = map[string]string{"k2": "v2"} })
+	mgr.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+		n.SetLabels(map[string]string{"k2": "v2"})
+	})
 	require.EventuallyWithT(
 		t,
 		func(c *assert.CollectT) {
@@ -1047,11 +1051,13 @@ func TestUpdateHostEndpointLabels(t *testing.T) {
 		tt.preTestRun()
 		args := tt.setupArgs()
 		want := tt.setupWant()
-		mgr.localNodeStore = node.NewTestLocalNodeStore(node.Node{Node: &types.Node{
+		mgr.localNodeStore = node.NewTestLocalNodeStore(*node.FromKVStoreNode(&types.KVStoreNode{
 			Labels: args.oldLabels,
-		}})
+		}))
 		mgr.startNodeLabelsObserver(args.oldLabels)
-		mgr.localNodeStore.Update(func(ln *node.Node) { ln.Labels = args.newLabels })
+		mgr.localNodeStore.Update(func(n *node.LocalNodeMutator) {
+			n.SetLabels(args.newLabels)
+		})
 
 		require.EventuallyWithT(
 			t,

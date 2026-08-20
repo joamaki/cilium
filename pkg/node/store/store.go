@@ -30,27 +30,27 @@ var (
 
 	// KeyCreator creates a node for a shared store
 	KeyCreator = func() store.Key {
-		n := nodeTypes.Node{}
+		n := nodeTypes.KVStoreNode{}
 		return &n
 	}
 )
 
 // ValidatingNode wraps a Node to perform additional validation at unmarshal time.
 type ValidatingNode struct {
-	nodeTypes.Node
+	nodeTypes.KVStoreNode
 
 	validators []nodeValidator
 }
 
-type nodeValidator func(key string, n *nodeTypes.Node) error
+type nodeValidator func(key string, n *nodeTypes.KVStoreNode) error
 
 func (vn *ValidatingNode) Unmarshal(key string, data []byte) error {
-	if err := vn.Node.Unmarshal(key, data); err != nil {
+	if err := vn.KVStoreNode.Unmarshal(key, data); err != nil {
 		return err
 	}
 
 	for _, validator := range vn.validators {
-		if err := validator(key, &vn.Node); err != nil {
+		if err := validator(key, &vn.KVStoreNode); err != nil {
 			return err
 		}
 	}
@@ -61,7 +61,7 @@ func (vn *ValidatingNode) Unmarshal(key string, data []byte) error {
 // ClusterNameValidator returns a validator enforcing that the cluster field
 // of the unmarshaled node matches the provided one.
 func ClusterNameValidator(clusterName string) nodeValidator {
-	return func(_ string, n *nodeTypes.Node) error {
+	return func(_ string, n *nodeTypes.KVStoreNode) error {
 		if n.Cluster != clusterName {
 			return fmt.Errorf("unexpected cluster name: got %s, expected %s", n.Cluster, clusterName)
 		}
@@ -72,7 +72,7 @@ func ClusterNameValidator(clusterName string) nodeValidator {
 // NameValidator returns a validator enforcing that the name of the the unmarshaled
 // node matches the kvstore key.
 func NameValidator() nodeValidator {
-	return func(key string, n *nodeTypes.Node) error {
+	return func(key string, n *nodeTypes.KVStoreNode) error {
 		if n.Name != key {
 			return fmt.Errorf("name does not match key: got %s, expected %s", n.Name, key)
 		}
@@ -84,7 +84,7 @@ func NameValidator() nodeValidator {
 // unmarshaled node matches the provided one. The access to the provided
 // clusterID value is not synchronized, and it shall not be mutated concurrently.
 func ClusterIDValidator(clusterID *uint32) nodeValidator {
-	return func(_ string, n *nodeTypes.Node) error {
+	return func(_ string, n *nodeTypes.KVStoreNode) error {
 		if n.ClusterID != *clusterID {
 			return fmt.Errorf("unexpected cluster ID: got %d, expected %d", n.ClusterID, *clusterID)
 		}
@@ -121,7 +121,7 @@ func (o *NodeObserver) OnUpdate(k store.Key) {
 		nodeCopy.Source = o.source
 		txn := o.db.WriteTxn(o.nodes)
 		defer txn.Abort()
-		o.writer.Upsert(txn, nodeCopy)
+		o.writer.Upsert(txn, nodeTypes.NewKVStoreData(nodeCopy))
 		txn.Commit()
 	}
 }
@@ -139,7 +139,7 @@ func (o *NodeObserver) OnDelete(k store.NamedKey) {
 
 // Writer is the node table mutation interface used by store observers.
 type Writer interface {
-	Upsert(statedb.WriteTxn, *nodeTypes.Node) bool
+	Upsert(statedb.WriteTxn, node.Data) bool
 	Delete(statedb.WriteTxn, source.Source, nodeTypes.Identity) bool
 }
 
@@ -149,7 +149,7 @@ type NodeRegistrar struct {
 }
 
 // RegisterNode registers the local node in the cluster.
-func (nr *NodeRegistrar) RegisterNode(ctx context.Context, logger *slog.Logger, client kvstore.Client, n *nodeTypes.Node, db *statedb.DB, nodes statedb.Table[*node.Node], writer Writer, initialized func(statedb.WriteTxn)) error {
+func (nr *NodeRegistrar) RegisterNode(ctx context.Context, logger *slog.Logger, client kvstore.Client, n *nodeTypes.KVStoreNode, db *statedb.DB, nodes statedb.Table[*node.Node], writer Writer, initialized func(statedb.WriteTxn)) error {
 	if !client.IsEnabled() {
 		return nil
 	}
@@ -185,11 +185,11 @@ func (nr *NodeRegistrar) RegisterNode(ctx context.Context, logger *slog.Logger, 
 
 // UpdateLocalKeySync synchronizes the local key for the node using the
 // SharedStore.
-func (nr *NodeRegistrar) UpdateLocalKeySync(ctx context.Context, n *nodeTypes.Node) error {
+func (nr *NodeRegistrar) UpdateLocalKeySync(ctx context.Context, n *nodeTypes.KVStoreNode) error {
 	return nr.SharedStore.UpdateLocalKeySync(ctx, copyForRemoteNodes(n))
 }
 
-func copyForRemoteNodes(n *nodeTypes.Node) *nodeTypes.Node {
+func copyForRemoteNodes(n *nodeTypes.KVStoreNode) *nodeTypes.KVStoreNode {
 	node := n.DeepCopy()
 	switch option.Config.IPAM {
 	case ipamOption.IPAMKubernetes, ipamOption.IPAMClusterPool, ipamOption.IPAMMultiPool:

@@ -4,6 +4,7 @@
 package observer
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,8 +19,8 @@ import (
 func Test_LocalNodeWatcher(t *testing.T) {
 	ctx := t.Context()
 
-	localNode := node.Node{
-		Node: &types.Node{
+	localNode := *node.New(node.NewLocalData(
+		types.NewKVStoreData(&types.KVStoreNode{
 			Name: "ip-1-2-3-4.us-west-2.compute.internal",
 			Labels: map[string]string{
 				"kubernetes.io/arch":            "amd64",
@@ -28,9 +29,7 @@ func Test_LocalNodeWatcher(t *testing.T) {
 				"topology.kubernetes.io/region": "us-west-2",
 				"topology.kubernetes.io/zone":   "us-west-2d",
 			},
-		},
-		Local: &node.LocalNodeInfo{},
-	}
+		}), node.LocalNodeInfo{}))
 	localNodeLabelSlice := []string{
 		"kubernetes.io/arch=amd64",
 		"kubernetes.io/hostname=ip-1-2-3-4.us-west-2.compute.internal",
@@ -38,17 +37,15 @@ func Test_LocalNodeWatcher(t *testing.T) {
 		"topology.kubernetes.io/region=us-west-2",
 		"topology.kubernetes.io/zone=us-west-2d",
 	}
-	updatedNode := node.Node{
-		Node: &types.Node{
+	updatedNode := *node.New(node.NewLocalData(
+		types.NewKVStoreData(&types.KVStoreNode{
 			Name: "kind-kind",
 			Labels: map[string]string{
 				"kubernetes.io/arch":     "arm64",
 				"kubernetes.io/os":       "linux",
 				"kubernetes.io/hostname": "kind-kind",
 			},
-		},
-		Local: &node.LocalNodeInfo{},
-	}
+		}), node.LocalNodeInfo{}))
 	updatedNodeLabelSlice := []string{
 		"kubernetes.io/arch=arm64",
 		"kubernetes.io/hostname=kind-kind",
@@ -74,8 +71,10 @@ func Test_LocalNodeWatcher(t *testing.T) {
 	})
 
 	t.Run("update", func(t *testing.T) {
-		store.Update(func(ln *node.Node) {
-			*ln = updatedNode
+		store.Update(func(n *node.LocalNodeMutator) {
+			n.SetIdentity(updatedNode.Name(), updatedNode.Cluster(),
+				updatedNode.ClusterID(), updatedNode.Source())
+			n.SetLabels(maps.Collect(updatedNode.Labels()))
 		})
 		require.EventuallyWithT(
 			t,

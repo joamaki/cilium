@@ -28,7 +28,7 @@ func TestNodeCountMetric(t *testing.T) {
 	}()
 
 	txn := db.WriteTxn(nodes)
-	_, _, err = nodes.Insert(txn, &Node{Node: &types.Node{Name: "node-1"}})
+	_, _, err = nodes.Insert(txn, FromKVStoreNode(&types.KVStoreNode{Name: "node-1"}))
 	require.NoError(t, err)
 	txn.Commit()
 	require.Eventually(t, func() bool {

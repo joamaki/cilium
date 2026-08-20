@@ -18,17 +18,18 @@ import (
 // CiliumNode resource. It is kept in a separate file so that the
 // Azure-specific imports are not pulled in via the main nodediscovery.go.
 func (n *NodeDiscovery) mutateAzureNodeResource(_ context.Context, nodeResource *ciliumv2.CiliumNode, ln *node.Node) error {
-	if ln.Local.ProviderID == "" {
+	local, _ := ln.Local()
+	if local.ProviderID == "" {
 		logging.Fatal(n.logger, "Spec.ProviderID in k8s node resource must be set for Azure IPAM")
 	}
-	if !strings.HasPrefix(ln.Local.ProviderID, azureTypes.ProviderPrefix) {
+	if !strings.HasPrefix(local.ProviderID, azureTypes.ProviderPrefix) {
 		logging.Fatal(n.logger, fmt.Sprintf("Spec.ProviderID in k8s node resource must have prefix %s", azureTypes.ProviderPrefix))
 	}
 	// The Azure controller in Kubernetes creates a mix of upper and lower
 	// case when filling in the ProviderID and is therefore not providing the
 	// exact representation of what is returned by the Azure API. Convert it
 	// to lower case for consistent results.
-	nodeResource.Spec.InstanceID = strings.ToLower(strings.TrimPrefix(ln.Local.ProviderID, azureTypes.ProviderPrefix))
+	nodeResource.Spec.InstanceID = strings.ToLower(strings.TrimPrefix(local.ProviderID, azureTypes.ProviderPrefix))
 
 	nodeResource.Spec.IPAM.MinAllocate = n.config.IPAMMinAllocate
 	nodeResource.Spec.IPAM.PreAllocate = n.config.IPAMPreAllocate

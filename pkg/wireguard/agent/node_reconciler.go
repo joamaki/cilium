@@ -24,10 +24,10 @@ func (a *Agent) Update(
 	if n.IsLocal() {
 		return nil
 	}
-	if n.WireguardPubKey == "" {
+	if n.WireGuardPublicKey() == "" {
 		return a.deletePeer(n.Fullname())
 	}
-	return a.updatePeer(n.Fullname(), n.WireguardPubKey, n.GetNodeIP(false), n.GetNodeIP(true))
+	return a.updatePeer(n.Fullname(), n.WireGuardPublicKey(), n.GetNodeIP(false), n.GetNodeIP(true))
 }
 
 func (a *Agent) Delete(

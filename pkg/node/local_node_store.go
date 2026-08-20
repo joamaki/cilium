@@ -23,7 +23,7 @@ import (
 // LocalNodeSynchronizer specifies how to build, and keep synchronized the local
 // node object.
 type LocalNodeSynchronizer interface {
-	InitLocalNode(context.Context, *Node) error
+	InitLocalNode(context.Context, *LocalNodeMutator) error
 	SyncLocalNode(context.Context, *LocalNodeStore)
 	WaitForNodeInformation(context.Context, *LocalNodeStore) error
 }
@@ -35,8 +35,8 @@ type NodeGetter interface {
 }
 
 // LocalNodeStoreCell provides the LocalNodeStore instance.
-// The LocalNodeStore is the canonical owner of `types.Node` for the local node and
-// provides a reactive API for observing and updating it.
+// The LocalNodeStore provides a reactive API for observing and updating the
+// local node table object.
 var LocalNodeStoreCell = cell.Module(
 	"local-node-store",
 	"Provides LocalNodeStore for observing and updating local node info",
@@ -75,6 +75,9 @@ type LocalNodeStore struct {
 	sync  LocalNodeSynchronizer
 }
 
+// NodeStore is retained for call sites that predate the LocalNodeStore name.
+type NodeStore = LocalNodeStore
+
 // NewNodeTableAndLocalNodeStore constructs [LocalNodeStore] and the node table.
 // Ensures that the local node object is present in the table.
 func NewNodeTableAndLocalNodeStore(params LocalNodeStoreParams) (
@@ -88,20 +91,11 @@ func NewNodeTableAndLocalNodeStore(params LocalNodeStoreParams) (
 	initDone := nodeTable.RegisterInitializer(wtxn, LocalNodeTableInitializerName)
 
 	// Insert the skeleton local node.
-	nodeTable.Insert(wtxn,
-		&Node{
-			Node: &types.Node{
-				Name:      types.GetName(),
-				Cluster:   params.ClusterInfo.Name,
-				ClusterID: params.ClusterInfo.ID,
-				// Explicitly initialize the labels and annotations maps, so that
-				// we don't need to always check for nil values.
-				Labels:      make(map[string]string),
-				Annotations: make(map[string]string),
-				Source:      source.Unspec,
-			},
-			Local: &LocalNodeInfo{},
-		})
+	initial := NewLocalData(types.NewKVStoreData(&types.KVStoreNode{
+		Name: types.GetName(), Cluster: params.ClusterInfo.Name,
+		ClusterID: params.ClusterInfo.ID, Source: source.Unspec,
+	}), LocalNodeInfo{})
+	nodeTable.Insert(wtxn, New(initial))
 	wtxn.Commit()
 
 	s := &LocalNodeStore{params.DB, nodeTable, params.Sync}
@@ -113,8 +107,9 @@ func NewNodeTableAndLocalNodeStore(params LocalNodeStoreParams) (
 			// Delete the initial one as name might change.
 			nodeTable.Delete(wtxn, n)
 
-			n = n.deepCopyForUpdate()
-			err := params.Sync.InitLocalNode(ctx, n)
+			mutator := newLocalNodeMutator(n.Data)
+			err := params.Sync.InitLocalNode(ctx, mutator)
+			n = New(mutator.data)
 			nodeTable.Insert(wtxn, n)
 			initDone(wtxn)
 			wtxn.Commit()
@@ -219,8 +214,19 @@ func (s *LocalNodeStore) Get(ctx context.Context) (Node, error) {
 	return *ln, nil
 }
 
-// Update modifies the local node with a mutator.
-func (s *LocalNodeStore) Update(update func(*Node)) {
+// Update atomically applies changes made through a transaction-scoped local
+// node mutator.
+func (s *LocalNodeStore) Update(update func(*LocalNodeMutator)) {
+	s.updateData(func(mutator *LocalNodeMutator) { update(mutator) })
+}
+
+// UpdateLocalInfo modifies a copy of the local-only value while sharing the
+// immutable node address and metadata collections.
+func (s *LocalNodeStore) UpdateLocalInfo(update func(*LocalNodeInfo)) {
+	s.updateData(func(mutator *LocalNodeMutator) { mutator.UpdateLocalInfo(update) })
+}
+
+func (s *LocalNodeStore) updateData(update func(*LocalNodeMutator)) {
 	txn := s.db.WriteTxn(s.nodes)
 	defer txn.Abort()
 	ln, _, found := s.nodes.Get(txn, LocalNodeQuery)
@@ -228,16 +234,14 @@ func (s *LocalNodeStore) Update(update func(*Node)) {
 		panic("BUG: No local node exists")
 	}
 	orig := ln
-	ln = ln.deepCopyForUpdate()
-	update(ln)
-	if ln.Local == nil {
-		panic("BUG: updated local node has nil Local")
-	}
-
-	if ln.DeepEqual(orig) {
+	mutator := newLocalNodeMutator(ln.Data)
+	update(mutator)
+	updated := mutator.data
+	if EqualData(updated, orig.Data) {
 		// No changes.
 		return
 	}
+	ln = New(updated)
 	ln.Statuses = orig.Statuses.Pending()
 
 	if orig.Fullname() != ln.Fullname() {
@@ -259,11 +263,12 @@ func NewTestLocalNodeStore(mockNode Node) *LocalNodeStore {
 	if err != nil {
 		panic(err)
 	}
-	if mockNode.Local == nil {
-		mockNode.Local = &LocalNodeInfo{}
-	}
-	if mockNode.Node == nil {
-		mockNode.Node = &types.Node{}
+	if mockNode.Data == nil {
+		mockNode = *New(NewLocalData(types.NewKVStoreData(&types.KVStoreNode{
+			Name: types.GetName(),
+		}), LocalNodeInfo{}))
+	} else if _, local := mockNode.Local(); !local {
+		mockNode = *New(NewLocalData(mockNode.Data, LocalNodeInfo{}))
 	}
 	txn := db.WriteTxn(tbl)
 	tbl.Insert(txn, &mockNode)
@@ -282,7 +287,7 @@ var LocalNodeStoreTestCell = cell.Group(
 type nopLocalNodeSynchronizer struct{}
 
 // InitLocalNode implements LocalNodeSynchronizer.
-func (n nopLocalNodeSynchronizer) InitLocalNode(context.Context, *Node) error {
+func (n nopLocalNodeSynchronizer) InitLocalNode(context.Context, *LocalNodeMutator) error {
 	return nil
 }
 

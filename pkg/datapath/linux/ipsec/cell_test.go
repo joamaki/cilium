@@ -177,18 +177,16 @@ func TestPrivileged_TestIPSecCell(t *testing.T) {
 						DaemonConfig:     option.Config,
 						LBConfig:         loadbalancer.DefaultConfig,
 						LBExternalConfig: loadbalancer.ExternalConfig{},
-						LocalNode: node.Node{
-							Node: &nodeTypes.Node{
-								Name: k8s1NodeName,
-								IPAddresses: []nodeTypes.Address{
-									{
-										Type: addressing.NodeInternalIP,
-										IP:   k8s1NodeIPv4,
-									},
+						LocalNode: *node.FromKVStoreNode(&nodeTypes.KVStoreNode{
+							Name: k8s1NodeName,
+							IPAddresses: []nodeTypes.Address{
+								{
+									Type: addressing.NodeInternalIP,
+									IP:   k8s1NodeIPv4,
 								},
-								Annotations: map[string]string{},
 							},
-						},
+							Annotations: map[string]string{},
+						}),
 						IPCache: ipcache.NewIPCache(&ipcache.Configuration{
 							Context: ctx,
 							Logger:  hivetest.Logger(t),

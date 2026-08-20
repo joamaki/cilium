@@ -91,31 +91,30 @@ func reconciliationFinished(n *Node) bool {
 	return true
 }
 
-// Upsert takes ownership of n and inserts or updates it if its source is
-// allowed to overwrite the current owner. The caller must not modify n after
-// calling Upsert. It reports whether the table changed.
-func (w *NodeWriter) Upsert(txn statedb.WriteTxn, n *nodeTypes.Node) bool {
-	obj := &Node{Node: n}
+// Upsert inserts or updates immutable node data if its source is allowed to
+// overwrite the current owner. It reports whether the table changed.
+func (w *NodeWriter) Upsert(txn statedb.WriteTxn, data Data) bool {
+	obj := New(data)
 
 	old, _, found := w.nodes.Get(txn, NodeByName(obj.Fullname()))
 	if found {
-		w.metrics.EventsReceived.WithLabelValues(nodeEventUpdate, string(obj.Source)).Inc()
-		if old.Local != nil || !source.AllowOverwrite(old.Source, obj.Source) {
+		w.metrics.EventsReceived.WithLabelValues(nodeEventUpdate, string(obj.Source())).Inc()
+		if old.IsLocal() || !source.AllowOverwrite(old.Source(), obj.Source()) {
 			return false
 		}
-		if old.Node.DeepEqual(obj.Node) {
+		if EqualData(old.Data, obj.Data) {
 			return false
 		}
 		obj.Statuses = old.Statuses.Pending()
 	} else {
-		w.metrics.EventsReceived.WithLabelValues(nodeEventAdd, string(obj.Source)).Inc()
+		w.metrics.EventsReceived.WithLabelValues(nodeEventAdd, string(obj.Source())).Inc()
 	}
 
 	if _, _, err := w.nodes.Insert(txn, obj); err != nil {
 		w.log.Error("Failed to write node to table",
 			logfields.Error, err,
-			logfields.Node, obj.Name,
-			logfields.Source, obj.Source,
+			logfields.Node, obj.Name(),
+			logfields.Source, obj.Source(),
 		)
 		return false
 	}
@@ -128,7 +127,7 @@ func (w *NodeWriter) Delete(txn statedb.WriteTxn, src source.Source, identity no
 	w.metrics.EventsReceived.WithLabelValues(nodeEventDelete, string(src)).Inc()
 
 	old, _, found := w.nodes.Get(txn, NodeByName(identity.String()))
-	if !found || old.Local != nil || old.Source != src {
+	if !found || old.IsLocal() || old.Source() != src {
 		return false
 	}
 	if _, _, err := w.nodes.Delete(txn, old); err != nil {

@@ -431,7 +431,7 @@ func TestParseCiliumNode(t *testing.T) {
 
 	clusterInfo := cmtypes.ClusterInfo{ID: 42, Name: "remote"}
 	n := ParseCiliumNode(nodeResource, clusterInfo)
-	require.Equal(t, nodeTypes.Node{
+	require.Equal(t, nodeTypes.KVStoreNode{
 		Name:      "foo",
 		Cluster:   clusterInfo.Name,
 		ClusterID: clusterInfo.ID,

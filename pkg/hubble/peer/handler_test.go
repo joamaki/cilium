@@ -12,6 +12,7 @@ import (
 
 	peerpb "github.com/cilium/cilium/api/v1/peer"
 	"github.com/cilium/cilium/pkg/hubble/peer/serviceoption"
+	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/node/addressing"
 	"github.com/cilium/cilium/pkg/node/types"
 )
@@ -21,13 +22,13 @@ func TestNodeAdd(t *testing.T) {
 		name        string
 		withoutTLS  bool
 		addressPref serviceoption.AddressFamilyPreference
-		arg         types.Node
+		arg         types.KVStoreNode
 		want        *peerpb.ChangeNotification
 	}{
 		{
 			name:       "node with just a name",
 			withoutTLS: true,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name: "name",
 			},
 			want: &peerpb.ChangeNotification{
@@ -38,7 +39,7 @@ func TestNodeAdd(t *testing.T) {
 		}, {
 			name:       "node with just a name and cluster",
 			withoutTLS: true,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 			},
@@ -51,7 +52,7 @@ func TestNodeAdd(t *testing.T) {
 			name:        "node with name, cluster and one internal IP address",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -70,7 +71,7 @@ func TestNodeAdd(t *testing.T) {
 			name:        "node with name, cluster and one external IP address",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -89,7 +90,7 @@ func TestNodeAdd(t *testing.T) {
 			name:        "node with name, cluster and mixed IP addresses preferring IPv4",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -112,7 +113,7 @@ func TestNodeAdd(t *testing.T) {
 			name:        "node with name, cluster and mixed IP addresses preferring IPv6",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv6,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -133,7 +134,7 @@ func TestNodeAdd(t *testing.T) {
 			},
 		}, {
 			name: "node with a name and withTLS is set",
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name: "name",
 			},
 			want: &peerpb.ChangeNotification{
@@ -146,7 +147,7 @@ func TestNodeAdd(t *testing.T) {
 			},
 		}, {
 			name: "node with name, cluster and withTLS is set",
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 			},
@@ -160,7 +161,7 @@ func TestNodeAdd(t *testing.T) {
 			},
 		}, {
 			name: "node name with dots",
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "my.very.long.node.name",
 				Cluster: "cluster",
 			},
@@ -174,7 +175,7 @@ func TestNodeAdd(t *testing.T) {
 			},
 		}, {
 			name: "node name with dots in the cluster name section",
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "my.very.long.node.name",
 				Cluster: "cluster.name.with.dots",
 			},
@@ -198,7 +199,7 @@ func TestNodeAdd(t *testing.T) {
 			wg.Go(func() {
 				got = <-h.C
 			})
-			h.nodeAdded(tt.arg)
+			h.nodeAdded(tableNode(tt.arg))
 			wg.Wait()
 			assert.Equal(t, tt.want, got)
 		})
@@ -207,7 +208,7 @@ func TestNodeAdd(t *testing.T) {
 
 func TestNodeUpdate(t *testing.T) {
 	type args struct {
-		old, updated types.Node
+		old, updated types.KVStoreNode
 	}
 	tests := []struct {
 		name        string
@@ -220,9 +221,9 @@ func TestNodeUpdate(t *testing.T) {
 			name:       "a node is renamed",
 			withoutTLS: true,
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name: "old",
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name: "new",
 				}},
 			want: []*peerpb.ChangeNotification{
@@ -240,10 +241,10 @@ func TestNodeUpdate(t *testing.T) {
 			name:       "a node within a named cluster is renamed",
 			withoutTLS: true,
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name:    "old",
 					Cluster: "cluster",
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name:    "new",
 					Cluster: "cluster",
 				}},
@@ -263,7 +264,7 @@ func TestNodeUpdate(t *testing.T) {
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -272,7 +273,7 @@ func TestNodeUpdate(t *testing.T) {
 							IP:   net.ParseIP("192.0.2.1"),
 						},
 					},
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -294,7 +295,7 @@ func TestNodeUpdate(t *testing.T) {
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -303,7 +304,7 @@ func TestNodeUpdate(t *testing.T) {
 							IP:   net.ParseIP("192.0.2.1"),
 						},
 					},
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -325,7 +326,7 @@ func TestNodeUpdate(t *testing.T) {
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -334,7 +335,7 @@ func TestNodeUpdate(t *testing.T) {
 							IP:   net.ParseIP("192.0.2.1"),
 						},
 					},
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -360,7 +361,7 @@ func TestNodeUpdate(t *testing.T) {
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv6,
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -369,7 +370,7 @@ func TestNodeUpdate(t *testing.T) {
 							IP:   net.ParseIP("fe80::1"),
 						},
 					},
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -394,7 +395,7 @@ func TestNodeUpdate(t *testing.T) {
 			name:       "node with name, cluster and one external IP address, no name or address change",
 			withoutTLS: true,
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -403,7 +404,7 @@ func TestNodeUpdate(t *testing.T) {
 							IP:   net.ParseIP("192.0.2.1"),
 						},
 					},
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name:    "name",
 					Cluster: "cluster",
 					IPAddresses: []types.Address{
@@ -417,9 +418,9 @@ func TestNodeUpdate(t *testing.T) {
 		}, {
 			name: "a node is renamed and withTLS is set",
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name: "old",
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name: "new",
 				}},
 			want: []*peerpb.ChangeNotification{
@@ -442,10 +443,10 @@ func TestNodeUpdate(t *testing.T) {
 		}, {
 			name: "a node within a named cluster is renamed and withTLS is set",
 			args: args{
-				types.Node{
+				types.KVStoreNode{
 					Name:    "old",
 					Cluster: "cluster",
-				}, types.Node{
+				}, types.KVStoreNode{
 					Name:    "new",
 					Cluster: "cluster",
 				}},
@@ -480,7 +481,7 @@ func TestNodeUpdate(t *testing.T) {
 					got = append(got, <-h.C)
 				}
 			})
-			h.nodeUpdated(tt.args.old, tt.args.updated)
+			h.nodeUpdated(tableNode(tt.args.old), tableNode(tt.args.updated))
 			wg.Wait()
 			assert.Equal(t, tt.want, got)
 		})
@@ -492,13 +493,13 @@ func TestNodeDelete(t *testing.T) {
 		name        string
 		withoutTLS  bool
 		addressPref serviceoption.AddressFamilyPreference
-		arg         types.Node
+		arg         types.KVStoreNode
 		want        *peerpb.ChangeNotification
 	}{
 		{
 			name:       "node with just a name",
 			withoutTLS: true,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name: "name",
 			},
 			want: &peerpb.ChangeNotification{
@@ -509,7 +510,7 @@ func TestNodeDelete(t *testing.T) {
 		}, {
 			name:       "node with just a name and cluster",
 			withoutTLS: true,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 			},
@@ -522,7 +523,7 @@ func TestNodeDelete(t *testing.T) {
 			name:        "node with name, cluster and one internal IP address",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -541,7 +542,7 @@ func TestNodeDelete(t *testing.T) {
 			name:        "node with name, cluster and one external IP address",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -560,7 +561,7 @@ func TestNodeDelete(t *testing.T) {
 			name:        "node with name, cluster and mixed IP addresses preferring IPv4",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv4,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -583,7 +584,7 @@ func TestNodeDelete(t *testing.T) {
 			name:        "node with name, cluster and mixed IP addresses preferring IPv6",
 			withoutTLS:  true,
 			addressPref: serviceoption.AddressPreferIPv6,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 				IPAddresses: []types.Address{
@@ -604,7 +605,7 @@ func TestNodeDelete(t *testing.T) {
 			},
 		}, {
 			name: "node with a name and withTLS is set",
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name: "name",
 			},
 			want: &peerpb.ChangeNotification{
@@ -617,7 +618,7 @@ func TestNodeDelete(t *testing.T) {
 			},
 		}, {
 			name: "node with a name and cluster and withTLS is set",
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				Name:    "name",
 				Cluster: "cluster",
 			},
@@ -641,7 +642,7 @@ func TestNodeDelete(t *testing.T) {
 			wg.Go(func() {
 				got = <-h.C
 			})
-			h.nodeDeleted(tt.arg)
+			h.nodeDeleted(tableNode(tt.arg))
 			wg.Wait()
 			assert.Equal(t, tt.want, got)
 		})
@@ -652,17 +653,17 @@ func TestHubblePort(t *testing.T) {
 	tests := []struct {
 		name        string
 		addressPref serviceoption.AddressFamilyPreference
-		arg         types.Node
+		arg         types.KVStoreNode
 		want        string
 	}{
 		{
 			name: "no ip",
-			arg:  types.Node{},
+			arg:  types.KVStoreNode{},
 			want: "",
 		}, {
 			name:        "ipv4",
 			addressPref: serviceoption.AddressPreferIPv4,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				IPAddresses: []types.Address{
 					{
 						Type: addressing.NodeExternalIP,
@@ -674,7 +675,7 @@ func TestHubblePort(t *testing.T) {
 		}, {
 			name:        "ipv6",
 			addressPref: serviceoption.AddressPreferIPv6,
-			arg: types.Node{
+			arg: types.KVStoreNode{
 				IPAddresses: []types.Address{
 					{
 						Type: addressing.NodeInternalIP,
@@ -695,7 +696,7 @@ func TestHubblePort(t *testing.T) {
 			wg.Go(func() {
 				got = <-h.C
 			})
-			h.nodeAdded(tt.arg)
+			h.nodeAdded(tableNode(tt.arg))
 
 			want := &peerpb.ChangeNotification{
 				Address: tt.want,
@@ -705,4 +706,8 @@ func TestHubblePort(t *testing.T) {
 			assert.Equal(t, want, got)
 		})
 	}
+}
+
+func tableNode(n types.KVStoreNode) *node.Node {
+	return node.FromKVStoreNode(&n)
 }

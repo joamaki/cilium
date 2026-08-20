@@ -5,6 +5,7 @@ package observer
 
 import (
 	"context"
+	"maps"
 	"slices"
 
 	flowpb "github.com/cilium/cilium/api/v1/flow"
@@ -52,7 +53,7 @@ func (w *LocalNodeWatcher) OnDecodedFlow(_ context.Context, flow *flowpb.Flow) (
 
 // update synchronizes the LocalNodeWatcher cache with the given local node.
 func (w *LocalNodeWatcher) update(n node.Node) {
-	labels := sortedLabelSlice(n.Labels)
+	labels := sortedLabelSlice(maps.Collect(n.Labels()))
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.cache.labels = labels
