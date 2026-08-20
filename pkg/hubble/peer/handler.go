@@ -12,7 +12,7 @@ import (
 	ciliumDefaults "github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/hubble/defaults"
 	"github.com/cilium/cilium/pkg/hubble/peer/serviceoption"
-	"github.com/cilium/cilium/pkg/node/types"
+	"github.com/cilium/cilium/pkg/node"
 )
 
 // handler turns node table changes into peerpb.ChangeNotifications. As C is
@@ -36,7 +36,7 @@ func newHandler(withoutTLSInfo bool, addressPref serviceoption.AddressFamilyPref
 	}
 }
 
-func (h *handler) nodeAdded(n types.Node) {
+func (h *handler) nodeAdded(n *node.Node) {
 	cn := h.newChangeNotification(n, peerpb.ChangeNotificationType_PEER_ADDED)
 	select {
 	case h.C <- cn:
@@ -44,7 +44,7 @@ func (h *handler) nodeAdded(n types.Node) {
 	}
 }
 
-func (h *handler) nodeUpdated(o, n types.Node) {
+func (h *handler) nodeUpdated(o, n *node.Node) {
 	oAddr, nAddr := nodeAddress(o, h.addressPref), nodeAddress(n, h.addressPref)
 	if o.Fullname() == n.Fullname() {
 		if oAddr.String() == nAddr.String() {
@@ -74,7 +74,7 @@ func (h *handler) nodeUpdated(o, n types.Node) {
 	}
 }
 
-func (h *handler) nodeDeleted(n types.Node) {
+func (h *handler) nodeDeleted(n *node.Node) {
 	cn := h.newChangeNotification(n, peerpb.ChangeNotificationType_PEER_DELETED)
 	select {
 	case h.C <- cn:
@@ -90,11 +90,11 @@ func (h *handler) Close() {
 // newChangeNotification creates a new change notification with the provided
 // information. If withTLS is true, the TLS field is populated with the server
 // name derived from the node and cluster names.
-func (h *handler) newChangeNotification(n types.Node, t peerpb.ChangeNotificationType) *peerpb.ChangeNotification {
+func (h *handler) newChangeNotification(n *node.Node, t peerpb.ChangeNotificationType) *peerpb.ChangeNotification {
 	var tls *peerpb.TLS
 	if h.tls {
 		tls = &peerpb.TLS{
-			ServerName: TLSServerName(n.Name, n.Cluster),
+			ServerName: TLSServerName(n.Name(), n.Cluster()),
 		}
 	}
 
@@ -116,7 +116,7 @@ func (h *handler) newChangeNotification(n types.Node, t peerpb.ChangeNotificatio
 
 // nodeAddress returns the node's address. If the node has both IPv4 and IPv6
 // addresses, pref controls which address type is returned.
-func nodeAddress(n types.Node, pref serviceoption.AddressFamilyPreference) net.IP {
+func nodeAddress(n *node.Node, pref serviceoption.AddressFamilyPreference) net.IP {
 	for _, family := range pref {
 		switch family {
 		case serviceoption.AddressFamilyIPv4:

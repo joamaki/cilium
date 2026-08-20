@@ -69,10 +69,10 @@ type linuxNodeHandler struct {
 	// be recovered from the node table, which only contains the latest desired
 	// version, while nodeUpdate needs the previous realized version to remove
 	// obsolete datapath state.
-	nodes map[nodeTypes.Identity]*nodeTypes.Node
+	nodes map[nodeTypes.Identity]*nodeTypes.KVStoreNode
 	// pendingNodes contains versions that may have been partially realized by
 	// a failed update and therefore also need cleanup if the object is deleted.
-	pendingNodes      map[nodeTypes.Identity]*nodeTypes.Node
+	pendingNodes      map[nodeTypes.Identity]*nodeTypes.KVStoreNode
 	ipsecUpdateNeeded map[nodeTypes.Identity]bool
 
 	localNodeStore *node.LocalNodeStore
@@ -88,7 +88,7 @@ type linuxNodeHandler struct {
 	ipsecMetricOnce      sync.Once
 	ipsecAgent           ipsecTypes.Agent
 
-	enableEncapsulation func(node *nodeTypes.Node) bool
+	enableEncapsulation func(node *nodeTypes.KVStoreNode) bool
 
 	kprCfg kpr.KPRConfig
 
@@ -137,7 +137,7 @@ func NewNodeHandler(
 		health,
 		params.DB,
 		nodes,
-		func(ctx context.Context, restored nodeTypes.Node) error {
+		func(ctx context.Context, restored nodeTypes.KVStoreNode) error {
 			// Pruning may start as soon as the node table is initialized, but the
 			// datapath configuration is needed to determine which restored state to
 			// remove.
@@ -221,8 +221,8 @@ func newNodeHandler(
 		log:                  log,
 		datapathConfig:       datapathConfig,
 		nodeConfig:           config.Config{},
-		nodes:                map[nodeTypes.Identity]*nodeTypes.Node{},
-		pendingNodes:         map[nodeTypes.Identity]*nodeTypes.Node{},
+		nodes:                map[nodeTypes.Identity]*nodeTypes.KVStoreNode{},
+		pendingNodes:         map[nodeTypes.Identity]*nodeTypes.KVStoreNode{},
 		localNodeStore:       localNodeStore,
 		nodeMap:              nodeMap,
 		nodeIDs:              idpool.NewIDPool(minNodeID, maxNodeID),
@@ -249,7 +249,7 @@ func (ops *linuxNodeOps) Update(
 		return err
 	}
 
-	n := desired.Node.DeepCopy()
+	n := desired.ToKVStoreNode()
 	ops.handler.mutex.Lock()
 	defer ops.handler.mutex.Unlock()
 
@@ -635,7 +635,7 @@ func (n *linuxNodeHandler) updateOrRemoveNodeRoutes(old, new []netip.Prefix, isL
 }
 
 // Must be called with linuxNodeHandler.mutex held.
-func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAddition bool) error {
+func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.KVStoreNode, firstAddition bool) error {
 	var (
 		// Don't stop executing the function if we get an error. Instead we
 		// log and aggregate errors in accumulator.
@@ -730,7 +730,7 @@ func (n *linuxNodeHandler) nodeUpdate(oldNode, newNode *nodeTypes.Node, firstAdd
 }
 
 // Must be called with linuxNodeHandler.mutex held.
-func (n *linuxNodeHandler) nodeDelete(oldNode *nodeTypes.Node) error {
+func (n *linuxNodeHandler) nodeDelete(oldNode *nodeTypes.KVStoreNode) error {
 	if oldNode.IsLocal() {
 		return nil
 	}
@@ -827,7 +827,7 @@ func (n *linuxNodeHandler) NodeConfigurationChanged(newConfig config.Config) err
 	n.nodeConfig = newConfig
 
 	if n.enableEncapsulation == nil {
-		n.enableEncapsulation = func(*nodeTypes.Node) bool { return n.nodeConfig.EnableEncapsulation }
+		n.enableEncapsulation = func(*nodeTypes.KVStoreNode) bool { return n.nodeConfig.EnableEncapsulation }
 	}
 
 	unwrapPrefix := func(prefix ip.Prefix) netip.Prefix { return prefix.Prefix }
@@ -946,6 +946,6 @@ func deleteDefaultLocalRule(family int) error {
 	return nil
 }
 
-func (n *linuxNodeHandler) OverrideEnableEncapsulation(fn func(*nodeTypes.Node) bool) {
+func (n *linuxNodeHandler) OverrideEnableEncapsulation(fn func(*nodeTypes.KVStoreNode) bool) {
 	n.enableEncapsulation = fn
 }

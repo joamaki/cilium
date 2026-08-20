@@ -5,8 +5,10 @@ package ipcache
 
 import (
 	"context"
+	"maps"
 	"net"
 	"net/netip"
+	"slices"
 	"testing"
 
 	"github.com/cilium/hive/hivetest"
@@ -95,7 +97,7 @@ func TestNodeReconcilerMetadataLifecycle(t *testing.T) {
 		&option.DaemonConfig{},
 		fakewireguard.Config{},
 	)
-	n := &node.Node{Node: &nodeTypes.Node{
+	n := node.FromKVStoreNode(&nodeTypes.KVStoreNode{
 		Name:    "node1",
 		Cluster: "cluster1",
 		Source:  source.Kubernetes,
@@ -121,7 +123,7 @@ func TestNodeReconcilerMetadataLifecycle(t *testing.T) {
 		IPv4IngressIP: ip.AddrFrom(netip.MustParseAddr("10.0.0.5")),
 		IPv6IngressIP: ip.AddrFrom(netip.MustParseAddr("f00d::5")),
 		EncryptionKey: 42,
-	}}
+	})
 
 	require.NoError(t, ops.Update(context.Background(), db.ReadTxn(), 0, n))
 	require.Len(t, metadata.upserts, 1)
@@ -164,11 +166,16 @@ func TestNodeReconcilerMetadataLifecycle(t *testing.T) {
 		metadataValue[labels.Labels](t, ingress),
 	))
 
-	updated := n.DeepCopy()
-	updated.Node = updated.Node.DeepCopy()
-	updated.IPAddresses = updated.IPAddresses[:2]
-	updated.IPv4SecondaryAllocCIDRs = nil
-	updated.IPv6SecondaryAllocCIDRs = nil
+	updatedData := n.ToKVStoreNode()
+	updatedData.IPAddresses = slices.DeleteFunc(
+		updatedData.IPAddresses,
+		func(address nodeTypes.Address) bool {
+			return address.IP.Equal(net.ParseIP("f00d::1"))
+		},
+	)
+	updatedData.IPv4SecondaryAllocCIDRs = nil
+	updatedData.IPv6SecondaryAllocCIDRs = nil
+	updated := node.FromKVStoreNode(updatedData)
 	require.NoError(t, ops.Update(context.Background(), db.ReadTxn(), 0, updated))
 	require.Len(t, metadata.removals, 1)
 	removed := updatesByPrefix(metadata.removals[0])
@@ -231,16 +238,18 @@ func TestNodeReconcilerNodeEncryption(t *testing.T) {
 		&option.DaemonConfig{EncryptNode: true},
 		fakewireguard.Config{},
 	)
-	local := &node.Node{
-		Node:  &nodeTypes.Node{Name: "local", Source: source.Local},
-		Local: &node.LocalNodeInfo{OptOutNodeEncryption: true},
-	}
+	local := node.New(node.NewLocalData(
+		node.DataFromKVStoreNode(&nodeTypes.KVStoreNode{
+			Name: "local", Source: source.Local,
+		}),
+		node.LocalNodeInfo{OptOutNodeEncryption: true},
+	))
 	txn := db.WriteTxn(nodes)
 	_, _, err := nodes.Insert(txn, local)
 	require.NoError(t, err)
 	txn.Commit()
 
-	remote := &node.Node{Node: &nodeTypes.Node{
+	remote := node.FromKVStoreNode(&nodeTypes.KVStoreNode{
 		Name:          "remote",
 		Cluster:       cmtypes.DefaultClusterInfo.Name,
 		EncryptionKey: 42,
@@ -249,7 +258,7 @@ func TestNodeReconcilerNodeEncryption(t *testing.T) {
 			IP:   net.ParseIP("10.0.0.2"),
 		}},
 		IPv4HealthIP: ip.AddrFrom(netip.MustParseAddr("10.0.0.3")),
-	}}
+	})
 	desired := ops.metadataForNode(db.ReadTxn(), remote)
 	require.Equal(t, ipcacheTypes.EncryptKey(0), metadataValue[ipcacheTypes.EncryptKey](
 		t,
@@ -260,9 +269,9 @@ func TestNodeReconcilerNodeEncryption(t *testing.T) {
 		desired[cmtypes.PrefixClusterFrom(netip.MustParsePrefix("10.0.0.3/32"))],
 	))
 
-	local = local.DeepCopy()
-	local.Local = local.Local.DeepCopy()
-	local.Local.OptOutNodeEncryption = false
+	localInfo, _ := local.Local()
+	localInfo.OptOutNodeEncryption = false
+	local = node.New(node.NewLocalData(local.Data, localInfo))
 	txn = db.WriteTxn(nodes)
 	_, _, err = nodes.Insert(txn, local)
 	require.NoError(t, err)
@@ -298,8 +307,8 @@ func TestNodeReconcilerNodeIdentityLabels(t *testing.T) {
 		fakewireguard.Config{},
 	)
 
-	local := &node.Node{
-		Node: &nodeTypes.Node{
+	local := node.New(node.NewLocalData(
+		node.DataFromKVStoreNode(&nodeTypes.KVStoreNode{
 			Name:    "local",
 			Cluster: "cluster1",
 			Labels:  map[string]string{"role": "worker"},
@@ -307,23 +316,22 @@ func TestNodeReconcilerNodeIdentityLabels(t *testing.T) {
 				Type: addressing.NodeInternalIP,
 				IP:   net.ParseIP("10.0.0.1"),
 			}},
-		},
-		Local: &node.LocalNodeInfo{},
-	}
+		}),
+		node.LocalNodeInfo{},
+	))
 	want := labels.NewFrom(labels.LabelHost)
-	want.MergeLabels(labels.Map2Labels(local.Labels, labels.LabelSourceNode))
+	want.MergeLabels(labels.Map2Labels(maps.Collect(local.Labels()), labels.LabelSourceNode))
 	want.MergeLabels(labels.Map2Labels(map[string]string{
 		"io.cilium.k8s.policy.cluster": "cluster1",
 	}, labels.LabelSourceK8s))
 	want.MergeLabels(labels.GetCIDRLabels(netip.MustParsePrefix("10.0.0.1/32")))
 	require.True(t, want.Equals(ops.nodeIdentityLabels(local)))
 
-	remote := local.DeepCopy()
-	remote.Node = remote.Node.DeepCopy()
-	remote.Name = "remote"
-	remote.Local = nil
+	remoteData := local.ToKVStoreNode()
+	remoteData.Name = "remote"
+	remote := node.FromKVStoreNode(remoteData)
 	want = labels.NewFrom(labels.LabelRemoteNode)
-	want.MergeLabels(labels.Map2Labels(remote.Labels, labels.LabelSourceNode))
+	want.MergeLabels(labels.Map2Labels(maps.Collect(remote.Labels()), labels.LabelSourceNode))
 	want.MergeLabels(labels.Map2Labels(map[string]string{
 		"io.cilium.k8s.policy.cluster": "cluster1",
 	}, labels.LabelSourceK8s))
@@ -336,12 +344,14 @@ func TestNodeReconcilerInvalidatesRemoteNodes(t *testing.T) {
 		&option.DaemonConfig{EncryptNode: true},
 		fakewireguard.Config{},
 	)
-	local := &node.Node{
-		Node:  &nodeTypes.Node{Name: "local", Source: source.Local},
-		Local: &node.LocalNodeInfo{OptOutNodeEncryption: true},
-	}
+	local := node.New(node.NewLocalData(
+		node.DataFromKVStoreNode(&nodeTypes.KVStoreNode{
+			Name: "local", Source: source.Local,
+		}),
+		node.LocalNodeInfo{OptOutNodeEncryption: true},
+	))
 	local.Statuses = local.Statuses.Set(nodeReconcilerName, reconciler.StatusDone())
-	remote := &node.Node{Node: &nodeTypes.Node{Name: "remote"}}
+	remote := node.FromKVStoreNode(&nodeTypes.KVStoreNode{Name: "remote"})
 	remote.Statuses = remote.Statuses.Set(nodeReconcilerName, reconciler.StatusDone())
 	txn := db.WriteTxn(nodes)
 	_, _, err := nodes.Insert(txn, local)

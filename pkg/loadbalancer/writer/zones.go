@@ -44,7 +44,7 @@ func (zw zoneWatcher) run(ctx context.Context, health cell.Health) error {
 		node, _, watch, found := zw.Nodes.GetWatch(txn, node.LocalNodeQuery)
 		updated := false
 		if found {
-			newZone := node.Labels[corev1.LabelTopologyZone]
+			newZone, _ := node.Label(corev1.LabelTopologyZone)
 			// The zone changed if the label value shifted, or if the node newly
 			// acquired or completely lost its zone label (e.g., label deleted,
 			// where newZone becomes ""). We must trigger a refresh in all these

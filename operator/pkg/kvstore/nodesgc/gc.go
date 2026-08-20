@@ -230,7 +230,7 @@ func (o *observer) OnUpdate(key store.Key) {
 	// Add the entry after a delay, as an extra safety measure, in addition to
 	// checking whether there's no Cilium pod running on that node, to prevent
 	// deleting newly created entries due to race conditions.
-	o.queue.AddAfter(nodeName(key.(*nodeTypes.Node).Name), kvstoreUpsertQueueDelay)
+	o.queue.AddAfter(nodeName(key.(*nodeTypes.KVStoreNode).Name), kvstoreUpsertQueueDelay)
 }
 
 func (o *observer) OnDelete(store.NamedKey) {}

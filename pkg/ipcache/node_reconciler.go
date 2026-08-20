@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
 	"net/netip"
 	"reflect"
 
@@ -17,7 +18,6 @@ import (
 
 	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/datapath/tunnel"
-	"github.com/cilium/cilium/pkg/ip"
 	ipcacheTypes "github.com/cilium/cilium/pkg/ipcache/types"
 	k8sConst "github.com/cilium/cilium/pkg/k8s/apis/cilium.io"
 	"github.com/cilium/cilium/pkg/labels"
@@ -111,8 +111,8 @@ func (ops *nodeReconcilerOps) Update(
 	}
 	ops.lastApplied[n.Identity()] = desired
 
-	if n.Local != nil {
-		optOut := n.Local.OptOutNodeEncryption
+	if local, ok := n.Local(); ok {
+		optOut := local.OptOutNodeEncryption
 		changed := ops.localOptOut != nil && *ops.localOptOut != optOut
 		ops.localOptOut = &optOut
 		if changed {
@@ -136,12 +136,13 @@ func (ops *nodeReconcilerOps) Delete(
 		ops.ipcache.RemoveMetadataBatch(metadataValues(metadata)...)
 	}
 	delete(ops.lastApplied, n.Identity())
-	if n.Local != nil {
-		oldOptOut := n.Local.OptOutNodeEncryption
+	if localInfo, ok := n.Local(); ok {
+		oldOptOut := localInfo.OptOutNodeEncryption
 		ops.localOptOut = nil
 		newOptOut := false
 		if local, _, found := ops.nodes.Get(txn, node.LocalNodeQuery); found {
-			newOptOut = local.Local.OptOutNodeEncryption
+			localInfo, _ := local.Local()
+			newOptOut = localInfo.OptOutNodeEncryption
 			ops.localOptOut = &newOptOut
 		}
 		if oldOptOut != newOptOut {
@@ -164,7 +165,7 @@ func (ops *nodeReconcilerOps) invalidateRemoteNodes() error {
 	txn := ops.db.WriteTxn(ops.nodes)
 	defer txn.Abort()
 	for n := range ops.nodes.All(txn) {
-		if n.Local != nil {
+		if n.IsLocal() {
 			continue
 		}
 		status := n.Statuses.Get(nodeReconcilerName)
@@ -188,13 +189,13 @@ func (ops *nodeReconcilerOps) metadataForNode(
 	metadata := map[cmtypes.PrefixCluster]MU{}
 	resource := ipcacheTypes.NewResourceID(
 		ipcacheTypes.ResourceKindNode,
-		n.Cluster,
-		n.Name,
+		n.Cluster(),
+		n.Name(),
 	)
 	add := func(prefix cmtypes.PrefixCluster, values ...IPMetadata) {
 		entry := metadata[prefix]
 		entry.Prefix = prefix
-		entry.Source = n.Source
+		entry.Source = n.Source()
 		entry.Resource = resource
 		entry.Metadata = append(entry.Metadata, values...)
 		metadata[prefix] = entry
@@ -207,10 +208,13 @@ func (ops *nodeReconcilerOps) metadataForNode(
 	nodeLabels := ops.nodeIdentityLabels(n)
 	encryptNodeIPs := ops.nodeAddressHasEncryptKey(txn)
 
-	for _, address := range n.IPAddresses {
-		prefix := ip.IPToNetPrefix(address.IP)
+	for address := range n.Addresses() {
+		if address.Kind != node.AddressKindNode {
+			continue
+		}
+		prefix := address.Prefix
 		prefixCluster := cmtypes.NewLocalPrefixCluster(prefix)
-		if address.Type == addressing.NodeCiliumInternalIP {
+		if address.NodeAddressType == addressing.NodeCiliumInternalIP {
 			prefixCluster = cmtypes.PrefixClusterFrom(prefix)
 		}
 
@@ -220,10 +224,10 @@ func (ops *nodeReconcilerOps) metadataForNode(
 		}
 		var key uint8
 		if encryptNodeIPs {
-			key = n.EncryptionKey
+			key = n.EncryptionKey()
 		}
 		endpointFlags := ipcacheTypes.EndpointFlags{}
-		if n.Cluster != ops.clusterInfo.Name {
+		if n.Cluster() != ops.clusterInfo.Name {
 			endpointFlags.SetRemoteCluster(true)
 		}
 		addressLabels := nodeLabels
@@ -239,7 +243,7 @@ func (ops *nodeReconcilerOps) metadataForNode(
 		)
 	}
 
-	if n.Local == nil {
+	if !n.IsLocal() {
 		for _, prefixes := range [][]netip.Prefix{
 			n.GetIPv4AllocCIDRs(),
 			n.GetIPv6AllocCIDRs(),
@@ -252,15 +256,15 @@ func (ops *nodeReconcilerOps) metadataForNode(
 				add(prefixCluster,
 					worldLabelForPrefix(prefix),
 					ipcacheTypes.TunnelPeer{Addr: nodeIP},
-					ipcacheTypes.EncryptKey(n.EncryptionKey),
+					ipcacheTypes.EncryptKey(n.EncryptionKey()),
 				)
 			}
 		}
 	}
 
-	for _, address := range []netip.Addr{n.IPv4HealthIP.Addr, n.IPv6HealthIP.Addr} {
-		prefix := netip.PrefixFrom(address, address.BitLen())
-		if prefix.IsValid() {
+	for address := range n.Addresses() {
+		if address.Kind == node.AddressKindHealth {
+			prefix := address.Prefix
 			add(cmtypes.PrefixClusterFrom(prefix),
 				labels.LabelHealth,
 				ipcacheTypes.TunnelPeer{Addr: nodeIP},
@@ -269,9 +273,9 @@ func (ops *nodeReconcilerOps) metadataForNode(
 		}
 	}
 
-	for _, address := range []netip.Addr{n.IPv4IngressIP.Addr, n.IPv6IngressIP.Addr} {
-		prefix := netip.PrefixFrom(address, address.BitLen())
-		if prefix.IsValid() {
+	for address := range n.Addresses() {
+		if address.Kind == node.AddressKindIngress {
+			prefix := address.Prefix
 			add(cmtypes.PrefixClusterFrom(prefix),
 				labels.LabelIngress,
 				ipcacheTypes.TunnelPeer{Addr: nodeIP},
@@ -282,15 +286,16 @@ func (ops *nodeReconcilerOps) metadataForNode(
 	return metadata
 }
 
-func (ops *nodeReconcilerOps) nodeAddressHasTunnelIP(address nodeTypes.Address) bool {
-	return address.Type == addressing.NodeCiliumInternalIP ||
+func (ops *nodeReconcilerOps) nodeAddressHasTunnelIP(address node.Address) bool {
+	return address.NodeAddressType == addressing.NodeCiliumInternalIP ||
 		ops.config.NodeEncryptionEnabled() || ops.config.EnableHostFirewall
 }
 
 func (ops *nodeReconcilerOps) nodeAddressHasEncryptKey(txn statedb.ReadTxn) bool {
 	optOut := false
 	if local, _, found := ops.nodes.Get(txn, node.LocalNodeQuery); found {
-		optOut = local.Local.OptOutNodeEncryption
+		localInfo, _ := local.Local()
+		optOut = localInfo.OptOutNodeEncryption
 	}
 	return ops.config.NodeEncryptionEnabled() && !optOut
 }
@@ -299,17 +304,17 @@ func (ops *nodeReconcilerOps) endpointEncryptionKey(n *node.Node) ipcacheTypes.E
 	if ops.wgConfig.Enabled() {
 		return ipcacheTypes.EncryptKey(wgTypes.StaticEncryptKey)
 	}
-	return ipcacheTypes.EncryptKey(n.EncryptionKey)
+	return ipcacheTypes.EncryptKey(n.EncryptionKey())
 }
 
 func (ops *nodeReconcilerOps) nodeIdentityLabels(n *node.Node) labels.Labels {
 	nodeLabels := labels.NewFrom(labels.LabelRemoteNode)
-	if n.Local != nil {
+	if n.IsLocal() {
 		nodeLabels = labels.NewFrom(labels.LabelHost)
 		if ops.config.PolicyCIDRMatchesNodes() {
-			for _, address := range n.IPAddresses {
-				addr, ok := netipx.FromStdIP(address.IP)
-				if ok && ((ops.config.EnableIPv4 && addr.Is4()) ||
+			for address := range n.Addresses() {
+				addr := address.Addr()
+				if address.Kind == node.AddressKindNode && ((ops.config.EnableIPv4 && addr.Is4()) ||
 					(ops.config.EnableIPv6 && addr.Is6())) {
 					nodeLabels.MergeLabels(labels.GetCIDRLabels(
 						netip.PrefixFrom(addr, addr.BitLen()),
@@ -321,11 +326,11 @@ func (ops *nodeReconcilerOps) nodeIdentityLabels(n *node.Node) labels.Labels {
 
 	if ops.config.PerNodeLabelsEnabled() {
 		filtered, _ := labelsfilter.FilterNodeLabels(
-			labels.Map2Labels(n.Labels, labels.LabelSourceNode),
+			labels.Map2Labels(maps.Collect(n.Labels()), labels.LabelSourceNode),
 		)
 		nodeLabels.MergeLabels(filtered)
 		nodeLabels.MergeLabels(labels.Map2Labels(map[string]string{
-			k8sConst.PolicyLabelCluster: n.Cluster,
+			k8sConst.PolicyLabelCluster: n.Cluster(),
 		}, labels.LabelSourceK8s))
 	}
 	return nodeLabels

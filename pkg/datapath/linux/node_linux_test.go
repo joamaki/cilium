@@ -183,29 +183,29 @@ func mustSetupDevice(tb testing.TB, ns *netns.NetNS, name string, ips ...net.IP)
 	}
 }
 
-func mustAddNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, n nodeTypes.Node) {
+func mustAddNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, n nodeTypes.KVStoreNode) {
 	tb.Helper()
 	require.NoError(tb, ns.Do(func() error {
 		return (&linuxNodeOps{handler: lnh}).Update(
-			context.Background(), nil, 0, &node.Node{Node: &n},
+			context.Background(), nil, 0, node.FromKVStoreNode(&n),
 		)
 	}))
 }
 
-func mustUpdateNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, _, new nodeTypes.Node) {
+func mustUpdateNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, _, new nodeTypes.KVStoreNode) {
 	tb.Helper()
 	require.NoError(tb, ns.Do(func() error {
 		return (&linuxNodeOps{handler: lnh}).Update(
-			context.Background(), nil, 0, &node.Node{Node: &new},
+			context.Background(), nil, 0, node.FromKVStoreNode(&new),
 		)
 	}))
 }
 
-func mustDeleteNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, n nodeTypes.Node) {
+func mustDeleteNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, n nodeTypes.KVStoreNode) {
 	tb.Helper()
 	require.NoError(tb, ns.Do(func() error {
 		return (&linuxNodeOps{handler: lnh}).Delete(
-			context.Background(), nil, 0, &node.Node{Node: &n},
+			context.Background(), nil, 0, node.FromKVStoreNode(&n),
 		)
 	}))
 }
@@ -217,7 +217,7 @@ func mustConfigureNode(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, no
 	}))
 }
 
-func mustValidateNodeImplementation(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, node nodeTypes.Node) {
+func mustValidateNodeImplementation(tb testing.TB, ns *netns.NetNS, lnh *linuxNodeHandler, node nodeTypes.KVStoreNode) {
 	tb.Helper()
 	require.NoError(tb, ns.Do(func() error {
 		lnh.mutex.Lock()
@@ -387,10 +387,10 @@ func TestPrivilegedNodeUpdateEncapsulationWithOverride(t *testing.T) {
 }
 
 func testNodeUpdateEncapsulationWithOverride(t *testing.T, family string) {
-	commonNodeUpdateEncapsulation(t, family, false, func(*nodeTypes.Node) bool { return true })
+	commonNodeUpdateEncapsulation(t, family, false, func(*nodeTypes.KVStoreNode) bool { return true })
 }
 
-func commonNodeUpdateEncapsulation(t *testing.T, family string, encap bool, override func(*nodeTypes.Node) bool) {
+func commonNodeUpdateEncapsulation(t *testing.T, family string, encap bool, override func(*nodeTypes.KVStoreNode) bool) {
 	s := setup(t, family)
 
 	ip4Alloc1 := netip.MustParsePrefix("5.5.5.0/24")
@@ -414,7 +414,7 @@ func commonNodeUpdateEncapsulation(t *testing.T, family string, encap bool, over
 	mustConfigureNode(t, s.ns, lnh, nodeConfig)
 
 	// nodev1: ip4Alloc1, ip6alloc1 => externalNodeIP1
-	nodev1 := nodeTypes.Node{
+	nodev1 := nodeTypes.KVStoreNode{
 		Name:      "node1",
 		ClusterID: 11,
 		IPAddresses: []nodeTypes.Address{
@@ -442,7 +442,7 @@ func commonNodeUpdateEncapsulation(t *testing.T, family string, encap bool, over
 	}
 
 	// nodev2: ip4Alloc2, ip6alloc2 => externalNodeIP1
-	nodev2 := nodeTypes.Node{
+	nodev2 := nodeTypes.KVStoreNode{
 		Name:      "node1",
 		ClusterID: 11,
 		IPAddresses: []nodeTypes.Address{
@@ -480,7 +480,7 @@ func commonNodeUpdateEncapsulation(t *testing.T, family string, encap bool, over
 	}
 
 	// nodev3: stop announcing CIDRs
-	nodev3 := nodeTypes.Node{
+	nodev3 := nodeTypes.KVStoreNode{
 		Name:      "node1",
 		ClusterID: 11,
 		IPAddresses: []nodeTypes.Address{
@@ -502,7 +502,7 @@ func commonNodeUpdateEncapsulation(t *testing.T, family string, encap bool, over
 	}
 
 	// nodev4: re-announce CIDRs
-	nodev4 := nodeTypes.Node{
+	nodev4 := nodeTypes.KVStoreNode{
 		Name:      "node1",
 		ClusterID: 11,
 		IPAddresses: []nodeTypes.Address{
@@ -575,7 +575,7 @@ func testNodeUpdateIDs(t *testing.T, family string) {
 	mustConfigureNode(t, s.ns, lnh, s.nodeConfigTemplate)
 
 	// New node receives a node ID.
-	node1v1 := nodeTypes.Node{
+	node1v1 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: nodeIP1.AsSlice(), Type: nodeaddressing.NodeInternalIP},
@@ -588,7 +588,7 @@ func testNodeUpdateIDs(t *testing.T, family string) {
 	require.NotEqual(t, 0, nodeValue1.NodeID)
 
 	// When the node is updated, the new IPs are mapped to the existing node ID.
-	node1v2 := nodeTypes.Node{
+	node1v2 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: nodeIP1.AsSlice(), Type: nodeaddressing.NodeInternalIP},
@@ -604,7 +604,7 @@ func testNodeUpdateIDs(t *testing.T, family string) {
 	require.Equal(t, nodeValue1.NodeID, nodeValue2.NodeID)
 
 	// When the node is updated, the old IPs are unmapped from the node ID.
-	node1v3 := nodeTypes.Node{
+	node1v3 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: nodeIP2.AsSlice(), Type: nodeaddressing.NodeExternalIP},
@@ -619,7 +619,7 @@ func testNodeUpdateIDs(t *testing.T, family string) {
 	require.Equal(t, nodeValue2.NodeID, nodeValue3.NodeID)
 
 	// If a second node is created, it receives a different node ID.
-	node2 := nodeTypes.Node{
+	node2 := nodeTypes.KVStoreNode{
 		Name: "node2",
 		IPAddresses: []nodeTypes.Address{
 			{IP: nodeIP1.AsSlice(), Type: nodeaddressing.NodeInternalIP},
@@ -638,7 +638,7 @@ func testNodeUpdateIDs(t *testing.T, family string) {
 	require.ErrorContains(t, err, "IP not found in node ID map")
 
 	// When a node is created with multiple IP addresses, they all have the same ID.
-	node3 := nodeTypes.Node{
+	node3 := nodeTypes.KVStoreNode{
 		Name: "node3",
 		IPAddresses: []nodeTypes.Address{
 			{IP: nodeIP2.AsSlice(), Type: nodeaddressing.NodeInternalIP},
@@ -735,7 +735,7 @@ func testNodeChurnXFRMLeaksWithConfig(t *testing.T, s *nodeSuite, config config.
 	mustConfigureNode(t, s.ns, lnh, config)
 
 	// Adding a node adds some XFRM states and policies.
-	node := nodeTypes.Node{
+	node := nodeTypes.KVStoreNode{
 		Name: "node",
 		IPAddresses: []nodeTypes.Address{
 			{IP: net.ParseIP("4.4.4.4"), Type: nodeaddressing.NodeCiliumInternalIP},
@@ -840,7 +840,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	mustConfigureNode(t, s.ns, lnh, nodeConfig)
 
 	// nodev1: ip4Alloc1 => externalNodeIP1
-	nodev1 := nodeTypes.Node{
+	nodev1 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v1, Type: nodeaddressing.NodeInternalIP},
@@ -853,7 +853,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	require.Len(t, foundRoutes, expectedIPv4Routes)
 
 	// nodev2: ip4Alloc1 => externalNodeIP2
-	nodev2 := nodeTypes.Node{
+	nodev2 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v2, Type: nodeaddressing.NodeInternalIP},
@@ -866,7 +866,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	require.Len(t, mustLookupDirectRoute(t, s.ns, log, ip4Alloc1, externalNode1IP4v2), expectedIPv4Routes)
 
 	// nodev3: ip4Alloc2 => externalNodeIP2
-	nodev3 := nodeTypes.Node{
+	nodev3 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v2, Type: nodeaddressing.NodeInternalIP},
@@ -882,7 +882,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	require.Len(t, mustLookupDirectRoute(t, s.ns, log, ip4Alloc2, externalNode1IP4v2), expectedIPv4Routes)
 
 	// nodev4: no longer announce CIDR
-	nodev4 := nodeTypes.Node{
+	nodev4 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v2, Type: nodeaddressing.NodeInternalIP},
@@ -894,7 +894,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	require.Empty(t, mustLookupDirectRoute(t, s.ns, log, ip4Alloc2, externalNode1IP4v2))
 
 	// nodev5: Re-announce CIDR
-	nodev5 := nodeTypes.Node{
+	nodev5 := nodeTypes.KVStoreNode{
 		Name: "node1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v2, Type: nodeaddressing.NodeInternalIP},
@@ -913,7 +913,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	require.Empty(t, mustLookupDirectRoute(t, s.ns, log, ip4Alloc2, externalNode1IP4v2)) // route should not exist regardless whether ipv4 is enabled or not
 
 	// nodev6: Re-introduce node with secondary CIDRs
-	nodev6 := nodeTypes.Node{
+	nodev6 := nodeTypes.KVStoreNode{
 		Name: "node2",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v1, Type: nodeaddressing.NodeInternalIP},
@@ -929,7 +929,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	}
 
 	// nodev7: Replace a secondary route
-	nodev7 := nodeTypes.Node{
+	nodev7 := nodeTypes.KVStoreNode{
 		Name: "node2",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v1, Type: nodeaddressing.NodeInternalIP},
@@ -947,7 +947,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	require.Empty(t, mustLookupDirectRoute(t, s.ns, log, ipv4SecondaryAlloc2, externalNode1IP4v1))
 
 	// nodev8: Change node IP to externalNode1IP4v2
-	nodev8 := nodeTypes.Node{
+	nodev8 := nodeTypes.KVStoreNode{
 		Name: "node2",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v2, Type: nodeaddressing.NodeInternalIP},
@@ -967,7 +967,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	}
 
 	// nodev9: replacement of primary route, removal of secondary CIDRs
-	nodev9 := nodeTypes.Node{
+	nodev9 := nodeTypes.KVStoreNode{
 		Name: "node2",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v2, Type: nodeaddressing.NodeInternalIP},
@@ -986,7 +986,7 @@ func testNodeUpdateDirectRouting(t *testing.T, family string) {
 	}
 
 	// nodev10: Re-introduce node with secondary CIDRs
-	nodev10 := nodeTypes.Node{
+	nodev10 := nodeTypes.KVStoreNode{
 		Name: "node2",
 		IPAddresses: []nodeTypes.Address{
 			{IP: externalNode1IP4v1, Type: nodeaddressing.NodeInternalIP},
@@ -1082,7 +1082,7 @@ func testNodeValidationDirectRouting(t *testing.T, family string) {
 
 	mustConfigureNode(t, s.ns, lnh, nodeConfig)
 
-	nodev1 := nodeTypes.Node{
+	nodev1 := nodeTypes.KVStoreNode{
 		Name:        "node1",
 		IPAddresses: []nodeTypes.Address{},
 	}
@@ -1236,7 +1236,7 @@ func testNodePodCIDRsChurnIPSec(t *testing.T, family string) {
 		cidr.MustParseCIDR("2002:aaaa:bbbb::/96"),
 		cidr.MustParseCIDR("2003:aaaa:bbbb::/96"),
 	}
-	localNodeV1 := nodeTypes.Node{
+	localNodeV1 := nodeTypes.KVStoreNode{
 		Name:                    "local_node",
 		IPv4AllocCIDR:           cidrToNodePrefix(localIPv4AllocCIDRsV1[0]),
 		IPv4SecondaryAllocCIDRs: cidrsToNodePrefixes(localIPv4AllocCIDRsV1[1:]),
@@ -1286,7 +1286,7 @@ func testNodePodCIDRsChurnIPSec(t *testing.T, family string) {
 		cidr.MustParseCIDR("2006:aaaa:bbbb::/96"),
 		cidr.MustParseCIDR("2007:aaaa:bbbb::/96"),
 	}
-	remoteNode1V1 := nodeTypes.Node{
+	remoteNode1V1 := nodeTypes.KVStoreNode{
 		Name: "remote_node_1",
 		IPAddresses: []nodeTypes.Address{
 			{IP: net.ParseIP("1.1.1.1"), Type: nodeaddressing.NodeCiliumInternalIP},
@@ -1321,7 +1321,7 @@ func testNodePodCIDRsChurnIPSec(t *testing.T, family string) {
 		cidr.MustParseCIDR("2009:aaaa:bbbb::/96"),
 		cidr.MustParseCIDR("2010:aaaa:bbbb::/96"),
 	}
-	remoteNode2V1 := nodeTypes.Node{
+	remoteNode2V1 := nodeTypes.KVStoreNode{
 		Name: "remote_node_2",
 		IPAddresses: []nodeTypes.Address{
 			{IP: net.ParseIP("2.2.2.2"), Type: nodeaddressing.NodeCiliumInternalIP},

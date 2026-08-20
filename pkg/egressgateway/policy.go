@@ -116,7 +116,7 @@ func (config *PolicyConfig) updateMatchedEndpointIDs(epDataStore map[endpointID]
 	}
 }
 
-func (config *policyGatewayConfig) selectsNodeAsGateway(node nodeTypes.Node) bool {
+func (config *policyGatewayConfig) selectsNodeAsGateway(node nodeTypes.KVStoreNode) bool {
 	return policyTypes.Matches(config.nodeSelector, labels.K8sSet(node.Labels))
 }
 

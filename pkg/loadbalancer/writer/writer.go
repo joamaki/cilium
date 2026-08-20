@@ -521,7 +521,7 @@ func (w *Writer) DefaultSelectBackends(txn statedb.ReadTxn, bes iter.Seq2[*loadb
 	checkZoneHints := false
 	var thisZone *string
 	if node, _, found := w.nodes.Get(txn, node.LocalNodeQuery); found {
-		if zone := node.Labels[corev1.LabelTopologyZone]; zone != "" {
+		if zone, _ := node.Label(corev1.LabelTopologyZone); zone != "" {
 			thisZone = &zone
 		}
 	}

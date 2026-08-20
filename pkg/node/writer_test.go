@@ -24,10 +24,10 @@ func TestSourceWriter(t *testing.T) {
 	require.NoError(t, err)
 	metrics := NewNodeMetrics()
 	w := NewNodeWriter(hivetest.Logger(t), db, nodes, metrics)
-	upsert := func(n *types.Node) bool {
+	upsert := func(n *types.KVStoreNode) bool {
 		txn := db.WriteTxn(nodes)
 		defer txn.Abort()
-		changed := w.Upsert(txn, n)
+		changed := w.Upsert(txn, DataFromKVStoreNode(n))
 		txn.Commit()
 		return changed
 	}
@@ -39,13 +39,13 @@ func TestSourceWriter(t *testing.T) {
 		return changed
 	}
 
-	n := &types.Node{Name: "node-1", Source: source.Kubernetes}
+	n := &types.KVStoreNode{Name: "node-1", Source: source.Kubernetes}
 	require.True(t, upsert(n))
 
 	txn := db.ReadTxn()
 	got, _, found := nodes.Get(txn, NodeByName("node-1"))
 	require.True(t, found)
-	require.Equal(t, source.Kubernetes, got.Source)
+	require.Equal(t, source.Kubernetes, got.Source())
 
 	got = got.DeepCopy()
 	got.Statuses = got.Statuses.Set("test", reconciler.StatusDone())
@@ -73,7 +73,7 @@ func TestSourceWriter(t *testing.T) {
 	require.True(t, upsert(strongNode))
 	got, _, found = nodes.Get(db.ReadTxn(), NodeByName("node-1"))
 	require.True(t, found)
-	require.Equal(t, source.KVStore, got.Source)
+	require.Equal(t, source.KVStore, got.Source())
 	require.Equal(t, reconciler.StatusKindPending, got.Statuses.Get("test").Kind)
 
 	require.False(t, deleteNode(n.Source, n.Identity()))
@@ -97,23 +97,39 @@ func TestSourceWriterDoesNotOverwriteLocalNode(t *testing.T) {
 	require.NoError(t, err)
 	w := NewNodeWriter(hivetest.Logger(t), db, nodes, NewNodeMetrics())
 
-	local := &Node{
-		Node:  &types.Node{Name: "local", Source: source.Local},
-		Local: &LocalNodeInfo{},
-	}
+	local := New(NewLocalData(DataFromKVStoreNode(&types.KVStoreNode{
+		Name: "local", Source: source.Local,
+	}), LocalNodeInfo{}))
 	txn := db.WriteTxn(nodes)
 	_, _, err = nodes.Insert(txn, local)
 	require.NoError(t, err)
 	txn.Commit()
 
-	remote := &types.Node{Name: "local", Source: source.KVStore}
+	remote := &types.KVStoreNode{Name: "local", Source: source.KVStore}
 	txn = db.WriteTxn(nodes)
-	require.False(t, w.Upsert(txn, remote))
+	require.False(t, w.Upsert(txn, DataFromKVStoreNode(remote)))
 	require.False(t, w.Delete(txn, remote.Source, remote.Identity()))
 	txn.Commit()
 	got, _, found := nodes.Get(db.ReadTxn(), NodeByName("local"))
 	require.True(t, found)
-	require.NotNil(t, got.Local)
+	require.True(t, got.IsLocal())
+}
+
+func TestNodeWriterRejectsLocalData(t *testing.T) {
+	db := statedb.New()
+	nodes, err := NewNodeTable(db)
+	require.NoError(t, err)
+	w := NewNodeWriter(hivetest.Logger(t), db, nodes, NewNodeMetrics())
+	local := NewLocalData(DataFromKVStoreNode(&types.KVStoreNode{
+		Name: "local", Source: source.Local,
+	}), LocalNodeInfo{})
+
+	txn := db.WriteTxn(nodes)
+	require.False(t, w.Upsert(txn, local))
+	txn.Commit()
+
+	_, _, found := nodes.Get(db.ReadTxn(), NodeByName("local"))
+	require.False(t, found)
 }
 
 func TestNodeWriterRefresh(t *testing.T) {
@@ -123,7 +139,7 @@ func TestNodeWriterRefresh(t *testing.T) {
 	metrics := NewNodeMetrics()
 	w := NewNodeWriter(hivetest.Logger(t), db, nodes, metrics)
 
-	n := &Node{Node: &types.Node{Name: "node-1", Source: source.Kubernetes}}
+	n := FromKVStoreNode(&types.KVStoreNode{Name: "node-1", Source: source.Kubernetes})
 	n.Statuses = n.Statuses.Set("test", reconciler.StatusDone())
 	txn := db.WriteTxn(nodes)
 	_, _, err = nodes.Insert(txn, n)

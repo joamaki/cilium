@@ -6,6 +6,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 	"time"
 
@@ -105,13 +106,10 @@ func (fln *fakeLocalNode) Store(context.Context) (resource.Store[*slim_corev1.No
 
 func TestLocalNodeSync(t *testing.T) {
 	var (
-		local = node.Node{
-			Node: &types.Node{
-				Labels:      map[string]string{"ex": "label"},
-				Annotations: map[string]string{"ex": "annot"},
-			},
-			Local: &node.LocalNodeInfo{},
-		}
+		local = *node.New(node.NewLocalData(node.DataFromKVStoreNode(&types.KVStoreNode{
+			Labels:      map[string]string{"ex": "label"},
+			Annotations: map[string]string{"ex": "annot"},
+		}), node.LocalNodeInfo{}))
 		fln  = newFakeLocalNode()
 		sync = newLocalNodeSynchronizer(localNodeSynchronizerParams{
 			Logger: hivetest.Logger(t),
@@ -130,25 +128,30 @@ func TestLocalNodeSync(t *testing.T) {
 			},
 			IPsecConfig: fakeipsec.Config{},
 			ExtraInitFuncs: []InitFunc{
-				func(_ context.Context, n *node.Node) error {
-					n.Annotations["extra-init-func"] = "called"
+				func(_ context.Context, n *node.LocalNodeMutator) error {
+					n.SetAnnotation("extra-init-func", "called")
 					return nil
 				},
 			},
 		})
 	)
 
-	require.NoError(t, sync.InitLocalNode(t.Context(), &local))
+	store := node.NewTestLocalNodeStore(local)
+	store.Update(func(n *node.LocalNodeMutator) {
+		require.NoError(t, sync.InitLocalNode(t.Context(), n))
+	})
+	localPtr, err := store.Get(t.Context())
+	require.NoError(t, err)
+	local = localPtr
 	require.EqualValues(t, 1, fln.done)
-	require.Equal(t, "foo", local.Name)
+	require.Equal(t, "foo", local.Name())
 	require.Equal(t, "10.0.0.1", local.GetNodeInternalIPv4().String())
 	require.Equal(t, "fc00::11", local.GetNodeInternalIPv6().String())
-	require.Equal(t, map[string]string{"ex": "label", "foo": "bar"}, local.Labels)
-	require.Equal(t, map[string]string{"ex": "annot", "cilium.io/baz": "qux", "extra-init-func": "called"}, local.Annotations)
-	require.Equal(t, k8stypes.UID("uid1"), local.Local.UID)
-	require.Equal(t, "provider://foobar", local.Local.ProviderID)
-
-	store := node.NewTestLocalNodeStore(local)
+	require.Equal(t, map[string]string{"ex": "label", "foo": "bar"}, maps.Collect(local.Labels()))
+	require.Equal(t, map[string]string{"ex": "annot", "cilium.io/baz": "qux", "extra-init-func": "called"}, maps.Collect(local.Annotations()))
+	localInfo, _ := local.Local()
+	require.Equal(t, k8stypes.UID("uid1"), localInfo.UID)
+	require.Equal(t, "provider://foobar", localInfo.ProviderID)
 
 	sync.SyncLocalNode(t.Context(), store)
 
@@ -158,10 +161,11 @@ func TestLocalNodeSync(t *testing.T) {
 	// The observed update at this point will be the final state.
 	updates := stream.ToChannel(t.Context(), store)
 	update := <-updates
-	require.Equal(t, map[string]string{"ex": "label", "qux": "baz"}, update.Labels)
-	require.Equal(t, map[string]string{"ex": "annot", "cilium.io/bar": "foo", "extra-init-func": "called"}, update.Annotations)
-	require.Equal(t, k8stypes.UID("uid2"), update.Local.UID)
-	require.Equal(t, "provider://foobaz", update.Local.ProviderID)
+	require.Equal(t, map[string]string{"ex": "label", "qux": "baz"}, maps.Collect(update.Labels()))
+	require.Equal(t, map[string]string{"ex": "annot", "cilium.io/bar": "foo", "extra-init-func": "called"}, maps.Collect(update.Annotations()))
+	updateInfo, _ := update.Local()
+	require.Equal(t, k8stypes.UID("uid2"), updateInfo.UID)
+	require.Equal(t, "provider://foobaz", updateInfo.ProviderID)
 
 	n, err := store.Get(t.Context())
 	require.NoError(t, err)
@@ -234,19 +238,20 @@ func TestInitLocalNode_initFromK8s(t *testing.T) {
 			},
 		},
 	)
-	n := &node.Node{
-		Node: &types.Node{
-			Labels: map[string]string{},
-		},
-		Local: &node.LocalNodeInfo{},
-	}
-	err := lni.InitLocalNode(context.Background(), n)
+	data := node.NewLocalData(node.DataFromKVStoreNode(&types.KVStoreNode{
+		Labels: map[string]string{},
+	}), node.LocalNodeInfo{})
+	store := node.NewTestLocalNodeStore(*node.New(data))
+	store.Update(func(n *node.LocalNodeMutator) {
+		assert.NoError(t, lni.InitLocalNode(context.Background(), n))
+	})
+	n, err := store.Get(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, "10.0.0.1", n.GetCiliumInternalIP(false).String())
 	assert.Equal(t, "fd00:10:244:1::aaa6", n.GetCiliumInternalIP(true).String())
-	assert.Equal(t, "10.0.0.2", n.IPv4HealthIP.String())
-	assert.Equal(t, "fd00:10:244:1::aaa7", n.IPv6HealthIP.String())
-	assert.Equal(t, "test-node", n.Name)
+	assert.Equal(t, "10.0.0.2", n.HealthIP(false).String())
+	assert.Equal(t, "fd00:10:244:1::aaa7", n.HealthIP(true).String())
+	assert.Equal(t, "test-node", n.Name())
 }
 
 func TestLocalNodeSync_NodeDeletion(t *testing.T) {
@@ -335,7 +340,9 @@ func testNodeDeletion(t *testing.T, nodeEvent resource.Event[*slim_corev1.Node])
 	})
 
 	// Initialize local node
-	local := node.Node{Node: &types.Node{Name: "test-node"}, Local: &node.LocalNodeInfo{}}
+	local := *node.New(node.NewLocalData(node.DataFromKVStoreNode(&types.KVStoreNode{
+		Name: "test-node",
+	}), node.LocalNodeInfo{}))
 	store := node.NewTestLocalNodeStore(local)
 
 	// Start observing updates
@@ -346,7 +353,8 @@ func testNodeDeletion(t *testing.T, nodeEvent resource.Event[*slim_corev1.Node])
 
 	// Verify initial state
 	initialNode, _ := store.Get(context.Background())
-	assert.False(t, initialNode.Local.IsBeingDeleted)
+	initialInfo, _ := initialNode.Local()
+	assert.False(t, initialInfo.IsBeingDeleted)
 
 	// Start the sync
 	go sync.SyncLocalNode(ctx, store)
@@ -356,7 +364,8 @@ func testNodeDeletion(t *testing.T, nodeEvent resource.Event[*slim_corev1.Node])
 	for !foundDeleted {
 		select {
 		case updatedNode := <-updates:
-			if updatedNode.Local.IsBeingDeleted {
+			info, _ := updatedNode.Local()
+			if info.IsBeingDeleted {
 				foundDeleted = true
 			}
 		case <-ctx.Done():

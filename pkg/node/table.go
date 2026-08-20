@@ -4,34 +4,169 @@
 package node
 
 import (
+	"net"
 	"net/netip"
 	"slices"
 	"strings"
 
+	"github.com/cilium/cilium/api/v1/models"
+	"github.com/cilium/cilium/pkg/defaults"
+	"github.com/cilium/cilium/pkg/node/addressing"
+	"github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/statedb"
 	"github.com/cilium/statedb/index"
 	"github.com/cilium/statedb/reconciler"
-	k8stypes "k8s.io/apimachinery/pkg/types"
-
-	"github.com/cilium/cilium/pkg/datapath/tunnel"
-	"github.com/cilium/cilium/pkg/node/types"
 )
 
-// Node is a Cilium node. It is the local node if [Node.Local] is non-nil.
-// Node and Local are immutable once the object is inserted into the table.
+// Node is a Cilium node. It is the local node if [Data.Local] reports true.
+// Data is immutable once the object is inserted into the table.
 //
-// +deepequal-gen=true
+// +deepequal-gen=false
 type Node struct {
-	*types.Node
-
-	// Local is non-nil if this is the local node. This carries additional
-	// information about the local node that is not shared outside.
-	Local *LocalNodeInfo
+	// Data is embedded so immutable getters are available directly on Node.
+	// +deepequal-gen=false
+	*Data
 
 	// Statuses for reconcilers acting on this object.
 	// DeepEqual is reserved for comparing the desired node data.
 	// +deepequal-gen=false
 	Statuses reconciler.StatusSet
+}
+
+// New constructs a node table object around immutable desired data.
+func New(data *Data) *Node {
+	if data == nil {
+		panic("nil node Data")
+	}
+	return &Node{Data: data}
+}
+
+// Name returns the unqualified node name.
+// Fullname returns the node name qualified by its cluster when needed.
+func (n *Node) Fullname() string {
+	if n.Cluster() != defaults.ClusterName {
+		return types.GetKeyNodeName(n.Cluster(), n.Name())
+	}
+	return n.Name()
+}
+
+// Identity returns the stable name and cluster identity.
+func (n *Node) Identity() types.Identity {
+	return types.Identity{Name: n.Name(), Cluster: n.Cluster()}
+}
+
+// IsLocal reports whether this is the local node.
+func (n *Node) IsLocal() bool {
+	_, local := n.Data.Local()
+	return local
+}
+
+// GetNodeIP returns the preferred node IP for the requested family.
+func (n *Node) GetNodeIP(ipv6 bool) net.IP {
+	var fallback netip.Addr
+	for address := range n.Addresses() {
+		if address.Kind != AddressKindNode || address.Addr().Is6() != ipv6 {
+			continue
+		}
+		switch address.NodeAddressType {
+		case addressing.NodeInternalIP:
+			return address.Addr().AsSlice()
+		case addressing.NodeExternalIP:
+			if !fallback.IsValid() {
+				fallback = address.Addr()
+			}
+		default:
+			if !fallback.IsValid() {
+				fallback = address.Addr()
+			}
+		}
+	}
+	if fallback.IsValid() {
+		return fallback.AsSlice()
+	}
+	return nil
+}
+
+// GetK8sNodeIP returns the preferred Kubernetes internal or external address.
+func (n *Node) GetK8sNodeIP() net.IP {
+	var external netip.Addr
+	for address := range n.Addresses() {
+		if address.Kind != AddressKindNode {
+			continue
+		}
+		switch address.NodeAddressType {
+		case addressing.NodeInternalIP:
+			return address.Addr().AsSlice()
+		case addressing.NodeExternalIP:
+			external = address.Addr()
+		}
+	}
+	if external.IsValid() {
+		return external.AsSlice()
+	}
+	return nil
+}
+
+func (n *Node) IsNodeIP(addr netip.Addr) addressing.AddressType {
+	for address := range n.Addresses() {
+		if address.Kind == AddressKindNode && address.Addr() == addr.Unmap() {
+			return address.NodeAddressType
+		}
+	}
+	return ""
+}
+
+func (n *Node) GetCiliumInternalIP(ipv6 bool) net.IP {
+	return n.nodeAddress(addressing.NodeCiliumInternalIP, ipv6)
+}
+func (n *Node) GetNodeInternalIPv4() net.IP { return n.nodeAddress(addressing.NodeInternalIP, false) }
+func (n *Node) GetNodeInternalIPv6() net.IP { return n.nodeAddress(addressing.NodeInternalIP, true) }
+func (n *Node) nodeAddress(typ addressing.AddressType, ipv6 bool) net.IP {
+	for address := range n.Addresses() {
+		if address.Kind == AddressKindNode && address.NodeAddressType == typ && address.Addr().Is6() == ipv6 {
+			return address.Addr().AsSlice()
+		}
+	}
+	return nil
+}
+func (n *Node) GetModel() *models.NodeElement { return n.ToKVStoreNode().GetModel() }
+
+func (n *Node) GetIPv4AllocCIDRs() []netip.Prefix { return n.allocCIDRs(false) }
+func (n *Node) GetIPv6AllocCIDRs() []netip.Prefix { return n.allocCIDRs(true) }
+func (n *Node) allocCIDRs(ipv6 bool) []netip.Prefix {
+	var out []netip.Prefix
+	for address := range n.Addresses() {
+		if address.Kind == AddressKindAllocation && address.Addr().Is6() == ipv6 {
+			out = append(out, address.Prefix)
+		}
+	}
+	return out
+}
+
+func (n *Node) AllocationCIDR(ipv6 bool) netip.Prefix {
+	var fallback netip.Prefix
+	for address := range n.Addresses() {
+		if address.Kind != AddressKindAllocation || address.Addr().Is6() != ipv6 {
+			continue
+		}
+		if address.Primary {
+			return address.Prefix
+		}
+		if !fallback.IsValid() {
+			fallback = address.Prefix
+		}
+	}
+	return fallback
+}
+func (n *Node) HealthIP(ipv6 bool) netip.Addr  { return n.addressByKind(AddressKindHealth, ipv6) }
+func (n *Node) IngressIP(ipv6 bool) netip.Addr { return n.addressByKind(AddressKindIngress, ipv6) }
+func (n *Node) addressByKind(kind AddressKind, ipv6 bool) netip.Addr {
+	for address := range n.Addresses() {
+		if address.Kind == kind && address.Addr().Is6() == ipv6 {
+			return address.Addr()
+		}
+	}
+	return netip.Addr{}
 }
 
 // DeepCopy copies the table object while sharing its immutable desired data.
@@ -43,17 +178,11 @@ func (n *Node) DeepCopy() *Node {
 	return &n2
 }
 
-// deepCopyForUpdate returns an independent mutable copy of the node. This is
-// only for LocalNodeStore, whose update callback predates immutable table
-// objects.
-func (n *Node) deepCopyForUpdate() *Node {
-	n2 := n.DeepCopy()
-	if n2 == nil {
-		return nil
-	}
-	n2.Node = n2.Node.DeepCopy()
-	n2.Local = n2.Local.DeepCopy()
-	return n2
+// DeepEqual compares desired node data. Reconciliation statuses are
+// deliberately excluded as they describe realized state rather than the
+// desired node object.
+func (n *Node) DeepEqual(other *Node) bool {
+	return other != nil && EqualData(n.Data, other.Data)
 }
 
 // TableHeader implements statedb.TableWritable.
@@ -68,14 +197,16 @@ func (n *Node) TableHeader() []string {
 
 // TableRow implements statedb.TableWritable.
 func (n *Node) TableRow() []string {
-	addrs := make([]string, len(n.IPAddresses))
-	for i := range n.IPAddresses {
-		addrs[i] = string(n.IPAddresses[i].Type) + ":" + n.IPAddresses[i].ToString()
+	addrs := []string{}
+	for address := range n.Addresses() {
+		if address.Kind == AddressKindNode {
+			addrs = append(addrs, string(address.NodeAddressType)+":"+address.Addr().String())
+		}
 	}
 	slices.Sort(addrs)
 	return []string{
 		n.Fullname(),
-		string(n.Source),
+		string(n.Source()),
 		n.tableStatus(),
 		strings.Join(addrs, ", "),
 	}
@@ -122,62 +253,6 @@ func (n *Node) tableStatus() string {
 
 var _ statedb.TableWritable = &Node{}
 
-// LocalNodeInfo is the additional information about the local node that
-// is only used internally.
-//
-// Every field is a comparable value type, which lets DeepCopyInto and
-// DeepEqual below be a plain assignment and a plain comparison.
-//
-// +k8s:deepcopy-gen=false
-// +deepequal-gen=false
-type LocalNodeInfo struct {
-	// OptOutNodeEncryption will make the local node opt-out of node-to-node
-	// encryption
-	OptOutNodeEncryption bool
-	// Unique identifier of the Kubernetes node, used to construct the
-	// corresponding owner reference.
-	UID k8stypes.UID
-	// ID of the node assigned by the cloud provider.
-	ProviderID string
-	// v4 CIDR in which pod IPs are routable
-	IPv4NativeRoutingCIDR netip.Prefix
-	// v6 CIDR in which pod IPs are routable
-	IPv6NativeRoutingCIDR netip.Prefix
-	// ServiceLoopbackIPv4 is the source address used for SNAT when a Pod talks to
-	// itself through a Service.
-	ServiceLoopbackIPv4 netip.Addr
-	// ServiceLoopbackIPv6 is the source address used for SNAT when a Pod talks to
-	// itself through a Service.
-	ServiceLoopbackIPv6 netip.Addr
-	// IsBeingDeleted indicates that the local node is being deleted.
-	IsBeingDeleted bool
-	// UnderlayProtocol is the IP family of our underlay.
-	UnderlayProtocol tunnel.UnderlayProtocol
-}
-
-// DeepCopyInto copies the receiver into out. in must be non-nil.
-func (in *LocalNodeInfo) DeepCopyInto(out *LocalNodeInfo) {
-	*out = *in
-}
-
-// DeepCopy creates a deep copy of the LocalNodeInfo.
-func (in *LocalNodeInfo) DeepCopy() *LocalNodeInfo {
-	if in == nil {
-		return nil
-	}
-	out := new(LocalNodeInfo)
-	in.DeepCopyInto(out)
-	return out
-}
-
-// DeepEqual compares two LocalNodeInfo structs for equality. in must be non-nil.
-func (in *LocalNodeInfo) DeepEqual(other *LocalNodeInfo) bool {
-	if other == nil {
-		return false
-	}
-	return *in == *other
-}
-
 const (
 	NodeTableName = "nodes"
 )
@@ -197,7 +272,7 @@ var (
 	NodeLocalIndex = statedb.Index[*Node, bool]{
 		Name: "local",
 		FromObject: func(obj *Node) index.KeySet {
-			if obj.Local == nil {
+			if !obj.IsLocal() {
 				// Don't add remote nodes to this index at all.
 				return index.KeySet{}
 			}

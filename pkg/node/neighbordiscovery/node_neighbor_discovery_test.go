@@ -93,28 +93,24 @@ func TestNodeNeighborObserver(t *testing.T) {
 	go func() { runErr <- observer.run(ctx, nil) }()
 	go func() { initErr <- observer.finishInitialization(ctx, nil) }()
 
-	n1 := &node.Node{
-		Node: &nodeTypes.Node{
-			Name:    "node-1",
-			Cluster: "cluster-1",
-			Source:  source.CustomResource,
-			IPAddresses: []nodeTypes.Address{
-				{Type: addressing.NodeInternalIP, IP: net.ParseIP("10.0.0.1")},
-				{Type: addressing.NodeInternalIP, IP: net.ParseIP("2001:db8::1")},
-			},
+	n1 := node.FromKVStoreNode(&nodeTypes.KVStoreNode{
+		Name:    "node-1",
+		Cluster: "cluster-1",
+		Source:  source.CustomResource,
+		IPAddresses: []nodeTypes.Address{
+			{Type: addressing.NodeInternalIP, IP: net.ParseIP("10.0.0.1")},
+			{Type: addressing.NodeInternalIP, IP: net.ParseIP("2001:db8::1")},
 		},
-	}
-	local := &node.Node{
-		Node: &nodeTypes.Node{
+	})
+	local := node.New(node.NewLocalData(
+		node.DataFromKVStoreNode(&nodeTypes.KVStoreNode{
 			Name:    "local",
 			Cluster: "cluster-1",
 			Source:  source.Local,
 			IPAddresses: []nodeTypes.Address{
 				{Type: addressing.NodeInternalIP, IP: net.ParseIP("10.0.0.2")},
 			},
-		},
-		Local: &node.LocalNodeInfo{},
-	}
+		}), node.LocalNodeInfo{}))
 
 	wtxn = db.WriteTxn(nodes)
 	nodes.Insert(wtxn, n1)
@@ -152,8 +148,9 @@ func TestNodeNeighborObserver(t *testing.T) {
 
 	// An update unrelated to node IPs must not touch the forwardable-IP set.
 	_, insertsBefore, deletesBefore := manager.snapshot()
-	n1WithLabel := &node.Node{Node: n1.Node.DeepCopy()}
-	n1WithLabel.Labels = map[string]string{"unrelated": "label"}
+	n1WithLabelData := n1.ToKVStoreNode()
+	n1WithLabelData.Labels = map[string]string{"unrelated": "label"}
+	n1WithLabel := node.FromKVStoreNode(n1WithLabelData)
 	wtxn = db.WriteTxn(nodes)
 	nodes.Insert(wtxn, n1WithLabel)
 	wtxn.Commit()
@@ -163,17 +160,15 @@ func TestNodeNeighborObserver(t *testing.T) {
 	}, 2*changeRateLimit, time.Millisecond)
 
 	// Changing an address removes only the old address and inserts the new one.
-	n1Updated := &node.Node{
-		Node: &nodeTypes.Node{
-			Name:    n1.Name,
-			Cluster: n1.Cluster,
-			Source:  n1.Source,
-			IPAddresses: []nodeTypes.Address{
-				{Type: addressing.NodeInternalIP, IP: net.ParseIP("10.0.0.3")},
-				{Type: addressing.NodeInternalIP, IP: net.ParseIP("2001:db8::1")},
-			},
+	n1Updated := node.FromKVStoreNode(&nodeTypes.KVStoreNode{
+		Name:    n1.Name(),
+		Cluster: n1.Cluster(),
+		Source:  n1.Source(),
+		IPAddresses: []nodeTypes.Address{
+			{Type: addressing.NodeInternalIP, IP: net.ParseIP("10.0.0.3")},
+			{Type: addressing.NodeInternalIP, IP: net.ParseIP("2001:db8::1")},
 		},
-	}
+	})
 	wtxn = db.WriteTxn(nodes)
 	nodes.Insert(wtxn, n1Updated)
 	wtxn.Commit()

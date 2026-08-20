@@ -127,12 +127,13 @@ func newCECResourceParser(params parserParams) *CECResourceParser {
 				return fmt.Errorf("BUG: failed to get local node")
 			}
 
-			parser.ingressIPv4 = localNode.IPv4IngressIP
-			parser.ingressIPv6 = localNode.IPv6IngressIP
+			kvNode := localNode.ToKVStoreNode()
+			parser.ingressIPv4 = kvNode.IPv4IngressIP
+			parser.ingressIPv6 = kvNode.IPv6IngressIP
 
 			params.Logger.Debug("Retrieved Ingress IPs from Node",
-				logfields.V4IngressIP, localNode.IPv4IngressIP,
-				logfields.V6IngressIP, localNode.IPv6IngressIP,
+				logfields.V4IngressIP, kvNode.IPv4IngressIP,
+				logfields.V6IngressIP, kvNode.IPv6IngressIP,
 			)
 
 			return nil

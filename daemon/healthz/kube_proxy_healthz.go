@@ -149,7 +149,8 @@ func (h kubeproxyHealthzHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	// If node is in terminating state, we return ServiceUnavailable.
 	sr := h.statusCollector.GetStatus(true, false)
 	ln, _ := h.localNode.Get(r.Context())
-	if isUnhealthy(&sr) || ln.Local.IsBeingDeleted {
+	local, _ := ln.Local()
+	if isUnhealthy(&sr) || local.IsBeingDeleted {
 		statusCode = http.StatusServiceUnavailable
 		lastUpdatedAt = h.lastUpdateAter.GetLastUpdatedAt()
 	}

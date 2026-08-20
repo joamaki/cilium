@@ -25,6 +25,8 @@ import (
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
+	nodeTypes "github.com/cilium/cilium/pkg/node/types"
+	"github.com/cilium/cilium/pkg/source"
 )
 
 type k8sCiliumNodeWatcherParams struct {
@@ -136,10 +138,9 @@ func (k *K8sCiliumNodeWatcher) onCiliumNodeInsert(ciliumNode *cilium_v2.CiliumNo
 	if k8s.IsLocalCiliumNode(ciliumNode) {
 		return false
 	}
-	n := k8s.ParseCiliumNode(ciliumNode, k.clusterInfo)
 	txn := k.db.WriteTxn(k.nodes)
 	defer txn.Abort()
-	changed := k.nodeWriter.Upsert(txn, &n)
+	changed := k.nodeWriter.Upsert(txn, ciliumNode.NodeData(k.clusterInfo))
 	txn.Commit()
 	return changed
 }
@@ -158,10 +159,11 @@ func (k *K8sCiliumNodeWatcher) onCiliumNodeDelete(ciliumNode *cilium_v2.CiliumNo
 	if k8s.IsLocalCiliumNode(ciliumNode) {
 		return
 	}
-	n := k8s.ParseCiliumNode(ciliumNode, k.clusterInfo)
 	txn := k.db.WriteTxn(k.nodes)
 	defer txn.Abort()
-	k.nodeWriter.Delete(txn, n.Source, n.Identity())
+	k.nodeWriter.Delete(txn, source.CustomResource, nodeTypes.Identity{
+		Name: ciliumNode.Name, Cluster: k.clusterInfo.Name,
+	})
 	txn.Commit()
 }
 

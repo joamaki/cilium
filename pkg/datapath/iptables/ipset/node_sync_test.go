@@ -164,10 +164,10 @@ func TestNodeIPSetSync(t *testing.T) {
 }
 
 func testNode(name string, addresses ...nodeTypes.Address) *node.Node {
-	return &node.Node{Node: &nodeTypes.Node{
+	return node.FromKVStoreNode(&nodeTypes.KVStoreNode{
 		Name:        name,
 		IPAddresses: addresses,
-	}}
+	})
 }
 
 func testAddress(addressType addressing.AddressType, ip string) nodeTypes.Address {

@@ -24,7 +24,7 @@ func TestNodeWriterSingleBackgroundLoop(t *testing.T) {
 	metrics := NewNodeMetrics()
 	writer := NewNodeWriter(hivetest.Logger(t), db, nodes, metrics)
 
-	done := &Node{Node: &types.Node{Name: "done"}}
+	done := FromKVStoreNode(&types.KVStoreNode{Name: "done"})
 	done.Statuses = done.Statuses.Set("linux", reconciler.StatusDone())
 	done.Statuses = done.Statuses.Set("wireguard", reconciler.StatusDone())
 	done.Statuses = done.Statuses.Set(
@@ -83,7 +83,7 @@ func TestNodeWriterRefreshNodeLeavesPendingStatus(t *testing.T) {
 	require.NoError(t, err)
 	writer := NewNodeWriter(hivetest.Logger(t), db, nodes, NewNodeMetrics())
 
-	pending := &Node{Node: &types.Node{Name: "pending"}}
+	pending := FromKVStoreNode(&types.KVStoreNode{Name: "pending"})
 	pending.Statuses = pending.Statuses.Set("linux", reconciler.StatusPending())
 	txn := db.WriteTxn(nodes)
 	_, _, err = nodes.Insert(txn, pending)

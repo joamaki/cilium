@@ -28,13 +28,12 @@ func TestCell_SuccessfullyRunClient(t *testing.T) {
 		Cell,
 		cell.Provide(func() cmtypes.ClusterInfo { return cmtypes.ClusterInfo{} }),
 		cell.Invoke(func(localNodeStore *node.LocalNodeStore) {
-			localNodeStore.Update(func(n *node.Node) {
+			localNodeStore.Update(func(n *node.LocalNodeMutator) {
 				hLog.Info("Update localNodeStore")
-				n.Name = "node1"
-				if n.Labels == nil {
-					n.Labels = make(map[string]string)
-				}
-				n.Labels[core_v1.LabelTopologyZone] = "zone"
+				n.SetIdentity("node1", n.Cluster(), n.ClusterID(), n.Source())
+				n.SetLabels(map[string]string{
+					core_v1.LabelTopologyZone: "zone",
+				})
 			})
 
 		}),
@@ -88,13 +87,12 @@ func TestCell_NoServerProvided(t *testing.T) {
 		node.LocalNodeStoreTestCell,
 		Cell,
 		cell.Invoke(func(localNodeStore *node.LocalNodeStore) {
-			localNodeStore.Update(func(n *node.Node) {
+			localNodeStore.Update(func(n *node.LocalNodeMutator) {
 				hLog.Info("Update localNodeStore")
-				n.Name = "node1"
-				if n.Labels == nil {
-					n.Labels = make(map[string]string)
-				}
-				n.Labels[core_v1.LabelTopologyZone] = "zone"
+				n.SetIdentity("node1", n.Cluster(), n.ClusterID(), n.Source())
+				n.SetLabels(map[string]string{
+					core_v1.LabelTopologyZone: "zone",
+				})
 			})
 
 		}),

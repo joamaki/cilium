@@ -23,10 +23,10 @@ import (
 
 func TestService_Notify(t *testing.T) {
 	type args struct {
-		init   []types.Node
-		add    []types.Node
-		update []types.Node
-		del    []types.Node
+		init   []types.KVStoreNode
+		add    []types.KVStoreNode
+		update []types.KVStoreNode
+		del    []types.KVStoreNode
 	}
 	tests := []struct {
 		name       string
@@ -38,7 +38,7 @@ func TestService_Notify(t *testing.T) {
 			name:       "add 4 nodes with TLS info disabled",
 			svcOptions: []serviceoption.Option{serviceoption.WithoutTLSInfo()},
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -46,7 +46,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				add: []types.Node{
+				add: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -99,7 +99,7 @@ func TestService_Notify(t *testing.T) {
 			name:       "delete 3 nodes with TLS info disabled",
 			svcOptions: []serviceoption.Option{serviceoption.WithoutTLSInfo()},
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -129,7 +129,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				del: []types.Node{
+				del: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -198,7 +198,7 @@ func TestService_Notify(t *testing.T) {
 			name:       "update 2 nodes with TLS info disabled",
 			svcOptions: []serviceoption.Option{serviceoption.WithoutTLSInfo()},
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -216,7 +216,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				update: []types.Node{
+				update: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -267,7 +267,7 @@ func TestService_Notify(t *testing.T) {
 			name:       "rename 2 nodes with TLS info disabled",
 			svcOptions: []serviceoption.Option{serviceoption.WithoutTLSInfo()},
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -285,7 +285,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				update: []types.Node{
+				update: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -343,7 +343,7 @@ func TestService_Notify(t *testing.T) {
 		}, {
 			name: "add 4 nodes",
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -351,7 +351,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				add: []types.Node{
+				add: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -418,7 +418,7 @@ func TestService_Notify(t *testing.T) {
 		}, {
 			name: "delete 3 nodes",
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -448,7 +448,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				del: []types.Node{
+				del: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -543,7 +543,7 @@ func TestService_Notify(t *testing.T) {
 		}, {
 			name: "update 2 nodes",
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -561,7 +561,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				update: []types.Node{
+				update: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -626,7 +626,7 @@ func TestService_Notify(t *testing.T) {
 		}, {
 			name: "rename 2 nodes",
 			args: args{
-				init: []types.Node{
+				init: []types.KVStoreNode{
 					{
 						Name: "zero",
 						IPAddresses: []types.Address{
@@ -644,7 +644,7 @@ func TestService_Notify(t *testing.T) {
 						},
 					},
 				},
-				update: []types.Node{
+				update: []types.KVStoreNode{
 					{
 						Name: "one",
 						IPAddresses: []types.Address{
@@ -757,7 +757,7 @@ func TestService_Notify(t *testing.T) {
 			// the update slice shall always be even with odd entry
 			// corresponding to the old node and following even entries to the
 			// updated one
-			var o types.Node
+			var o types.KVStoreNode
 			for i, n := range tt.args.update {
 				if i%2 == 0 {
 					n := n
@@ -794,7 +794,7 @@ func TestService_NotifyWithBlockedSend(t *testing.T) {
 			return nil
 		},
 	}
-	init := []types.Node{
+	init := []types.KVStoreNode{
 		{
 			Name: "one",
 			IPAddresses: []types.Address{
@@ -837,7 +837,7 @@ type nodeTableFixture struct {
 	nodes statedb.RWTable[*node.Node]
 }
 
-func newNodeTableFixture(t testing.TB, nodes []types.Node) *nodeTableFixture {
+func newNodeTableFixture(t testing.TB, nodes []types.KVStoreNode) *nodeTableFixture {
 	t.Helper()
 	db := statedb.New()
 	table, err := node.NewNodeTable(db)
@@ -845,7 +845,7 @@ func newNodeTableFixture(t testing.TB, nodes []types.Node) *nodeTableFixture {
 
 	txn := db.WriteTxn(table)
 	for _, n := range nodes {
-		_, _, err := table.Insert(txn, &node.Node{Node: &n})
+		_, _, err := table.Insert(txn, node.FromKVStoreNode(&n))
 		require.NoError(t, err)
 	}
 	txn.Commit()
@@ -853,30 +853,30 @@ func newNodeTableFixture(t testing.TB, nodes []types.Node) *nodeTableFixture {
 	return &nodeTableFixture{db: db, nodes: table}
 }
 
-func (f *nodeTableFixture) notifyAdd(t testing.TB, n types.Node) {
+func (f *nodeTableFixture) notifyAdd(t testing.TB, n types.KVStoreNode) {
 	t.Helper()
 	txn := f.db.WriteTxn(f.nodes)
-	_, _, err := f.nodes.Insert(txn, &node.Node{Node: &n})
+	_, _, err := f.nodes.Insert(txn, node.FromKVStoreNode(&n))
 	require.NoError(t, err)
 	txn.Commit()
 }
 
-func (f *nodeTableFixture) notifyDelete(t testing.TB, n types.Node) {
+func (f *nodeTableFixture) notifyDelete(t testing.TB, n types.KVStoreNode) {
 	t.Helper()
 	txn := f.db.WriteTxn(f.nodes)
-	_, _, err := f.nodes.Delete(txn, &node.Node{Node: &n})
+	_, _, err := f.nodes.Delete(txn, node.FromKVStoreNode(&n))
 	require.NoError(t, err)
 	txn.Commit()
 }
 
-func (f *nodeTableFixture) notifyUpdate(t testing.TB, old, updated types.Node) {
+func (f *nodeTableFixture) notifyUpdate(t testing.TB, old, updated types.KVStoreNode) {
 	t.Helper()
 	txn := f.db.WriteTxn(f.nodes)
 	if old.Fullname() != updated.Fullname() {
-		_, _, err := f.nodes.Delete(txn, &node.Node{Node: &old})
+		_, _, err := f.nodes.Delete(txn, node.FromKVStoreNode(&old))
 		require.NoError(t, err)
 	}
-	_, _, err := f.nodes.Insert(txn, &node.Node{Node: &updated})
+	_, _, err := f.nodes.Insert(txn, node.FromKVStoreNode(&updated))
 	require.NoError(t, err)
 	txn.Commit()
 }

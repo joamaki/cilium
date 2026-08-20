@@ -24,7 +24,7 @@ type nodeAnnotation = map[string]string
 
 var nodeAnnotationControllerGroup = controller.NewGroup("update-k8s-node-annotations")
 
-func (n *NodeDiscovery) prepareNodeAnnotations(localNode *nodeTypes.Node) nodeAnnotation {
+func (n *NodeDiscovery) prepareNodeAnnotations(localNode *nodeTypes.KVStoreNode) nodeAnnotation {
 	annotationMap := map[string]fmt.Stringer{
 		annotation.CiliumHostIP:   localNode.GetCiliumInternalIP(false),
 		annotation.CiliumHostIPv6: localNode.GetCiliumInternalIP(true),
@@ -88,11 +88,11 @@ func (n *NodeDiscovery) AnnotateK8sNode(ctx context.Context) {
 		return
 	}
 
-	n.annotateK8sNode(ctx, n.clientset, latestLocalNode.Node)
+	n.annotateK8sNode(ctx, n.clientset, latestLocalNode.ToKVStoreNode())
 }
 
 // annotateK8sNode starts a controller that tries to write local node information into the k8s node resource annotations.
-func (n *NodeDiscovery) annotateK8sNode(ctx context.Context, cs kubernetes.Interface, localNode *nodeTypes.Node) {
+func (n *NodeDiscovery) annotateK8sNode(ctx context.Context, cs kubernetes.Interface, localNode *nodeTypes.KVStoreNode) {
 	scopedLog := n.logger.With(
 		logfields.NodeName, localNode.Name,
 		logfields.V4Prefix, localNode.IPv4AllocCIDR,

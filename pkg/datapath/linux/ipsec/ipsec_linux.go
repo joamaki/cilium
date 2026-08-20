@@ -215,8 +215,8 @@ func (a *agent) Start(cell.HookContext) error {
 		advertisedSPI = activeSPI
 	}
 
-	a.localNode.Update(func(n *node.Node) {
-		n.EncryptionKey = advertisedSPI
+	a.localNode.Update(func(n *node.LocalNodeMutator) {
+		n.SetEncryptionKey(advertisedSPI)
 	})
 
 	return nil
@@ -1274,8 +1274,8 @@ func (a *agent) publishCurrentSPI(ctx context.Context, writer *node.NodeWriter, 
 		return fmt.Errorf("refreshing node IPsec state: %w", err)
 	}
 
-	a.localNode.Update(func(n *node.Node) {
-		n.EncryptionKey = currentSPI
+	a.localNode.Update(func(n *node.LocalNodeMutator) {
+		n.SetEncryptionKey(currentSPI)
 	})
 
 	if err := a.setActiveSPI(currentSPI); err != nil {

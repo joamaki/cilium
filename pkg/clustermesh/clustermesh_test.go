@@ -40,16 +40,16 @@ const (
 )
 
 type testObserver struct {
-	nodes      map[string]*nodeTypes.Node
+	nodes      map[string]*nodeTypes.KVStoreNode
 	nodesMutex lock.RWMutex
 }
 
 func newNodesObserver() *testObserver {
-	return &testObserver{nodes: make(map[string]*nodeTypes.Node)}
+	return &testObserver{nodes: make(map[string]*nodeTypes.KVStoreNode)}
 }
 
-func (o *testObserver) Upsert(_ statedb.WriteTxn, n *nodeTypes.Node) bool {
-	no := *n
+func (o *testObserver) Upsert(_ statedb.WriteTxn, data *node.Data) bool {
+	no := *node.New(data).ToKVStoreNode()
 	o.nodesMutex.Lock()
 	o.nodes[no.Fullname()] = &no
 	o.nodesMutex.Unlock()
@@ -199,7 +199,7 @@ func TestClusterMesh(t *testing.T) {
 
 	for cluster, id := range map[string]uint32{"cluster1": 255, "cluster2": 3, "cluster3": 4} {
 		for _, name := range nodeNames {
-			require.NoErrorf(t, nodesWSS.UpsertKey(ctx, &nodeTypes.Node{Name: name, Cluster: cluster, ClusterID: id}),
+			require.NoErrorf(t, nodesWSS.UpsertKey(ctx, &nodeTypes.KVStoreNode{Name: name, Cluster: cluster, ClusterID: id}),
 				"Failed upserting node %s/%s into kvstore", cluster, name)
 		}
 	}

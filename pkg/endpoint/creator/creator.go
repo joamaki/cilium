@@ -119,8 +119,8 @@ func (c *endpointCreator) AddIngressEndpoint(ctx context.Context) error {
 		c.params.DNSRulesService,
 		c.params.Proxy,
 		c.policyLogger(),
-		ln.IPv4IngressIP.Addr,
-		ln.IPv6IngressIP.Addr,
+		ln.IngressIP(false),
+		ln.IngressIP(true),
 	)
 	if err != nil {
 		return err

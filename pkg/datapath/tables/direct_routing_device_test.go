@@ -33,16 +33,14 @@ func TestDirectRoutingDevice(t *testing.T) {
 	h := hive.New(
 		cell.Provide(
 			func() node.Node {
-				return node.Node{
-					Node: &types.Node{
-						IPAddresses: []types.Address{
-							{
-								Type: addressing.NodeInternalIP,
-								IP:   testIP,
-							},
+				return *node.FromKVStoreNode(&types.KVStoreNode{
+					IPAddresses: []types.Address{
+						{
+							Type: addressing.NodeInternalIP,
+							IP:   testIP,
 						},
 					},
-				}
+				})
 			},
 			node.NewTestLocalNodeStore,
 			NewDeviceTable,
@@ -163,16 +161,14 @@ func TestDirectRoutingDevice_withConfig(t *testing.T) {
 			h := hive.New(
 				cell.Provide(
 					func() node.Node {
-						return node.Node{
-							Node: &types.Node{
-								IPAddresses: []types.Address{
-									{
-										Type: addressing.NodeInternalIP,
-										IP:   testIP,
-									},
+						return *node.FromKVStoreNode(&types.KVStoreNode{
+							IPAddresses: []types.Address{
+								{
+									Type: addressing.NodeInternalIP,
+									IP:   testIP,
 								},
 							},
-						}
+						})
 					},
 					node.NewTestLocalNodeStore,
 					NewDeviceTable,

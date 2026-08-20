@@ -100,7 +100,7 @@ func (h *ciliumHealthManager) getNodeRouterAddressing(ctx context.Context) (*mod
 		nodeRouterAddressing.IPv6 = &models.NodeAddressingElement{
 			Enabled:    h.daemonConfig.EnableIPv6,
 			IP:         ln.GetCiliumInternalIP(true).String(),
-			AllocRange: ln.IPv6AllocCIDR.String(),
+			AllocRange: ln.AllocationCIDR(true).String(),
 		}
 	}
 
@@ -108,7 +108,7 @@ func (h *ciliumHealthManager) getNodeRouterAddressing(ctx context.Context) (*mod
 		nodeRouterAddressing.IPv4 = &models.NodeAddressingElement{
 			Enabled:    h.daemonConfig.EnableIPv4,
 			IP:         ln.GetCiliumInternalIP(false).String(),
-			AllocRange: ln.IPv4AllocCIDR.String(),
+			AllocRange: ln.AllocationCIDR(false).String(),
 		}
 	}
 
@@ -259,18 +259,18 @@ func (h *ciliumHealthManager) launchAsEndpoint(baseCtx context.Context, endpoint
 		return nil, fmt.Errorf("failed to get local node: %w", err)
 	}
 
-	if healthIPv6 := ln.IPv6HealthIP; healthIPv6.IsValid() {
+	if healthIPv6 := ln.HealthIP(true); healthIPv6.IsValid() {
 		info.Addressing.IPv6 = healthIPv6.String()
 		info.Addressing.IPv6PoolName = ipam.PoolDefault().String()
 		ip6Address = &net.IPNet{IP: healthIPv6.AsSlice(), Mask: defaults.ContainerIPv6Mask}
-		healthIP = healthIPv6.Addr
+		healthIP = healthIPv6
 	}
-	if healthIPv4 := ln.IPv4HealthIP; healthIPv4.IsValid() {
+	if healthIPv4 := ln.HealthIP(false); healthIPv4.IsValid() {
 		info.Addressing.IPv4 = healthIPv4.String()
 		info.Addressing.IPv4PoolName = ipam.PoolDefault().String()
 		ip4Address = &net.IPNet{IP: healthIPv4.AsSlice(), Mask: defaults.ContainerIPv4Mask}
 		if !option.Config.PreferIpv6 {
-			healthIP = healthIPv4.Addr
+			healthIP = healthIPv4
 		}
 	}
 

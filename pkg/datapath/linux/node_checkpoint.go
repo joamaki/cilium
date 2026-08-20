@@ -39,12 +39,12 @@ type linuxNodeCheckpoint struct {
 	health   cell.Health
 	db       *statedb.DB
 	nodes    statedb.Table[*node.Node]
-	cleaner  func(context.Context, nodeTypes.Node) error
+	cleaner  func(context.Context, nodeTypes.KVStoreNode) error
 	stateDir string
 
 	mutex         lock.Mutex
 	writeMutex    lock.Mutex
-	restoredNodes map[nodeTypes.Identity]*nodeTypes.Node
+	restoredNodes map[nodeTypes.Identity]*nodeTypes.KVStoreNode
 	trigger       *trigger.Trigger
 	done          chan struct{}
 }
@@ -54,7 +54,7 @@ func newLinuxNodeCheckpoint(
 	health cell.Health,
 	db *statedb.DB,
 	nodes statedb.Table[*node.Node],
-	cleaner func(context.Context, nodeTypes.Node) error,
+	cleaner func(context.Context, nodeTypes.KVStoreNode) error,
 	stateDir string,
 ) *linuxNodeCheckpoint {
 	return &linuxNodeCheckpoint{
@@ -64,7 +64,7 @@ func newLinuxNodeCheckpoint(
 		nodes:         nodes,
 		cleaner:       cleaner,
 		stateDir:      stateDir,
-		restoredNodes: map[nodeTypes.Identity]*nodeTypes.Node{},
+		restoredNodes: map[nodeTypes.Identity]*nodeTypes.KVStoreNode{},
 	}
 }
 
@@ -127,7 +127,7 @@ func (c *linuxNodeCheckpoint) restore() {
 	}
 	defer file.Close()
 
-	var restored []*nodeTypes.Node
+	var restored []*nodeTypes.KVStoreNode
 	decoder := jsoniter.ConfigFastest.NewDecoder(bufio.NewReader(file))
 	if err := decoder.Decode(&restored); err != nil {
 		c.log.Error("Failed to decode node checkpoint",
@@ -180,7 +180,7 @@ func (c *linuxNodeCheckpoint) prune(ctx context.Context, _ cell.Health) error {
 	for identity := range desired {
 		delete(c.restoredNodes, identity)
 	}
-	toDelete := make([]nodeTypes.Node, 0, len(c.restoredNodes))
+	toDelete := make([]nodeTypes.KVStoreNode, 0, len(c.restoredNodes))
 	for _, n := range c.restoredNodes {
 		toDelete = append(toDelete, *n)
 	}
@@ -210,7 +210,7 @@ func (c *linuxNodeCheckpoint) checkpoint() error {
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 
-	nodesByIdentity := map[nodeTypes.Identity]nodeTypes.Node{}
+	nodesByIdentity := map[nodeTypes.Identity]nodeTypes.KVStoreNode{}
 	c.mutex.Lock()
 	for identity, n := range c.restoredNodes {
 		nodesByIdentity[identity] = *n
@@ -219,11 +219,11 @@ func (c *linuxNodeCheckpoint) checkpoint() error {
 
 	for n := range c.nodes.All(c.db.ReadTxn()) {
 		if !n.IsLocal() {
-			nodesByIdentity[n.Identity()] = *n.Node
+			nodesByIdentity[n.Identity()] = *n.ToKVStoreNode()
 		}
 	}
 
-	nodes := make([]nodeTypes.Node, 0, len(nodesByIdentity))
+	nodes := make([]nodeTypes.KVStoreNode, 0, len(nodesByIdentity))
 	for _, n := range nodesByIdentity {
 		nodes = append(nodes, n)
 	}

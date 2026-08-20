@@ -308,7 +308,7 @@ func TestAutoDetectIPv4NativeRoutingCIDR(t *testing.T) {
 		localNode, err := localNodeStore.Get(t.Context())
 		require.NoError(t, err)
 		// Should NOT have been written since the config already has a value.
-		require.False(t, localNode.Local.IPv4NativeRoutingCIDR.IsValid())
+		require.False(t, localInfo(localNode).IPv4NativeRoutingCIDR.IsValid())
 	})
 
 	t.Run("accepts a native routing CIDR that is a supernet of the VNet CIDR", func(t *testing.T) {
@@ -317,7 +317,7 @@ func TestAutoDetectIPv4NativeRoutingCIDR(t *testing.T) {
 
 		localNode, err := localNodeStore.Get(t.Context())
 		require.NoError(t, err)
-		require.False(t, localNode.Local.IPv4NativeRoutingCIDR.IsValid())
+		require.False(t, localInfo(localNode).IPv4NativeRoutingCIDR.IsValid())
 	})
 
 	t.Run("uses the autodetected primary CIDR when unset", func(t *testing.T) {
@@ -328,6 +328,6 @@ func TestAutoDetectIPv4NativeRoutingCIDR(t *testing.T) {
 
 		localNode, err := localNodeStore.Get(t.Context())
 		require.NoError(t, err)
-		require.Equal(t, "10.10.0.0/16", localNode.Local.IPv4NativeRoutingCIDR.String())
+		require.Equal(t, "10.10.0.0/16", localInfo(localNode).IPv4NativeRoutingCIDR.String())
 	})
 }

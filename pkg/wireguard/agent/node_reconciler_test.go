@@ -29,20 +29,22 @@ func TestNodeReconciler(t *testing.T) {
 	)
 	t.Cleanup(func() { require.NoError(t, ipCache.Shutdown()) })
 
-	n := &node.Node{Node: &nodeTypes.Node{
+	n := node.FromKVStoreNode(&nodeTypes.KVStoreNode{
 		Name:            k8s1NodeName,
 		WireguardPubKey: k8s1PubKey,
 		IPAddresses: []nodeTypes.Address{{
 			Type: addressing.NodeInternalIP,
 			IP:   net.IP(k8s1NodeIPv4),
 		}},
-	}}
+	})
 
 	require.NoError(t, a.Update(t.Context(), nil, 1, n))
 	require.Contains(t, a.peerByNodeName, k8s1NodeName)
 
 	// Removing the public key means that this node no longer desires a peer.
-	n.WireguardPubKey = ""
+	withoutKey := n.ToKVStoreNode()
+	withoutKey.WireguardPubKey = ""
+	n = node.FromKVStoreNode(withoutKey)
 	require.NoError(t, a.Update(t.Context(), nil, 2, n))
 	require.NotContains(t, a.peerByNodeName, k8s1NodeName)
 
@@ -55,7 +57,7 @@ func TestWaitForNodeReconciliationWaitsForRetries(t *testing.T) {
 	nodes, err := node.NewNodeTable(db)
 	require.NoError(t, err)
 
-	n := &node.Node{Node: &nodeTypes.Node{Name: "node-1"}}
+	n := node.FromKVStoreNode(&nodeTypes.KVStoreNode{Name: "node-1"})
 	n.Statuses = n.Statuses.Set(
 		wireGuardNodeReconcilerName,
 		reconciler.StatusError(errors.New("injected failure")),

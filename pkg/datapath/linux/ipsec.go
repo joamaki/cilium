@@ -147,7 +147,7 @@ func prefixesToIPNets(prefixes []netip.Prefix) iter.Seq[*net.IPNet] {
 	}
 }
 
-func (n *linuxNodeHandler) enableIPsec(oldNode, newNode *nodeTypes.Node, nodeID uint16) error {
+func (n *linuxNodeHandler) enableIPsec(oldNode, newNode *nodeTypes.KVStoreNode, nodeID uint16) error {
 	var errs error
 	if newNode.IsLocal() {
 		if err := n.replaceHostRules(); err != nil {
@@ -187,7 +187,7 @@ func (n *linuxNodeHandler) enableIPsec(oldNode, newNode *nodeTypes.Node, nodeID 
 
 // enableIPSecIPv4DoSubnetEncryption is used to configure IPSec for a node that
 // hosts multiple PodCIDR subnets.
-func (n *linuxNodeHandler) enableIPSecIPv4DoSubnetEncryption(newNode *nodeTypes.Node, nodeID uint16, zeroMark, updateExisting bool, errs error) (bool, error) {
+func (n *linuxNodeHandler) enableIPSecIPv4DoSubnetEncryption(newNode *nodeTypes.KVStoreNode, nodeID uint16, zeroMark, updateExisting bool, errs error) (bool, error) {
 	statesUpdated := true
 	var spi uint8
 
@@ -275,7 +275,7 @@ func (n *linuxNodeHandler) enableIPSecIPv4DoSubnetEncryption(newNode *nodeTypes.
 
 // enableIPSecIPv4Do is used to configure IPSec for a node that hosts
 // a single PodCIDR subnets.
-func (n *linuxNodeHandler) enableIPSecIPv4Do(oldNode, newNode *nodeTypes.Node, nodeID uint16, updateExisting bool, errs error) (bool, error) {
+func (n *linuxNodeHandler) enableIPSecIPv4Do(oldNode, newNode *nodeTypes.KVStoreNode, nodeID uint16, updateExisting bool, errs error) (bool, error) {
 	var err error
 	statesUpdated := true
 	var spi uint8
@@ -431,7 +431,7 @@ func (n *linuxNodeHandler) enableIPSecDoLocalHost(addedCIDRs, removedCIDRs []net
 	return errs
 }
 
-func (n *linuxNodeHandler) enableIPsecIPv4(oldNode, newNode *nodeTypes.Node, nodeID uint16, zeroMark, updateExisting bool) (bool, error) {
+func (n *linuxNodeHandler) enableIPsecIPv4(oldNode, newNode *nodeTypes.KVStoreNode, nodeID uint16, zeroMark, updateExisting bool) (bool, error) {
 	var spi uint8
 	var errs error
 
@@ -473,7 +473,7 @@ func (n *linuxNodeHandler) enableIPsecIPv4(oldNode, newNode *nodeTypes.Node, nod
 	return n.enableIPSecIPv4Do(oldNode, newNode, nodeID, updateExisting, errs)
 }
 
-func (n *linuxNodeHandler) enableIPSecIPv6DoSubnetEncryption(newNode *nodeTypes.Node, nodeID uint16, zeroMark, updateExisting bool, errs error) (bool, error) {
+func (n *linuxNodeHandler) enableIPSecIPv6DoSubnetEncryption(newNode *nodeTypes.KVStoreNode, nodeID uint16, zeroMark, updateExisting bool, errs error) (bool, error) {
 	statesUpdated := true
 	var spi uint8
 
@@ -561,7 +561,7 @@ func (n *linuxNodeHandler) enableIPSecIPv6DoSubnetEncryption(newNode *nodeTypes.
 	return statesUpdated, errs
 }
 
-func (n *linuxNodeHandler) enableIPSecIPv6Do(oldNode, newNode *nodeTypes.Node, nodeID uint16, updateExisting bool, errs error) (bool, error) {
+func (n *linuxNodeHandler) enableIPSecIPv6Do(oldNode, newNode *nodeTypes.KVStoreNode, nodeID uint16, updateExisting bool, errs error) (bool, error) {
 	var err error
 	statesUpdated := true
 	var spi uint8
@@ -707,7 +707,7 @@ func (n *linuxNodeHandler) enableIPSecIPv6Do(oldNode, newNode *nodeTypes.Node, n
 	return statesUpdated, errs
 }
 
-func (n *linuxNodeHandler) enableIPsecIPv6(oldNode, newNode *nodeTypes.Node, nodeID uint16, zeroMark, updateExisting bool) (bool, error) {
+func (n *linuxNodeHandler) enableIPsecIPv6(oldNode, newNode *nodeTypes.KVStoreNode, nodeID uint16, zeroMark, updateExisting bool) (bool, error) {
 	var errs error
 	var spi uint8
 
@@ -886,7 +886,7 @@ func (n *linuxNodeHandler) deleteNodeIPSecInRoute(ip *net.IPNet) error {
 	return nil
 }
 
-func (n *linuxNodeHandler) deleteIPsec(oldNode *nodeTypes.Node) error {
+func (n *linuxNodeHandler) deleteIPsec(oldNode *nodeTypes.KVStoreNode) error {
 	var errs error
 	scopedLog := n.log.With(logfields.NodeName, oldNode.Name)
 	scopedLog.Debug("Removing IPsec configuration for node")

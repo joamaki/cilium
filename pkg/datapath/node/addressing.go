@@ -63,10 +63,14 @@ func (a addressFamily) PrimaryExternal() net.IP {
 
 func (a addressFamily) AllocationCIDR() netip.Prefix {
 	if n, err := a.localNode.Get(context.Background()); err == nil {
+		var cidrs []netip.Prefix
 		if a.flags&ipv6 != 0 {
-			return n.IPv6AllocCIDR.Prefix.Prefix
+			cidrs = n.GetIPv6AllocCIDRs()
 		} else {
-			return n.IPv4AllocCIDR.Prefix.Prefix
+			cidrs = n.GetIPv4AllocCIDRs()
+		}
+		if len(cidrs) > 0 {
+			return cidrs[0]
 		}
 	}
 	return netip.Prefix{}

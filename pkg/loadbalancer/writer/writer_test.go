@@ -861,11 +861,10 @@ func TestWriter_SelectBackends_PreferCloseFallsBackFromUnhealthySameZone(t *test
 	p := fixture(t)
 	p.Writer.config.EnableServiceTopology = true
 	p.Writer.SetIsServiceHealthCheckedFunc(func(*loadbalancer.Service) bool { return true })
-	p.LocalNodeStore.Update(func(n *node.Node) {
-		if n.Labels == nil {
-			n.Labels = map[string]string{}
-		}
-		n.Labels[corev1.LabelTopologyZone] = "zone-a"
+	p.LocalNodeStore.Update(func(n *node.LocalNodeMutator) {
+		n.SetLabels(map[string]string{
+			corev1.LabelTopologyZone: "zone-a",
+		})
 	})
 
 	svcName := loadbalancer.NewServiceName("test", "svc")
@@ -925,11 +924,10 @@ func TestWriter_SelectBackends_PreferCloseFallsBackFromUnhealthySameZone(t *test
 func TestWriter_SelectBackends_PreferCloseIgnoresTerminatingForMissingHints(t *testing.T) {
 	p := fixture(t)
 	p.Writer.config.EnableServiceTopology = true
-	p.LocalNodeStore.Update(func(n *node.Node) {
-		if n.Labels == nil {
-			n.Labels = map[string]string{}
-		}
-		n.Labels[corev1.LabelTopologyZone] = "zone-a"
+	p.LocalNodeStore.Update(func(n *node.LocalNodeMutator) {
+		n.SetLabels(map[string]string{
+			corev1.LabelTopologyZone: "zone-a",
+		})
 	})
 
 	svcName := loadbalancer.NewServiceName("test", "svc")
@@ -1002,11 +1000,10 @@ func TestWriter_SelectBackends_PreferCloseIgnoresTerminatingForMissingHints(t *t
 func TestWriter_SelectBackends_PreferCloseFallsBackWhenOnlyTerminating(t *testing.T) {
 	p := fixture(t)
 	p.Writer.config.EnableServiceTopology = true
-	p.LocalNodeStore.Update(func(n *node.Node) {
-		if n.Labels == nil {
-			n.Labels = map[string]string{}
-		}
-		n.Labels[corev1.LabelTopologyZone] = "zone-a"
+	p.LocalNodeStore.Update(func(n *node.LocalNodeMutator) {
+		n.SetLabels(map[string]string{
+			corev1.LabelTopologyZone: "zone-a",
+		})
 	})
 
 	svcName := loadbalancer.NewServiceName("test", "svc")

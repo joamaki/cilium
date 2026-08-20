@@ -1557,13 +1557,13 @@ func TestEnvoyAdsLocalityClusterEndpointsACK(t *testing.T) {
 
 	starter := &onDemandXdsStarter{
 		logger: logger,
-		localNodeStore: node.NewTestLocalNodeStore(node.Node{
-			Node: &nodetypes.Node{
+		localNodeStore: node.NewTestLocalNodeStore(*node.FromKVStoreNode(
+			&nodetypes.KVStoreNode{
 				Labels: map[string]string{
 					corev1.LabelTopologyZone: "zone-a",
 				},
 			},
-		}),
+		)),
 	}
 	envoyProxy, err := starter.startStandaloneEnvoyInternal(standaloneEnvoyConfig{
 		runDir:                         testRunDir,

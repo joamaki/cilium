@@ -25,6 +25,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
+	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -262,14 +263,14 @@ func startLocalNodeAllocCIDRsSync(
 					// just pass a dummy value to avoid having to propagate a ClusterInfo
 					cmtypes.ClusterInfo{ID: 0, Name: "should-not-be-used"},
 				)
-				localNodeStore.Update(func(n *node.Node) {
+				localNodeStore.Update(func(n *node.LocalNodeMutator) {
 					if enableIPv4 && no.IPv4AllocCIDR.IsValid() {
-						n.IPv4AllocCIDR = no.IPv4AllocCIDR
-						n.IPv4SecondaryAllocCIDRs = no.IPv4SecondaryAllocCIDRs
+						prefixes := append([]nodeTypes.Prefix{no.IPv4AllocCIDR}, no.IPv4SecondaryAllocCIDRs...)
+						n.SetAllocationCIDRs(false, nodePrefixes(prefixes)...)
 					}
 					if enableIPv6 && no.IPv6AllocCIDR.IsValid() {
-						n.IPv6AllocCIDR = no.IPv6AllocCIDR
-						n.IPv6SecondaryAllocCIDRs = no.IPv6SecondaryAllocCIDRs
+						prefixes := append([]nodeTypes.Prefix{no.IPv6AllocCIDR}, no.IPv6SecondaryAllocCIDRs...)
+						n.SetAllocationCIDRs(true, nodePrefixes(prefixes)...)
 					}
 				})
 
@@ -280,4 +281,14 @@ func startLocalNodeAllocCIDRsSync(
 		),
 	)
 	return ready
+}
+
+func nodePrefixes(prefixes []nodeTypes.Prefix) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if prefix.IsValid() {
+			out = append(out, prefix.Prefix.Prefix)
+		}
+	}
+	return out
 }

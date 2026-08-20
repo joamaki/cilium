@@ -98,12 +98,12 @@ func runXDSClient(in input, cl Client) {
 		if err != nil {
 			return fmt.Errorf("Failed to get LocalNodeStore: %w", err)
 		}
-		zone := localNode.Labels[core_v1.LabelTopologyZone]
+		zone, _ := localNode.Label(core_v1.LabelTopologyZone)
 		in.Log.Info("Get local node", logfields.Zone, zone)
 		if zone == "" {
 			return fmt.Errorf("zone is nil")
 		}
-		nodeID := localNode.Name
+		nodeID := localNode.Name()
 		if in.Config.NodeID != "" {
 			nodeID = in.Config.NodeID
 		}

@@ -7,7 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"maps"
-	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/cilium/hive/cell"
@@ -135,7 +135,7 @@ func TestPrivilegedScripts(t *testing.T) {
 
 				cell.Invoke(func(*Manager) {}),
 				cell.Invoke(func(clusterInfo cmtypes.ClusterInfo) {
-					// Set ClusterName for [nodeTypes.Node.IsLocal] to work properly
+					// Set ClusterName for [nodeTypes.KVStoreNode.IsLocal] to work properly
 					// since it still depends on the legacy global config.
 					option.Config.ClusterName = clusterInfo.Name
 				}),
@@ -174,13 +174,10 @@ func (m *mockNodeSync) WaitForNodeInformation(ctx context.Context, store *node.L
 	return nil
 }
 
-func (m *mockNodeSync) InitLocalNode(ctx context.Context, n *node.Node) error {
-	n.Node = &nodeTypes.Node{
-		Name: "localnode1",
-		IPAddresses: []nodeTypes.Address{
-			{Type: addressing.NodeInternalIP, IP: net.ParseIP("172.18.0.3")},
-		},
-	}
+func (m *mockNodeSync) InitLocalNode(_ context.Context, n *node.LocalNodeMutator) error {
+	n.SetIdentity("localnode1", n.Cluster(), n.ClusterID(), n.Source())
+	n.SetAddress(node.AddressKindNode,
+		addressing.NodeInternalIP, false, netip.MustParseAddr("172.18.0.3"))
 	return nil
 }
 

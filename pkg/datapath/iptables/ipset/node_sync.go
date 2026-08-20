@@ -6,7 +6,6 @@ package ipset
 import (
 	"context"
 	"iter"
-	"net/netip"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/job"
@@ -118,15 +117,11 @@ func nodeIPSets(
 	v4 = AddrSet{}
 	v6 = AddrSet{}
 	for n := range nodes {
-		for _, address := range n.IPAddresses {
-			if address.Type != addressing.NodeInternalIP {
+		for address := range n.Addresses() {
+			if address.Kind != node.AddressKindNode || address.NodeAddressType != addressing.NodeInternalIP {
 				continue
 			}
-			addr, ok := netip.AddrFromSlice(address.IP)
-			if !ok {
-				continue
-			}
-			addr = addr.Unmap()
+			addr := address.Addr()
 			if addr.Is4() {
 				v4.Insert(addr)
 			} else {

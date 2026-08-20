@@ -5,6 +5,7 @@ package node_test
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -23,14 +24,14 @@ import (
 
 type testSynchronizer struct{ identity chan uint32 }
 
-func (testSynchronizer) InitLocalNode(ctx context.Context, n *Node) error {
-	n.ClusterID = 1
+func (testSynchronizer) InitLocalNode(_ context.Context, n *LocalNodeMutator) error {
+	n.SetClusterID(1)
 	return nil
 }
 
 func (ts testSynchronizer) SyncLocalNode(ctx context.Context, lns *LocalNodeStore) {
 	id := <-ts.identity
-	lns.Update(func(n *Node) { n.ClusterID = id })
+	lns.Update(func(n *LocalNodeMutator) { n.SetClusterID(id) })
 	<-ctx.Done()
 }
 
@@ -52,9 +53,9 @@ func TestLocalNodeStore(t *testing.T) {
 	observe := func(store *LocalNodeStore) {
 		store.Observe(context.TODO(),
 			func(n Node) {
-				observed = append(observed, n.ClusterID)
+				observed = append(observed, n.ClusterID())
 
-				if n.ClusterID == expected[len(expected)-1] {
+				if n.ClusterID() == expected[len(expected)-1] {
 					waitObserve.Done()
 				}
 			},
@@ -74,9 +75,7 @@ func TestLocalNodeStore(t *testing.T) {
 						continue
 					}
 
-					store.Update(func(n *Node) {
-						n.ClusterID = i
-					})
+					store.Update(func(n *LocalNodeMutator) { n.SetClusterID(i) })
 				}
 				return nil
 			},
@@ -154,15 +153,30 @@ func TestLocalNodeStoreUpdateMarksStatusesPending(t *testing.T) {
 	require.NoError(t, err)
 	txn.Commit()
 
-	store.Update(func(*Node) {})
+	store.Update(func(*LocalNodeMutator) {})
 	local, _, found = nodes.Get(db.ReadTxn(), LocalNodeQuery)
 	require.True(t, found)
 	require.Equal(t, reconciler.StatusKindDone, local.Statuses.Get("test").Kind)
 
-	store.Update(func(n *Node) { n.ClusterID++ })
+	store.Update(func(n *LocalNodeMutator) { n.SetClusterID(n.ClusterID() + 1) })
 	local, _, found = nodes.Get(db.ReadTxn(), LocalNodeQuery)
 	require.True(t, found)
 	require.Equal(t, reconciler.StatusKindPending, local.Statuses.Get("test").Kind)
+}
+
+func TestLocalNodeStoreMutatorCannotChangePublishedNode(t *testing.T) {
+	store := NewTestLocalNodeStore(Node{})
+	var retained *LocalNodeMutator
+
+	store.Update(func(n *LocalNodeMutator) {
+		n.SetLabels(map[string]string{"phase": "published"})
+		retained = n
+	})
+	retained.SetLabels(map[string]string{"phase": "retained"})
+
+	local, err := store.Get(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"phase": "published"}, maps.Collect(local.Labels()))
 }
 
 func TestWaitForLocalNodeInit(t *testing.T) {

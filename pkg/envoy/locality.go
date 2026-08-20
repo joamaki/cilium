@@ -30,7 +30,8 @@ func getLocalNodeZone(localNodeStore *node.LocalNodeStore) (string, error) {
 		return "", fmt.Errorf("get local node: %w", err)
 	}
 
-	return localNode.Labels[corev1.LabelTopologyZone], nil
+	zone, _ := localNode.Label(corev1.LabelTopologyZone)
+	return zone, nil
 }
 
 func appendEmbeddedLocalityBootstrap(bs *envoy_config_bootstrap.Bootstrap, xdsMode config.XDSMode, connectTimeout int64, zone string) {

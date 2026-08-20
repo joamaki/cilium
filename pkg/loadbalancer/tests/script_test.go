@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"net"
+	"net/netip"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -365,9 +365,9 @@ func (tc testCommands) setNodeLabels() script.Cmd {
 				}
 				labels[key] = value
 			}
-			tc.lns.Update(func(n *node.Node) {
-				n.Labels = labels
+			tc.lns.Update(func(n *node.LocalNodeMutator) {
 				s.Logf("Labels set to %v\n", labels)
+				n.SetLabels(labels)
 			})
 			return nil, nil
 		})
@@ -380,12 +380,14 @@ func (tc testCommands) setNodeIP() script.Cmd {
 			if len(args) != 1 {
 				return nil, fmt.Errorf("%w: expected 'ip'", script.ErrUsage)
 			}
-			ip := net.ParseIP(args[0])
-			tc.lns.Update(func(n *node.Node) {
-				n.IPAddresses = []nodeTypes.Address{
-					{Type: addressing.NodeExternalIP, IP: ip},
-				}
+			ip, err := netip.ParseAddr(args[0])
+			if err != nil {
+				return nil, err
+			}
+			tc.lns.Update(func(n *node.LocalNodeMutator) {
 				s.Logf("NodeIP set to %s\n", ip)
+				n.SetAddress(node.AddressKindNode,
+					addressing.NodeExternalIP, ip.Is6(), ip)
 			})
 			return nil, nil
 		})

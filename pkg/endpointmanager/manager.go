@@ -835,10 +835,11 @@ func (mgr *endpointManager) initHostEndpointLabels(ctx context.Context, ep *endp
 		return
 	}
 
-	ep.InitWithNodeLabels(ctx, ln.Labels, launchTime)
+	nodeLabels := maps.Collect(ln.Labels())
+	ep.InitWithNodeLabels(ctx, nodeLabels, launchTime)
 
 	// Start the observer to keep the labels synchronized in case they change
-	mgr.startNodeLabelsObserver(ln.Labels)
+	mgr.startNodeLabelsObserver(nodeLabels)
 }
 
 // WaitForEndpointsAtPolicyRev waits for all endpoints which existed at the time

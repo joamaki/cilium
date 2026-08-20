@@ -7,26 +7,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"net"
+	"net/netip"
 
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
-	"github.com/cilium/cilium/pkg/k8s"
 	k8sConst "github.com/cilium/cilium/pkg/k8s/constants"
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/node"
+	"github.com/cilium/cilium/pkg/node/addressing"
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
-	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/time"
 )
 
-func (ini *localNodeSynchronizer) retrieveNodeInformation(ctx context.Context) *nodeTypes.Node {
-	var n *nodeTypes.Node
+func (ini *localNodeSynchronizer) retrieveNodeInformation(ctx context.Context) *parsedNode {
+	var n *parsedNode
 	waitForCIDR := func() error {
-		if option.Config.K8sRequireIPv4PodCIDR && !n.IPv4AllocCIDR.IsValid() {
+		if option.Config.K8sRequireIPv4PodCIDR && !n.ipv4AllocCIDR.IsValid() {
 			return fmt.Errorf("required IPv4 PodCIDR not available")
 		}
-		if option.Config.K8sRequireIPv6PodCIDR && !n.IPv6AllocCIDR.IsValid() {
+		if option.Config.K8sRequireIPv6PodCIDR && !n.ipv6AllocCIDR.IsValid() {
 			return fmt.Errorf("required IPv6 PodCIDR not available")
 		}
 		return nil
@@ -40,9 +42,9 @@ func (ini *localNodeSynchronizer) retrieveNodeInformation(ctx context.Context) *
 				break
 			}
 			if event.Kind == resource.Upsert {
-				no := k8s.ParseCiliumNode(event.Object, ini.ClusterInfo)
+				no := parsedNodeFromData(event.Object.NodeData(ini.ClusterInfo))
 				n = &no
-				ini.Logger.Info("Retrieved node information from cilium node", logfields.NodeName, n.Name)
+				ini.Logger.Info("Retrieved node information from cilium node", logfields.NodeName, n.name)
 				if err := waitForCIDR(); err != nil {
 					ini.Logger.Warn("Waiting for k8s node information", logfields.Error, err)
 				} else {
@@ -59,8 +61,9 @@ func (ini *localNodeSynchronizer) retrieveNodeInformation(ctx context.Context) *
 				break
 			}
 			if event.Kind == resource.Upsert {
-				n = k8s.ParseNode(ini.Logger, event.Object, source.Unspec, ini.ClusterInfo)
-				ini.Logger.Info("Retrieved node information from kubernetes node", logfields.NodeName, n.Name)
+				no := ini.parseNode(event.Object)
+				n = &no
+				ini.Logger.Info("Retrieved node information from kubernetes node", logfields.NodeName, n.name)
 				if err := waitForCIDR(); err != nil {
 					ini.Logger.Warn("Waiting for k8s node information", logfields.Error, err)
 				} else {
@@ -108,18 +111,18 @@ func (ini *localNodeSynchronizer) WaitForNodeInformation(ctx context.Context, st
 	}
 
 	if n := ini.retrieveNodeInformation(ctx); n != nil {
-		nodeIP4 := n.GetNodeIP(false)
-		nodeIP6 := n.GetNodeIP(true)
-		k8sNodeIP := n.GetK8sNodeIP()
+		nodeIP4 := n.nodeIP(false)
+		nodeIP6 := n.nodeIP(true)
+		k8sNodeIP := n.k8sNodeIP()
 
 		ini.Logger.Info(
 			"Received own node information from API server",
-			logfields.NodeName, n.Name,
-			logfields.Labels, n.Labels,
+			logfields.NodeName, n.name,
+			logfields.Labels, n.labels,
 			logfields.IPv4, nodeIP4,
 			logfields.IPv6, nodeIP6,
-			logfields.V4Prefix, n.IPv4AllocCIDR,
-			logfields.V6Prefix, n.IPv6AllocCIDR,
+			logfields.V4Prefix, n.ipv4AllocCIDR,
+			logfields.V6Prefix, n.ipv6AllocCIDR,
 			logfields.K8sNodeIP, k8sNodeIP,
 		)
 
@@ -129,14 +132,14 @@ func (ini *localNodeSynchronizer) WaitForNodeInformation(ctx context.Context, st
 		}
 
 		// Set allocation CIDRs
-		if n.IPv4AllocCIDR.IsValid() && option.Config.EnableIPv4 {
-			store.Update(func(ln *node.Node) {
-				ln.IPv4AllocCIDR = n.IPv4AllocCIDR
+		if n.ipv4AllocCIDR.IsValid() && option.Config.EnableIPv4 {
+			store.Update(func(local *node.LocalNodeMutator) {
+				local.SetAllocationCIDRs(false, n.ipv4AllocCIDR)
 			})
 		}
-		if n.IPv6AllocCIDR.IsValid() && option.Config.EnableIPv6 {
-			store.Update(func(ln *node.Node) {
-				ln.IPv6AllocCIDR = n.IPv6AllocCIDR
+		if n.ipv6AllocCIDR.IsValid() && option.Config.EnableIPv6 {
+			store.Update(func(local *node.LocalNodeMutator) {
+				local.SetAllocationCIDRs(true, n.ipv6AllocCIDR)
 			})
 		}
 	} else {
@@ -149,5 +152,60 @@ func (ini *localNodeSynchronizer) WaitForNodeInformation(ctx context.Context, st
 
 	// Annotate addresses will occur later since the user might
 	// want to specify them manually
+	return nil
+}
+
+func parsedNodeFromData(data *node.Data) parsedNode {
+	n := parsedNode{
+		name: data.Name(), labels: maps.Collect(data.Labels()),
+		annotations: maps.Collect(data.Annotations()),
+	}
+	for address := range data.Addresses() {
+		switch address.Kind {
+		case node.AddressKindNode:
+			n.addresses = append(n.addresses, address)
+		case node.AddressKindAllocation:
+			if address.Addr().Is4() && (!n.ipv4AllocCIDR.IsValid() || address.Primary) {
+				n.ipv4AllocCIDR = address.Prefix
+			} else if address.Addr().Is6() && (!n.ipv6AllocCIDR.IsValid() || address.Primary) {
+				n.ipv6AllocCIDR = address.Prefix
+			}
+		}
+	}
+	return n
+}
+
+func (n parsedNode) nodeIP(ipv6 bool) net.IP {
+	var fallback netip.Addr
+	for _, address := range n.addresses {
+		if address.Addr().Is6() != ipv6 {
+			continue
+		}
+		if address.NodeAddressType == addressing.NodeInternalIP {
+			return address.Addr().AsSlice()
+		}
+		if !fallback.IsValid() {
+			fallback = address.Addr()
+		}
+	}
+	if fallback.IsValid() {
+		return fallback.AsSlice()
+	}
+	return nil
+}
+
+func (n parsedNode) k8sNodeIP() net.IP {
+	var external netip.Addr
+	for _, address := range n.addresses {
+		switch address.NodeAddressType {
+		case addressing.NodeInternalIP:
+			return address.Addr().AsSlice()
+		case addressing.NodeExternalIP:
+			external = address.Addr()
+		}
+	}
+	if external.IsValid() {
+		return external.AsSlice()
+	}
 	return nil
 }

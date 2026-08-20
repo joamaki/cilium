@@ -244,8 +244,8 @@ func (h *ciliumHealthManager) cleanupHealthEndpoint(ctx context.Context) error {
 	}
 
 	// Clean up agent resources
-	healthIPv4 := ln.IPv4HealthIP
-	healthIPv6 := ln.IPv6HealthIP
+	healthIPv4 := ln.HealthIP(false)
+	healthIPv6 := ln.HealthIP(true)
 	if healthIPv4.IsValid() {
 		ep = h.endpointManager.LookupIPv4(healthIPv4.String())
 	}

@@ -149,7 +149,7 @@ func (o *nodeNeighborObserver) apply(change statedb.Change[*node.Node]) error {
 	id := n.Identity()
 	oldIPs := o.current[id]
 	newIPs := nodeIPs(n)
-	if change.Deleted || n.Local != nil {
+	if change.Deleted || n.IsLocal() {
 		newIPs = nil
 	}
 	if maps.Equal(oldIPs, newIPs) {

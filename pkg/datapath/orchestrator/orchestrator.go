@@ -179,16 +179,17 @@ func (o *orchestrator) reconciler(ctx context.Context, health cell.Health) error
 	localNodes := stream.ToTruncatingChannel(ctx,
 		stream.Filter(o.params.LocalNodeStore,
 			func(n node.Node) bool {
+				local, _ := n.Local()
 				if agentConfig.EnableIPv4 {
-					loopback := n.Local.ServiceLoopbackIPv4.IsValid()
+					loopback := local.ServiceLoopbackIPv4.IsValid()
 					ipv4GW := n.GetCiliumInternalIP(false) != nil
-					ipv4Range := n.IPv4AllocCIDR.IsValid()
+					ipv4Range := n.AllocationCIDR(false).IsValid()
 					if !ipv4GW || !ipv4Range || !loopback {
 						return false
 					}
 				}
 				if agentConfig.EnableIPv6 {
-					loopback := n.Local.ServiceLoopbackIPv6.IsValid()
+					loopback := local.ServiceLoopbackIPv6.IsValid()
 					ipv6GW := n.GetCiliumInternalIP(true) != nil
 					if !ipv6GW || !loopback {
 						return false

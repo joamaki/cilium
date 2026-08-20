@@ -171,11 +171,11 @@ func (r *authMapGarbageCollector) nodeStateWatch() (
 		if n.IsLocal() {
 			continue
 		}
-		for _, addr := range n.IPAddresses {
-			if addr.Type != addressing.NodeInternalIP {
+		for addr := range n.Addresses() {
+			if addr.Kind != node.AddressKindNode || addr.NodeAddressType != addressing.NodeInternalIP {
 				continue
 			}
-			nodeID, exists := r.nodeIDHandler.GetNodeID(addr.IP)
+			nodeID, exists := r.nodeIDHandler.GetNodeID(addr.Addr().AsSlice())
 			if !exists {
 				activeNodeIDsReady = false
 				continue

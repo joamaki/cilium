@@ -177,7 +177,7 @@ func newCiliumNodeConverter(cinfo cmtypes.ClusterInfo) Converter[*cilium_api_v2.
 
 func (nc *CiliumNodeConverter) Convert(event resource.Event[*cilium_api_v2.CiliumNode]) (upserts iter.Seq[store.Key], deletes iter.Seq[store.NamedKey]) {
 	if event.Kind == resource.Delete {
-		node := nodeTypes.Node{Cluster: nc.cinfo.Name, Name: event.Key.Name}
+		node := nodeTypes.KVStoreNode{Cluster: nc.cinfo.Name, Name: event.Key.Name}
 		return noneIter[store.Key], singleIter[store.NamedKey](&node)
 	}
 
