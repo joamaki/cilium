@@ -17,16 +17,20 @@ k8s/add endpointslice.yaml service-mixed.yaml
 db/cmp frontends frontends-mixed.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-mixed.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-mixed.expected lbmaps.actual
+}
 
 # Delete the service
 k8s/delete service-mixed.yaml
 
 # Both the external and internal scoped node address frontends must be
 # removed.
-* db/empty services frontends
-* lb/maps-empty
+retry {
+    db/empty services frontends
+    lb/maps-empty
+}
 
 # Add the service back and switch it to a single scope.
 k8s/add service-mixed.yaml
@@ -35,16 +39,20 @@ k8s/update service-cluster.yaml
 db/cmp frontends frontends-cluster.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-cluster.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-cluster.expected lbmaps.actual
+}
 
 # Delete everything
 k8s/delete service-cluster.yaml endpointslice.yaml
 
 # The external scoped node address frontend must still be removed after
 # the internal scope was dropped.
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

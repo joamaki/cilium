@@ -3,39 +3,28 @@
 # Start the test application
 hive start
 
-# Create a LoadBalancer service with Local traffic policies and associate two backends 
-# to it, one of them on this node ("testnode") and one on another node.
+# Create a LoadBalancer service with Local traffic policies and associate two backends,
+# one on this node ("testnode") and one on another node.
 k8s/add service-local.yaml endpointslice.yaml
 db/cmp services services-local.table
 db/cmp frontends frontends-local.table
 db/cmp backends backends.table
 
-lb/maps-dump lbmaps-local.actual
-* cmp lbmaps-local.actual lbmaps-local.expected
+retry {
+    lb/maps-dump lbmaps-local.actual
+    cmp lbmaps-local.actual lbmaps-local.expected
+}
 
-# Update service to have mixed traffic policy, with eTP=Cluster, iTP=Local
-k8s/update service-mixed1.yaml
-db/cmp services services-mixed1.table
-db/cmp frontends frontends-mixed1.table
-
-lb/maps-dump lbmaps-mixed1.actual
-* cmp lbmaps-mixed1.actual lbmaps-mixed1.expected
-
-# Update service so the mixed traffic policy is reversed, with eTP=Local, iTP=Cluster
-k8s/update service-mixed2.yaml
-db/cmp services services-mixed2.table
-db/cmp frontends frontends-mixed2.table
-
-lb/maps-dump lbmaps-mixed2.actual
-* cmp lbmaps-mixed2.actual lbmaps-mixed2.expected
-
-# Update service so we now have a consistent policy of eTP/iTP=Cluster
-k8s/update service-cluster.yaml
-db/cmp services services-cluster.table
-db/cmp frontends frontends-cluster.table
-
-lb/maps-dump lbmaps-cluster.actual
-* cmp lbmaps-cluster.actual lbmaps-cluster.expected
+# mixed1 = eTP Cluster/iTP Local; mixed2 = eTP Local/iTP Cluster; cluster = both Cluster.
+foreach policy mixed1 mixed2 cluster {
+    k8s/update service-$policy.yaml
+    db/cmp services services-$policy.table
+    db/cmp frontends frontends-$policy.table
+    retry {
+        lb/maps-dump lbmaps-$policy.actual
+        cmp lbmaps-$policy.actual lbmaps-$policy.expected
+    }
+}
 
 #####
 

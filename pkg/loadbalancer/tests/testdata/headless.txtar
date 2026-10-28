@@ -9,17 +9,23 @@ k8s/add service_clusterip_none.yaml endpointslice.yaml
 # Check tables. The headless service should exist, but without frontends.
 db/cmp services services.table
 db/cmp backends backends.table 
-* db/empty frontends
+retry {
+    db/empty frontends
+}
 
 # The BPF maps should be empty since there are no frontends.
-* lb/maps-empty
+retry {
+    lb/maps-empty
+}
 
 # Cleanup the headless service. The endpoint slice is not deleted
 # so we still have backends referencing the removed service.
 k8s/delete service_clusterip_none.yaml
 
 # Check tables
-* db/empty services frontends
+retry {
+    db/empty services frontends
+}
 db/cmp backends backends.table
 
 # Add a non-headless service
@@ -29,26 +35,34 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table 
 
 # The BPF maps should now have the ClusterIP frontend
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Toggle the headless label
 replace 'placeholder' 'service.kubernetes.io/headless' service.yaml
 k8s/update service.yaml
 
 # Frontends are now removed.
-* db/empty frontends
+retry {
+    db/empty frontends
+}
 db/cmp services services.table
 db/cmp backends backends.table
 
 # The BPF maps should be empty since there are no frontends.
-* lb/maps-empty
+retry {
+    lb/maps-empty
+}
 
 # Clean up everything.
 k8s/delete service.yaml endpointslice.yaml
 
 # Tables should be empty
-* db/empty services frontends backends
+retry {
+    db/empty services frontends backends
+}
 
 #####
 

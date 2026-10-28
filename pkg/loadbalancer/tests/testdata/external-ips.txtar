@@ -10,15 +10,19 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table
 
 # Validate that check source-range is set on both LoadBalancer and ExternalIPs frontends.
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Cleanup
 k8s/delete service.yaml endpointslice.yaml
 
 # Maps and tables should be empty
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

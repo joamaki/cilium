@@ -6,8 +6,10 @@
 hive/start
 
 # Wait until the initial pruning is done to avoid it messing with the test
-metrics -s reconciler_prune_count -o metrics.actual
-* grep 'prune_count.*1' metrics.actual
+retry {
+    metrics -s reconciler_prune_count -o metrics.actual
+    grep 'prune_count.*1' metrics.actual
+}
 
 # Mark service as health checked
 test/set-is-service-healthchecked service.cilium.io/health-checked
@@ -18,35 +20,43 @@ db/cmp services services.table
 db/cmp backends backends_healthy1.table
 
 # Check BPF maps
-lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=0 QCOUNT=0' maps_init.expected
-* cmp maps.actual maps_init.expected
+retry {
+    lb/maps-dump maps.actual
+    grep 'SLOT=0.*COUNT=0 QCOUNT=0' maps_init.expected
+    cmp maps.actual maps_init.expected
+}
 
 # Report health of first backend as healthy (explicitly - due to SetIsServiceHealthchecked)
 test/update-backend-health test/echo 10.244.1.1:80/TCP true
 db/cmp backends backends_healthy1.table
 
 # Check BPF maps
-lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=1 QCOUNT=0' maps0.expected
-* cmp maps.actual maps0.expected
+retry {
+    lb/maps-dump maps.actual
+    grep 'SLOT=0.*COUNT=1 QCOUNT=0' maps0.expected
+    cmp maps.actual maps0.expected
+}
 
 # Mark the second backend as unhealthy (for this service)
 test/update-backend-health test/echo 10.244.1.2:80/TCP false
 db/cmp backends backends_unhealthy.table
 
 # Check BPF maps
-lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=1 QCOUNT=1' maps1.expected
-* cmp maps.actual maps1.expected
+retry {
+    lb/maps-dump maps.actual
+    grep 'SLOT=0.*COUNT=1 QCOUNT=1' maps1.expected
+    cmp maps.actual maps1.expected
+}
 
 # Take a snapshot of the BPF maps and clean up
 lb/maps-snapshot
 k8s/delete service.yaml endpointslice.yaml
 
 # Check that everything empty
-* db/empty frontends services backends
-* lb/maps-empty
+retry {
+    db/empty frontends services backends
+    lb/maps-empty
+}
 
 # Restore previous BPF map state and reset BPF ops to restore state from maps.
 lb/maps-restore
@@ -64,8 +74,10 @@ test/update-backend-health test/echo 10.244.1.2:80/TCP false
 test/update-backend-health test/echo 10.244.1.3:80/TCP true
 
 # Wait for reconciliation.
-db/show frontends --columns=Address,Status -o frontends.actual
-* grep '10.96.*Done' frontends.actual
+retry {
+    db/show frontends --columns=Address,Status -o frontends.actual
+    grep '10.96.*Done' frontends.actual
+}
 
 # Since we now have some restored data, force the prune to make sure 10.244.1.1
 # has been removed.
@@ -73,24 +85,30 @@ lb/prune
 
 # Wait until prune is done by checking that internal state
 # is clean.
-test/bpfops-summary
-* stdout 'restoredServiceIDs: 0'
+retry {
+    test/bpfops-summary
+    stdout 'restoredServiceIDs: 0'
+}
 stdout 'restoredBackendIDs: 0'
 
 # Check BPF maps. We should get the same contents as before but
 # with 10.244.1.1 gone and 10.244.1.3 added.
-lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=2 QCOUNT=1' maps2.expected
-* cmp maps.actual maps2.expected
+retry {
+    lb/maps-dump maps.actual
+    grep 'SLOT=0.*COUNT=2 QCOUNT=1' maps2.expected
+    cmp maps.actual maps2.expected
+}
 
 # Mark the quarantined backend as healthy again
 test/update-backend-health test/echo 10.244.1.2:80/TCP true
 db/cmp backends backends_healthy2.table
 
 # Check BPF maps
-lb/maps-dump maps.actual
-* grep 'SLOT=0.*COUNT=3 QCOUNT=0' maps3.expected
-* cmp maps.actual maps3.expected
+retry {
+    lb/maps-dump maps.actual
+    grep 'SLOT=0.*COUNT=3 QCOUNT=0' maps3.expected
+    cmp maps.actual maps3.expected
+}
 
 # The quarantined restored state is clean now.
 test/bpfops-summary

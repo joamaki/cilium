@@ -19,8 +19,10 @@ db/cmp services services.table
 db/cmp frontends frontends.table
 
 # Check the BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Check pressure metrics. We have 8 frontends and 8 backends, plus 1 wildcard
 # service entry for the underlying frontend IP Address. For NodePort we have 2
@@ -33,7 +35,9 @@ lb/maps-dump lbmaps.actual
 k8s/delete service.yaml endpointslice-ipv4.yaml endpointslice-ipv6.yaml
 
 # Tables should be empty
-* db/empty services frontends backends
+retry {
+    db/empty services frontends backends
+}
 
 #####
 

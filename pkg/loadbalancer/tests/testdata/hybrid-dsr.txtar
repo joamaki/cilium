@@ -12,8 +12,10 @@ db/cmp frontends frontends.table
 db/cmp services services.table
 
 # Check maps - TCP should have DSR flag, UDP should not
-lb/maps-dump maps.actual
-* cmp maps.actual maps.expected
+retry {
+    lb/maps-dump maps.actual
+    cmp maps.actual maps.expected
+}
 
 #####
 

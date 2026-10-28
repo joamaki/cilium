@@ -17,9 +17,13 @@ k8s/add service.yaml endpointslice.yaml
 k8s/delete service.yaml
 
 # Verify that eventually maps and state has been cleaned up
-* db/empty services frontends
-* lb/maps-empty
-* test/bpfops-state-empty
+retry {
+    db/empty services frontends
+    lb/maps-empty
+}
+retry {
+    test/bpfops-state-empty
+}
 
 ####
 

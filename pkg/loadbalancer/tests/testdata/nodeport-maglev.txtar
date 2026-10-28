@@ -22,22 +22,28 @@ db/cmp services services.table
 db/cmp frontends frontends.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Cleanup. Backends first in this test.
 k8s/delete endpointslice.yaml endpointslice2.yaml
 
 # Backends should be empty
-* db/empty backends
+retry {
+    db/empty backends
+}
 db/cmp frontends frontends_nobackends.table
 
 # Finally remove the services
 k8s/delete service.yaml service2.yaml
 
 # Check that tables and BPF maps are empty
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

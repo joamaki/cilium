@@ -9,14 +9,18 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table 
 
 # Check that BPF maps are reconciled
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Run prune. Nothing should change.
 lb/prune
 sleep 0.1s
-lb/maps-dump lbmaps.actual
-cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Snapshot the contents of the maps so we have something to prune.
 lb/maps-snapshot
@@ -25,18 +29,24 @@ lb/maps-snapshot
 k8s/delete service.yaml endpointslice.yaml
 
 # Tables and maps should be empty
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 # Restore the contents from the earlier snapshot.
 lb/maps-restore
-lb/maps-dump lbmaps.actual
-cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Force pruning. This should clean up everything.
 lb/prune
 # Check that everything gets cleaned up
-* lb/maps-empty
+retry {
+    lb/maps-empty
+}
 
 #####
 

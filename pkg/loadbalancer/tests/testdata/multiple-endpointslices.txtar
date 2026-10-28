@@ -13,7 +13,9 @@ db/cmp frontends frontends.table
 k8s/delete endpointslice.yaml endpointslice2.yaml endpointslice3.yaml
 
 # Wait for them to be gone
-* db/empty backends
+retry {
+    db/empty backends
+}
 
 # Add them back again
 k8s/add endpointslice.yaml endpointslice2.yaml endpointslice3.yaml
@@ -25,7 +27,9 @@ db/cmp frontends frontends.table
 k8s/delete service.yaml
 
 # Wait for it to be gone
-* db/empty services frontends
+retry {
+    db/empty services frontends
+}
 
 # And add it back
 k8s/add service.yaml

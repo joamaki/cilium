@@ -16,15 +16,19 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table
 
 # Check BPF maps. This should NOT contain wildcards.
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Cleanup.
 k8s/delete service.yaml eps.yaml
 
 # Everything should now be empty
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

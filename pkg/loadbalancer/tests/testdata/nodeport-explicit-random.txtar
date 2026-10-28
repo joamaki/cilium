@@ -23,22 +23,28 @@ db/cmp frontends frontends.table
 
 # Check BPF maps
 # The first service uses default settings, which in this test means maglev due to --bpf-lb-algorithm=maglev, while the second service has an explicit random annotation.
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Cleanup. Backends first in this test.
 k8s/delete endpointslice.yaml endpointslice2.yaml
 
 # Backends should now be empty.
-* db/empty backends
+retry {
+    db/empty backends
+}
 db/cmp frontends frontends_no_backends.table
 
 # Then delete the service
 k8s/delete service.yaml service2.yaml
 
 # Check that tables and BPF maps are empty
-* db/empty frontends services backends
-* lb/maps-empty
+retry {
+    db/empty frontends services backends
+    lb/maps-empty
+}
 
 #####
 

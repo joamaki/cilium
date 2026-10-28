@@ -19,22 +19,30 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table
 
 # Check BPF maps
-lb/maps-dump maps.actual
-* cmp maps.actual maps.expected
+retry {
+    lb/maps-dump maps.actual
+    cmp maps.actual maps.expected
+}
 
 # Drop the endpoints
 sed '^endpoints' '^not-endpoints' state.yaml
 
 # Backend table should be empty now
-* db/empty backends
+retry {
+    db/empty backends
+}
 
 # Empty file will clear everything
 mv state_empty.yaml state.yaml
 
 # Everything is empty
-* db/empty services frontends backends
-lb/maps-dump maps.actual
-* empty maps.actual
+retry {
+    db/empty services frontends backends
+}
+retry {
+    lb/maps-dump maps.actual
+    empty maps.actual
+}
 
 ###
 

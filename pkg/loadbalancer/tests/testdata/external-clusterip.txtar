@@ -7,9 +7,11 @@ hive start
 k8s/add service.yaml endpointslice.yaml
 
 # Check the BPF maps. The service should not be marked as "non-routable"
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
-! grep "non-routable" lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+    ! grep "non-routable" lbmaps.actual
+}
 
 #####
 

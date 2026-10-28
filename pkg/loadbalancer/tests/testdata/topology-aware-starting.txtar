@@ -23,8 +23,10 @@ hive/start
 db/cmp services services.table
 db/cmp backends backends-ready.table
 db/cmp frontends frontends-local.table
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.actual lbmaps-local.expected
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.actual lbmaps-local.expected
+}
 
 # The local backend starts draining: PreferSameNode must not select it as the
 # only candidate. Both backends stay associated with the frontend, but only the
@@ -33,8 +35,10 @@ lb/maps-dump lbmaps.actual
 k8s/update endpointslice-terminating.yaml
 db/cmp backends backends-terminating.table
 db/cmp frontends frontends-both.table
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.actual lbmaps-terminating.expected
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.actual lbmaps-terminating.expected
+}
 
 # A replacement local backend that is starting (ready=false, serving=false,
 # terminating=false -> BackendStateMaintenance) must also be ignored by the
@@ -45,16 +49,20 @@ lb/maps-dump lbmaps.actual
 k8s/update endpointslice-starting.yaml
 db/cmp backends backends-starting.table
 db/cmp frontends frontends-both.table
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.actual lbmaps-starting.expected
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.actual lbmaps-starting.expected
+}
 
 # Once the replacement local backend becomes ready/serving (Active),
 # PreferSameNode snaps back to it.
 k8s/update endpointslice-ready.yaml
 db/cmp backends backends-ready.table
 db/cmp frontends frontends-local.table
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.actual lbmaps-local.expected
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.actual lbmaps-local.expected
+}
 
 #####
 

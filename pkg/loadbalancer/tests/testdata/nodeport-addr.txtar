@@ -23,9 +23,11 @@ db/cmp services services.table
 db/cmp frontends frontends.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* grep 1.1.1.1 lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    grep 1.1.1.1 lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Insert new node addresses
 db/insert node-addresses addrv4-2.yaml
@@ -35,22 +37,28 @@ db/cmp node-addresses nodeaddrs-updated.table
 db/cmp frontends frontends.table
 
 # Check BPF maps
-lb/maps-dump lbmaps-updated.actual
-* grep 2.2.2.2 lbmaps-updated.actual
-* cmp lbmaps-updated.expected lbmaps-updated.actual
+retry {
+    lb/maps-dump lbmaps-updated.actual
+    grep 2.2.2.2 lbmaps-updated.actual
+    cmp lbmaps-updated.expected lbmaps-updated.actual
+}
 
 # Cleanup. Backends first in this test.
 k8s/delete endpointslice.yaml endpointslice2.yaml
 
 # Backends should be empty now.
-* db/empty backends
+retry {
+    db/empty backends
+}
 db/cmp frontends frontends_nobackends.table
 
 # Then delete the services
 k8s/delete service.yaml service2.yaml
 
 # All tables should be empty
-* db/empty frontends services backends
+retry {
+    db/empty frontends services backends
+}
 
 #####
 

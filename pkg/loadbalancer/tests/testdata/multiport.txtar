@@ -9,14 +9,18 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table 
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Cleanup
 k8s/delete service.yaml endpointslice.yaml
 
 # Tables should be empty now
-* db/empty services frontends backends
+retry {
+    db/empty services frontends backends
+}
 
 #####
 

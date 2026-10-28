@@ -9,8 +9,10 @@ db/cmp frontends frontends.table
 db/cmp services services.table
 
 # Check maps
-lb/maps-dump maps.actual
-* cmp maps.actual maps_snat.expected
+retry {
+    lb/maps-dump maps.actual
+    cmp maps.actual maps_snat.expected
+}
 
 # Set the forwarding mode to DSR
 sed 'placeholder: placeholder' 'service.cilium.io/forwarding-mode: dsr' service.yaml
@@ -18,8 +20,10 @@ k8s/update service.yaml
 db/cmp services services_dsr.table
 
 # Check maps
-lb/maps-dump maps.actual
-* cmp maps.actual maps_dsr.expected
+retry {
+    lb/maps-dump maps.actual
+    cmp maps.actual maps_dsr.expected
+}
 
 #####
 

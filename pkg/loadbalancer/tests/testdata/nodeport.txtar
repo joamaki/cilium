@@ -44,8 +44,8 @@ k8s/delete endpointslice.yaml
 # Backends should now be empty
 retry {
     db/empty backends
-    db/cmp frontends frontends_nobackends.table
 }
+db/cmp frontends frontends_nobackends.table
 
 # Check BPF maps
 retry {

@@ -15,8 +15,10 @@ test/init-wait
 # with one shared wildcard for the two ClusterIP frontends and one for the two
 # LoadBalancer frontends.
 db/cmp frontends enabled-frontends.table
-lb/maps-dump enabled.actual
-* cmp enabled.expected enabled.actual
+retry {
+    lb/maps-dump enabled.actual
+    cmp enabled.expected enabled.actual
+}
 
 hive/stop
 hive/recreate --kube-proxy-replacement=false
@@ -24,8 +26,10 @@ hive/recreate --kube-proxy-replacement=false
 # The replacement Hive has a fresh StateDB but sees the retained maps before
 # startup reconciliation removes frontends that are no longer candidates.
 db/empty services frontends backends
-lb/maps-dump retained.actual
-cmp enabled.expected retained.actual
+retry {
+    lb/maps-dump retained.actual
+    cmp enabled.expected retained.actual
+}
 
 db/insert node-addresses node-address.yaml
 hive/start
@@ -37,8 +41,10 @@ db/cmp frontends disabled-frontends.table
 
 # Wait for startup reconciliation and pruning to withdraw non-candidates while
 # retaining the ClusterIP and its backends.
-lb/maps-dump disabled.actual
-* cmp disabled.expected disabled.actual
+retry {
+    lb/maps-dump disabled.actual
+    cmp disabled.expected disabled.actual
+}
 
 hive/stop
 

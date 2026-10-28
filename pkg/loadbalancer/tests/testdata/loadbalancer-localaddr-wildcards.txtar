@@ -17,49 +17,63 @@ db/cmp services services.table
 db/cmp frontends frontends.table
 
 # Verify that ClusterIP and LoadBalancer IPs get wildcard ANY entries
-lb/maps-dump lbmaps-initial.actual
-* cmp lbmaps-initial.expected lbmaps-initial.actual
+retry {
+    lb/maps-dump lbmaps-initial.actual
+    cmp lbmaps-initial.expected lbmaps-initial.actual
+}
 
 # Add a node-address that clashes with the first LoadBalancer VIP
 # This should suppress the wildcard entry only for 172.16.1.1
 db/insert node-addresses addrv4-eth0.yaml
 db/cmp node-addresses nodeaddrs-clash-1.table
 db/cmp frontends frontends.table
-lb/maps-dump lbmaps-clash-1.actual
-* cmp lbmaps-clash-1.expected lbmaps-clash-1.actual
+retry {
+    lb/maps-dump lbmaps-clash-1.actual
+    cmp lbmaps-clash-1.expected lbmaps-clash-1.actual
+}
 
 # Add a second clashing node-address for the other LoadBalancer VIP
 # This should suppress wildcard entries for 172.16.1.2 as well now
 db/insert node-addresses addrv4-eth1.yaml
 db/cmp node-addresses nodeaddrs-clash-both.table
 db/cmp frontends frontends.table
-lb/maps-dump lbmaps-clash-both.actual
-* cmp lbmaps-clash-both.expected lbmaps-clash-both.actual
+retry {
+    lb/maps-dump lbmaps-clash-both.actual
+    cmp lbmaps-clash-both.expected lbmaps-clash-both.actual
+}
 
 # Remove the first clashing node-address
 # The first VIP should regain its wildcard entry, while the second should remain suppressed
 db/delete node-addresses addrv4-eth0.yaml
 db/cmp node-addresses nodeaddrs-clash-2.table
 db/cmp frontends frontends.table
-lb/maps-dump lbmaps-clash-2.actual
-* cmp lbmaps-clash-2.expected lbmaps-clash-2.actual
+retry {
+    lb/maps-dump lbmaps-clash-2.actual
+    cmp lbmaps-clash-2.expected lbmaps-clash-2.actual
+}
 
 # Remove the second clashing node-address and verify both wildcard entries return
 db/delete node-addresses addrv4-eth1.yaml
 db/cmp node-addresses nodeaddrs-initial.table
 db/cmp frontends frontends.table
-lb/maps-dump lbmaps-restored.actual
-* cmp lbmaps-restored.expected lbmaps-restored.actual
-* cmp lbmaps-initial.actual lbmaps-restored.actual
+retry {
+    lb/maps-dump lbmaps-restored.actual
+    cmp lbmaps-restored.expected lbmaps-restored.actual
+}
+cmp lbmaps-initial.actual lbmaps-restored.actual
 
 # Cleanup endpoint state first.
 k8s/delete endpointslice-multi.yaml endpointslice-single.yaml
-* db/empty backends
+retry {
+    db/empty backends
+}
 
 # Then delete the services and verify the datapath is empty again.
 k8s/delete service-multi.yaml service-single.yaml
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

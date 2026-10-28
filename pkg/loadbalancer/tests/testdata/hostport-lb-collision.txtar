@@ -22,14 +22,16 @@ hive start
 # node address. The BPF entry for 1.1.1.1:80/TCP should show FLAGS=LoadBalancer.
 k8s/add service.yaml endpointslice.yaml
 db/cmp services services.table
-* db/cmp frontends frontends_service_only.table
-* db/cmp backends backends.table
+db/cmp frontends frontends_service_only.table
+db/cmp backends backends.table
 
 # Verify the initial correct BPF state: 1.1.1.1:80/TCP must be a LoadBalancer entry.
-lb/maps-dump lbmaps.actual
-* cmp lbmaps_service_only.expected lbmaps.actual
-grep 'FLAGS=LoadBalancer$' lbmaps.actual
-! grep '1.1.1.1:80.*HostPort' lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps_service_only.expected lbmaps.actual
+    grep 'FLAGS=LoadBalancer$' lbmaps.actual
+    ! grep '1.1.1.1:80.*HostPort' lbmaps.actual
+}
 
 # Add a pod with hostPort=80 (no explicit HostIP, so it expands to all node addresses).
 # The HostPort frontend 0.0.0.0:80/TCP will try to expand to 1.1.1.1:80/TCP, but must
@@ -37,28 +39,34 @@ grep 'FLAGS=LoadBalancer$' lbmaps.actual
 k8s/add pod.yaml
 
 # Wait for the HostPort frontend to reach Done state before checking the BPF maps.
-* db/cmp frontends frontends_with_hostport.table
+db/cmp frontends frontends_with_hostport.table
 
 # Dump BPF maps and verify that the LoadBalancer entry has NOT been overwritten.
 # 1.1.1.1:80/TCP must still show FLAGS=LoadBalancer, not FLAGS=HostPort.
-lb/maps-dump lbmaps.actual
-* cmp lbmaps_with_hostport.expected lbmaps.actual
-grep 'FLAGS=LoadBalancer$' lbmaps.actual
-! grep '1.1.1.1:80.*FLAGS=HostPort' lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps_with_hostport.expected lbmaps.actual
+    grep 'FLAGS=LoadBalancer$' lbmaps.actual
+    ! grep '1.1.1.1:80.*FLAGS=HostPort' lbmaps.actual
+}
 
 # Simulate the 30-minute prune cycle. The fix must survive re-reconciliation of all
 # frontends; the LoadBalancer entry must still take priority over HostPort expansion.
 lb/prune
-lb/maps-dump lbmaps.actual
-* cmp lbmaps_with_hostport.expected lbmaps.actual
-grep 'FLAGS=LoadBalancer$' lbmaps.actual
-! grep '1.1.1.1:80.*FLAGS=HostPort' lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps_with_hostport.expected lbmaps.actual
+    grep 'FLAGS=LoadBalancer$' lbmaps.actual
+    ! grep '1.1.1.1:80.*FLAGS=HostPort' lbmaps.actual
+}
 
 # Cleanup
 k8s/delete service.yaml endpointslice.yaml pod.yaml
 
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

@@ -13,7 +13,9 @@ db/cmp frontends frontends.table
 k8s/resync discovery.k8s.io.v1.endpointslices
 
 # The backend should be gone after the resync
-* db/empty backends
+retry {
+    db/empty backends
+}
 
 # Restore the EndpointSlice so the next resync starts from the same state.
 k8s/add endpointslice.yaml
@@ -24,8 +26,12 @@ db/cmp frontends frontends.table
 k8s/resync v1.services
 
 # Services and frontends should now be empty and backends should be unaffected.
-* db/empty services
-* db/empty frontends
+retry {
+    db/empty services
+}
+retry {
+    db/empty frontends
+}
 db/cmp backends backends.table
 
 #####

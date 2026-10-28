@@ -19,16 +19,20 @@ db/cmp frontends frontends.table
 test/init-wait
 
 # Check the BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 # Cleanup
 k8s/delete service.yaml endpointslice.yaml
 
 # Check that BPF maps are emptied as otherwise the reconciler might
 # not have yet processed the deletion
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

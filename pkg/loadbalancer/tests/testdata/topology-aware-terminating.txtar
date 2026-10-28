@@ -53,7 +53,9 @@ db/cmp frontends frontends-both-terminating.table
 # === Cleanup ===
 k8s/delete endpointslice1-terminating.yaml endpointslice2-terminating.yaml
 db/cmp frontends frontends-none.table
-* db/empty backends
+retry {
+    db/empty backends
+}
 
 #####
 

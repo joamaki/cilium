@@ -23,8 +23,10 @@ db/cmp frontends frontends.table
 db/cmp backends backends-terminating.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-terminating.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-terminating.expected lbmaps.actual
+}
 
 # Restart the agent. The replacement agent restores the IDs and the quarantine
 # state from the retained maps and reconstructs the same contents from scratch.
@@ -36,8 +38,10 @@ db/cmp frontends frontends.table
 db/cmp backends backends-terminating.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-terminating.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-terminating.expected lbmaps.actual
+}
 
 # Set the first backend as not serving and second as ready+terminating.
 # First backend will be kept but in maintenance and not load-balanced.
@@ -56,15 +60,19 @@ db/cmp frontends frontends.table
 db/cmp backends backends-ready.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-ready.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-ready.expected lbmaps.actual
+}
 
 # Cleanup
 k8s/delete service.yaml endpointslice.yaml
 
 # Tables and maps should be empty now
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

@@ -18,11 +18,13 @@ hive start
 
 # Add a NodePort service. The NodePort 30781 will be expanded to 1.1.1.1:30781/TCP.
 k8s/add nodeport-service.yaml nodeport-endpointslice.yaml
-* db/cmp frontends frontends_nodeport.table
+db/cmp frontends frontends_nodeport.table
 
 # Verify initial BPF state: 1.1.1.1:30781/TCP must be FLAGS=NodePort.
-lb/maps-dump lbmaps.actual
-grep '1.1.1.1:30781.*FLAGS=NodePort' lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    grep '1.1.1.1:30781.*FLAGS=NodePort' lbmaps.actual
+}
 
 # Add a LoadBalancer service with external IP 1.1.1.1 and port 30781 (NodePort range).
 # The writer must skip the LoadBalancer frontend at 1.1.1.1:30781/TCP to avoid
@@ -31,25 +33,31 @@ k8s/add lb-service.yaml lb-endpointslice.yaml
 
 # Wait for the lb service's ClusterIP frontend to appear; the LoadBalancer frontend
 # at 1.1.1.1:30781/TCP must NOT appear (it was rejected by the writer guard).
-* db/cmp frontends frontends_with_lb.table
+db/cmp frontends frontends_with_lb.table
 
 # 1.1.1.1:30781/TCP must still be NodePort, not overwritten by the LoadBalancer.
-lb/maps-dump lbmaps.actual
-grep 'FLAGS=NodePort$' lbmaps.actual
-! grep '1.1.1.1:30781.*FLAGS=LoadBalancer' lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    grep 'FLAGS=NodePort$' lbmaps.actual
+    ! grep '1.1.1.1:30781.*FLAGS=LoadBalancer' lbmaps.actual
+}
 
 # Delete the LoadBalancer service. The NodePort entry at 1.1.1.1:30781/TCP must
 # remain immediately — no ~30-minute prune gap.
 k8s/delete lb-service.yaml lb-endpointslice.yaml
-* db/cmp frontends frontends_nodeport.table
+db/cmp frontends frontends_nodeport.table
 
-lb/maps-dump lbmaps.actual
-grep 'FLAGS=NodePort$' lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    grep 'FLAGS=NodePort$' lbmaps.actual
+}
 
 # Cleanup
 k8s/delete nodeport-service.yaml nodeport-endpointslice.yaml
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 
@@ -179,4 +187,3 @@ ports:
 - name: http
   port: 30781
   protocol: TCP
-

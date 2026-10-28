@@ -16,8 +16,10 @@ test/init-wait
 db/cmp services services.table
 db/cmp frontends frontends.table
 db/cmp backends backends.table
-lb/maps-dump before.actual
-* cmp before.expected before.actual
+retry {
+    lb/maps-dump before.actual
+    cmp before.expected before.actual
+}
 
 hive/stop
 
@@ -31,8 +33,10 @@ hive/recreate
 # The replacement Hive has a fresh StateDB but sees the retained maps before
 # startup reconciliation gets an opportunity to prune them.
 db/empty services frontends backends
-lb/maps-dump retained.actual
-cmp before.expected retained.actual
+retry {
+    lb/maps-dump retained.actual
+    cmp before.expected retained.actual
+}
 
 db/insert node-addresses node-address.yaml
 hive/start
@@ -41,9 +45,13 @@ test/init-wait
 # The fresh StateDB has no Service or frontend deletion event to replay. Startup
 # pruning must remove the BPF state restored from the previous agent. Backends
 # remain in StateDB because the EndpointSlice still exists.
-* db/empty services frontends
+retry {
+    db/empty services frontends
+}
 db/cmp backends backends.table
-* lb/maps-empty
+retry {
+    lb/maps-empty
+}
 
 hive/stop
 

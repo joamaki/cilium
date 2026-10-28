@@ -15,8 +15,10 @@ db/cmp services services.table
 db/cmp frontends frontends.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps.expected lbmaps.actual
+}
 
 #####
 

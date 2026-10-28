@@ -21,8 +21,10 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-active.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-active.expected lbmaps.actual
+}
 
 # Set the first backend as terminating. The second backend
 # will now serve the traffic.
@@ -37,8 +39,10 @@ k8s/update endpointslice.yaml
 db/cmp backends backends-terminating1.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-terminating1.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-terminating1.expected lbmaps.actual
+}
 
 # Set also the second backend as terminating. Now since there
 # are now active backends the terminating backends are used
@@ -55,8 +59,10 @@ db/cmp frontends frontends.table
 db/cmp backends backends-terminating2.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-terminating2.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-terminating2.expected lbmaps.actual
+}
 
 # Set the second backend as terminating AND not serving.
 # This now won't be used as a fallback.
@@ -72,8 +78,10 @@ db/cmp frontends frontends.table
 db/cmp backends backends-terminating3.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-terminating3.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-terminating3.expected lbmaps.actual
+}
 
 # Set the first backend as not serving and second as ready+terminating .
 # First backend will be kept but in maintenance and not load-balanced..
@@ -91,8 +99,10 @@ db/cmp frontends frontends.table
 db/cmp backends backends-terminating4.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-terminating4.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-terminating4.expected lbmaps.actual
+}
 
 # Set both ready&serving. First backend will be added back to services map.
 cp endpointslice.yaml.tmpl endpointslice.yaml
@@ -107,15 +117,19 @@ db/cmp frontends frontends.table
 db/cmp backends backends.table
 
 # Check BPF maps
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-active.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-active.expected lbmaps.actual
+}
 
 # Cleanup
 k8s/delete service.yaml endpointslice.yaml
 
 # Tables and maps should be empty now
-* db/empty services frontends backends
-* lb/maps-empty
+retry {
+    db/empty services frontends backends
+    lb/maps-empty
+}
 
 #####
 

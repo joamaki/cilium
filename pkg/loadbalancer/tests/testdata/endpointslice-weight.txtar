@@ -16,8 +16,10 @@ db/cmp backends backends-weighted.expected.table
 db/show backends -f json -o backends-weighted.json
 cmp backends-weighted.json backends-weighted.expected.json
 
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-weighted.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-weighted.expected lbmaps.actual
+}
 
 # Mark the first EndpointSlice as weight 0. Both backends from that slice
 # should enter maintenance and disappear from the Maglev table, while the
@@ -30,8 +32,10 @@ db/cmp backends backends-maintenance.expected.table
 db/show backends -f json -o backends-maintenance.json
 cmp backends-maintenance.json backends-maintenance.expected.json
 
-lb/maps-dump lbmaps.actual
-* cmp lbmaps-maintenance.expected lbmaps.actual
+retry {
+    lb/maps-dump lbmaps.actual
+    cmp lbmaps-maintenance.expected lbmaps.actual
+}
 
 k8s/delete service.yaml endpointslice1.yaml endpointslice2.yaml
 
