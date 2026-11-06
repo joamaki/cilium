@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -21,9 +22,11 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/policy/compute"
+	"github.com/cilium/cilium/pkg/quota"
 	wgTypes "github.com/cilium/cilium/pkg/wireguard/types"
 
 	"github.com/cilium/hive/cell"
+	"github.com/cilium/statedb"
 )
 
 // EndpointParams is used to pass the many dependencies required
@@ -31,6 +34,8 @@ import (
 type EndpointParams struct {
 	cell.In
 
+	QuotaAccounting     quota.Accounting
+	StateDB             *statedb.DB
 	Logger              *slog.Logger
 	EPBuildQueue        EndpointBuildQueue
 	Loader              loader.Loader

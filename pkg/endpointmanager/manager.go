@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -758,9 +759,12 @@ func (mgr *endpointManager) GetEndpointList(params endpointapi.GetEndpointParams
 // RestoreEndpoint exposes the specified endpoint to other subsystems via the
 // manager.
 func (mgr *endpointManager) RestoreEndpoint(ep *endpoint.Endpoint) error {
+	if err := ep.RestoreHostPorts(); err != nil {
+		return err
+	}
 	err := mgr.expose(ep)
 	if err != nil {
-		return err
+		return errors.Join(err, ep.ReleaseHostPorts())
 	}
 	mgr.mutex.RLock()
 	// Unlock the mutex after reading the subscribers list to not block

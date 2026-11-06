@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -19,6 +20,7 @@ import (
 	"sync/atomic"
 
 	"github.com/cilium/hive/cell"
+	"github.com/cilium/statedb"
 	"github.com/vishvananda/netlink"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sTypes "k8s.io/apimachinery/pkg/types"
@@ -62,6 +64,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/policy/compute"
 	"github.com/cilium/cilium/pkg/proxy/accesslog"
+	"github.com/cilium/cilium/pkg/quota"
 	"github.com/cilium/cilium/pkg/time"
 	"github.com/cilium/cilium/pkg/trigger"
 	"github.com/cilium/cilium/pkg/types"
@@ -150,6 +153,10 @@ type Endpoint struct {
 	ipsecConfig      ipsec.Config
 	lxcMap           lxcmap.Map
 	localNodeStore   node.NodeGetter
+
+	quotaDB             *statedb.DB
+	quotaAccounting     quota.Accounting
+	hostPortReservation *hostPortReservation
 
 	epBuildQueue EndpointBuildQueue
 
@@ -622,6 +629,8 @@ func createEndpoint(
 	ID uint16,
 	ifName string, policyDebugLog io.Writer) *Endpoint {
 	ep := &Endpoint{
+		quotaDB:            p.StateDB,
+		quotaAccounting:    p.QuotaAccounting,
 		dnsRulesAPI:        dnsRulesAPI,
 		epBuildQueue:       p.EPBuildQueue,
 		loader:             p.Loader,
@@ -959,6 +968,8 @@ func ParseEndpoint(p EndpointParams,
 	proxy EndpointProxy, epJSON []byte,
 	policyDebugLog io.Writer) (*Endpoint, error) {
 	ep := Endpoint{
+		quotaDB:          p.StateDB,
+		quotaAccounting:  p.QuotaAccounting,
 		dnsRulesAPI:      dnsRulesAPI,
 		epBuildQueue:     p.EPBuildQueue,
 		loader:           p.Loader,
@@ -2772,6 +2783,9 @@ func (e *Endpoint) Delete(conf DeleteConfig) []error {
 		return []error{}
 	}
 	e.setState(StateDisconnecting, "Deleting endpoint")
+	if err := e.releaseHostPortsLocked(); err != nil {
+		errs = append(errs, err)
+	}
 
 	cloudIPAM := option.Config.IPAM == ipamOption.IPAMENI || option.Config.IPAM == ipamOption.IPAMAzure || option.Config.IPAM == ipamOption.IPAMAlibabaCloud
 	delegatedRouting := option.Config.IPAM == ipamOption.IPAMDelegatedPlugin && option.Config.InstallUplinkRoutesForDelegatedIPAM
@@ -3042,6 +3056,8 @@ func (e *Endpoint) CopyFromTemplate() *Endpoint {
 		compilationLock:    e.compilationLock,
 		createdAt:          e.createdAt,
 		ctMapGC:            e.ctMapGC,
+		quotaDB:            e.quotaDB,
+		quotaAccounting:    e.quotaAccounting,
 		dnsRulesAPI:        e.dnsRulesAPI,
 		epBuildQueue:       e.epBuildQueue,
 		forcePolicyCompute: e.forcePolicyCompute,

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -386,6 +387,7 @@ func (e *Endpoint) restoreIdentity(regenerator *Regenerator) error {
 func (e *Endpoint) toSerializedEndpoint() *serializableEndpoint {
 	return &serializableEndpoint{
 		ID:                    e.ID,
+		HostPortReservation:   e.hostPortReservation,
 		ContainerID:           e.GetContainerID(),
 		ContainerNetnsPath:    e.containerNetnsPath,
 		IfName:                e.ifName,
@@ -426,6 +428,9 @@ func (e *Endpoint) toSerializedEndpoint() *serializableEndpoint {
 // marked as private to JSON marshal. Do NOT modify this structure in ways which
 // is not JSON forward compatible.
 type serializableEndpoint struct {
+	// HostPortReservation is the accepted ADD-time charge, retained across restarts.
+	HostPortReservation *hostPortReservation `json:"HostPortReservation,omitempty"`
+
 	// ID of the endpoint, unique in the scope of the node
 	ID uint16
 
@@ -560,6 +565,7 @@ func (ep *Endpoint) MarshalJSON() ([]byte, error) {
 
 func (ep *Endpoint) fromSerializedEndpoint(r *serializableEndpoint) {
 	ep.ID = r.ID
+	ep.hostPortReservation = r.HostPortReservation
 	ep.createdAt = time.Now()
 	ep.initialEnvoyPolicyComputed = make(chan struct{})
 	ep.containerID.Store(&r.ContainerID)

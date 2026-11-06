@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -50,7 +51,8 @@ type EndpointAPIManager interface {
 }
 
 type endpointAPIManager struct {
-	logger *slog.Logger
+	logger    *slog.Logger
+	hostPorts *hostPortQuota
 
 	endpointManager       endpointmanager.EndpointManager
 	endpointCreator       endpointcreator.EndpointCreator
@@ -86,7 +88,7 @@ func (m *endpointAPIManager) errorDuringCreation(ep *endpoint.Endpoint, err erro
 
 // createEndpoint attempts to create the endpoint corresponding to the change
 // request that was specified.
-func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *models.EndpointChangeRequest) (*endpoint.Endpoint, int, error) {
+func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *models.EndpointChangeRequest) (_ *endpoint.Endpoint, _ int, err error) {
 	if option.Config.EnableEndpointRoutes {
 		if epTemplate.DatapathConfiguration == nil {
 			epTemplate.DatapathConfiguration = &models.EndpointDatapathConfiguration{}
@@ -200,6 +202,22 @@ func (m *endpointAPIManager) CreateEndpoint(ctx context.Context, epTemplate *mod
 	ctx, cancel = context.WithCancel(ctx)
 	m.endpointCreations.NewCreateRequest(ep, cancel)
 	defer m.endpointCreations.EndCreateRequest(ep)
+
+	defer func() {
+		if err != nil {
+			if releaseErr := ep.ReleaseHostPorts(); releaseErr != nil {
+				m.logger.Error("Failed to release HostPort quota", logfields.Error, releaseErr)
+			}
+		}
+	}()
+
+	amount, quotaErr := m.hostPorts.count(epTemplate.PortMappings, ep.IPv4.IsValid(), ep.IPv6.IsValid())
+	if quotaErr != nil {
+		return m.errorDuringCreation(ep, quotaErr)
+	}
+	if quotaErr = ep.ReserveHostPorts(amount); quotaErr != nil {
+		return m.errorDuringCreation(ep, quotaErr)
+	}
 
 	identityLbls := maps.Clone(apiLabels)
 

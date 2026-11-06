@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -35,7 +36,7 @@ var Cell = cell.Module(
 	cell.Provide(newEndpointAPIHandler),
 
 	// EndpointAPIManager provides functionality to support the API
-	cell.Provide(newEndpointAPIManager),
+	cell.Provide(newEndpointAPIManager, newHostPortQuota),
 
 	// EndpointCreationManager keeps track of all currently ongoing endpoint creations
 	cell.ProvidePrivate(newEndpointCreationManager),
@@ -69,6 +70,7 @@ type endpointAPIManagerParams struct {
 	Clientset        k8sClient.Clientset
 	CNIConfigManager cni.CNIConfigManager
 	IPAM             *ipam.IPAM
+	HostPortQuota    *hostPortQuota
 }
 
 func newEndpointAPIManager(params endpointAPIManagerParams) EndpointAPIManager {
@@ -83,6 +85,7 @@ func newEndpointAPIManager(params endpointAPIManagerParams) EndpointAPIManager {
 		clientset:             params.Clientset,
 		cniConfigManager:      params.CNIConfigManager,
 		ipam:                  params.IPAM,
+		hostPorts:             params.HostPortQuota,
 	}
 }
 
