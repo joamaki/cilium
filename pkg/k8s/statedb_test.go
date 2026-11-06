@@ -202,6 +202,7 @@ type reflectorTestParams struct {
 	doQueryAll      bool
 	doMerge         bool
 	doCRDSync       bool
+	doOnReplace     bool
 }
 
 func TestStateDBReflector(t *testing.T) {
@@ -235,6 +236,12 @@ func TestStateDBReflector(t *testing.T) {
 			doMerge:         true,
 		})
 	})
+	t.Run("OnReplace", func(t *testing.T) {
+		testStateDBReflector(t, reflectorTestParams{
+			doTransformMany: true,
+			doOnReplace:     true,
+		})
+	})
 }
 
 func testStateDBReflector(t *testing.T, p reflectorTestParams) {
@@ -255,6 +262,7 @@ func testStateDBReflector(t *testing.T, p reflectorTestParams) {
 		db                                           *statedb.DB
 		table                                        statedb.Table[*testObject]
 		transformCalled, queryAllCalled, mergeCalled atomic.Bool
+		onReplaceCalled, transformAfterReplace       atomic.Bool
 	)
 
 	lw := testutils.NewFakeListerWatcher(
@@ -278,6 +286,9 @@ func testStateDBReflector(t *testing.T, p reflectorTestParams) {
 	if p.doTransformMany {
 		transformManyFunc = func(_ statedb.ReadTxn, deleted bool, a any) (toInsert, toDelete iter.Seq[*testObject]) {
 			transformCalled.Store(true)
+			if p.doOnReplace {
+				transformAfterReplace.Store(onReplaceCalled.Load())
+			}
 			obj := a.(*testObject).DeepCopy()
 			obj.Transform = "transform-many"
 			if deleted {
@@ -326,6 +337,9 @@ func testStateDBReflector(t *testing.T, p reflectorTestParams) {
 					QueryAll:       queryAllFunc,
 					Merge:          mergeFunc,
 					CRDSync:        crdSyncPromise,
+					OnReplace: func(statedb.WriteTxn) {
+						onReplaceCalled.Store(true)
+					},
 				}
 			},
 			newTestTable,
@@ -360,10 +374,13 @@ func testStateDBReflector(t *testing.T, p reflectorTestParams) {
 		require.False(t, initialized, "table unexpectedly initialized with unresolved CRDSync")
 		crdSyncResolver.Resolve(synced.CRDSync{})
 	}
-
 	// Wait until the table has been initialized.
 	_, initWatch := table.Initialized(db.ReadTxn())
 	<-initWatch
+	if p.doOnReplace {
+		assert.True(t, onReplaceCalled.Load(), "OnReplace callback was not called")
+		assert.True(t, transformAfterReplace.Load(), "OnReplace callback was called after transforming replacement items")
+	}
 
 	// After initialization we should see the node that was created
 	// before starting.
