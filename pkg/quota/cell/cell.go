@@ -5,6 +5,7 @@
 package quotacell
 
 import (
+	quotasources "github.com/cilium/cilium/pkg/quota/sources"
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/statedb"
 
@@ -15,9 +16,8 @@ import (
 var Cell = cell.Module(
 	"quota",
 	"Resource quotas",
+	cell.Config(quotasources.DefaultConfig),
 	cell.ProvidePrivate(quota.NewTable),
-	cell.Provide(
-		statedb.RWTable[quota.ResourceQuota].ToTable,
-		quota.NewAccounting,
-	),
+	cell.Provide(statedb.RWTable[quota.ResourceQuota].ToTable, quota.NewAccounting),
+	cell.Invoke(quotasources.ApplyConfig),
 )

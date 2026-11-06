@@ -1,0 +1,50 @@
+#! --resource-quotas=*:cilium.io/hostports-per-node=100k --resource-quotas=*:cilium.io/serviceports=12 --resource-quotas=team-a:cilium.io/hostports-per-node=500
+# This file was not reviewed by a human before submission
+hive start
+
+db/cmp resource-quotas quotas.table
+quota/reserve default cilium.io/hostports-per-node test 100000
+db/cmp resource-quotas used.table
+! quota/reserve default cilium.io/hostports-per-node another 1
+quota/release default cilium.io/hostports-per-node test
+db/cmp resource-quotas quotas.table
+
+# Namespace limits override defaults and remain present after release.
+quota/reserve team-a cilium.io/hostports-per-node test 500
+db/cmp resource-quotas namespace-used.table
+! quota/reserve team-a cilium.io/hostports-per-node another 1
+quota/release team-a cilium.io/hostports-per-node test
+db/cmp resource-quotas quotas.table
+
+# Other resources in the same namespace still inherit wildcard defaults.
+quota/reserve team-a cilium.io/serviceports inherited 12
+db/cmp resource-quotas inherited-used.table
+! quota/reserve team-a cilium.io/serviceports extra 1
+quota/release team-a cilium.io/serviceports inherited
+db/cmp resource-quotas quotas.table
+
+-- quotas.table --
+Namespace   Name                           Source   Origin   Hard     Used   Inputs
+            cilium.io/hostports-per-node   api      config   100000   0      api:config=100000
+            cilium.io/serviceports         api      config   12       0      api:config=12
+team-a      cilium.io/hostports-per-node   api      config   500      0      api:config=500
+
+-- used.table --
+Namespace   Name                           Source   Origin   Hard     Used     Inputs
+            cilium.io/hostports-per-node   api      config   100000   0        api:config=100000
+            cilium.io/serviceports         api      config   12       0        api:config=12
+default     cilium.io/hostports-per-node                     100000   100000
+team-a      cilium.io/hostports-per-node   api      config   500      0        api:config=500
+
+-- namespace-used.table --
+Namespace   Name                           Source   Origin   Hard     Used   Inputs
+            cilium.io/hostports-per-node   api      config   100000   0      api:config=100000
+            cilium.io/serviceports         api      config   12       0      api:config=12
+team-a      cilium.io/hostports-per-node   api      config   500      500    api:config=500
+
+-- inherited-used.table --
+Namespace   Name                           Source   Origin   Hard     Used   Inputs
+            cilium.io/hostports-per-node   api      config   100000   0      api:config=100000
+            cilium.io/serviceports         api      config   12       0      api:config=12
+team-a      cilium.io/hostports-per-node   api      config   500      0      api:config=500
+team-a      cilium.io/serviceports                           12       12
