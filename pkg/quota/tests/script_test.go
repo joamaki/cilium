@@ -1,0 +1,96 @@
+// This file was not reviewed by a human before submission
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Authors of Cilium
+
+package tests
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"strconv"
+	"testing"
+
+	uhive "github.com/cilium/hive"
+	"github.com/cilium/hive/cell"
+	"github.com/cilium/hive/hivetest"
+	"github.com/cilium/hive/script"
+	"github.com/cilium/hive/script/scripttest"
+	"github.com/cilium/statedb"
+	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/cilium/cilium/pkg/hive"
+	k8sClient "github.com/cilium/cilium/pkg/k8s/client/testutils"
+	"github.com/cilium/cilium/pkg/quota"
+	quotacell "github.com/cilium/cilium/pkg/quota/cell"
+	"github.com/cilium/cilium/pkg/time"
+)
+
+func TestScript(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	log := hivetest.Logger(t)
+	scripttest.Test(t, ctx, func(t testing.TB, args []string) *script.Engine {
+		h := hive.New(
+			k8sClient.FakeClientCell(),
+			quotacell.Cell,
+			cell.Provide(func(db *statedb.DB, table statedb.Table[quota.ResourceQuota], accounting quota.Accounting) uhive.ScriptCmdsOut {
+				return uhive.NewScriptCmds(map[string]script.Cmd{
+					"quota/acquire": quotaUsageCommand(db, table, accounting, true),
+					"quota/release": quotaUsageCommand(db, table, accounting, false),
+				})
+			}),
+			cell.Invoke(func(statedb.Table[quota.ResourceQuota]) {}),
+		)
+
+		flags := pflag.NewFlagSet("", pflag.ContinueOnError)
+		h.RegisterFlags(flags)
+		t.Cleanup(func() {
+			assert.NoError(t, h.Stop(log, context.TODO()))
+		})
+		cmds, err := h.ScriptCommands(log)
+		require.NoError(t, err, "ScriptCommands")
+		maps.Insert(cmds, maps.All(script.DefaultCmds()))
+		return &script.Engine{Cmds: cmds}
+	}, []string{}, "testdata/*.txtar")
+}
+
+func quotaUsageCommand(db *statedb.DB, table statedb.Table[quota.ResourceQuota], accounting quota.Accounting, acquire bool) script.Cmd {
+	operation := "Release"
+	if acquire {
+		operation = "Acquire"
+	}
+	return script.Command(
+		script.CmdUsage{
+			Summary: fmt.Sprintf("Apply quota Accounting.%s in one StateDB transaction", operation),
+			Args:    "namespace resource amount [resource amount...]",
+		},
+		func(_ *script.State, args ...string) (script.WaitFunc, error) {
+			if len(args) < 3 || (len(args)-1)%2 != 0 {
+				return nil, script.ErrUsage
+			}
+
+			txn := db.WriteTxn(table)
+			defer txn.Abort()
+			for i := 1; i < len(args); i += 2 {
+				amount, err := strconv.ParseUint(args[i+1], 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("parsing amount %q: %w", args[i+1], err)
+				}
+				resource := quota.ResourceName(args[i])
+				if acquire {
+					err = accounting.Acquire(txn, args[0], resource, amount)
+				} else {
+					err = accounting.Release(txn, args[0], resource, amount)
+				}
+				if err != nil {
+					return nil, err
+				}
+			}
+			txn.Commit()
+			return nil, nil
+		},
+	)
+}

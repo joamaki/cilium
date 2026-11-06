@@ -1,0 +1,33 @@
+# Account quota usage transactionally, including rejecting an over-limit change.
+hive start
+db/initialized
+
+db/insert resource-quotas quota.yaml
+db/cmp resource-quotas quota-used.table
+quota/acquire default cilium.io/hostports 2
+db/cmp resource-quotas quota-acquired.table
+! quota/acquire default cilium.io/hostports 3
+db/cmp resource-quotas quota-acquired.table
+quota/release default cilium.io/hostports 1
+db/cmp resource-quotas quota-released.table
+
+-- quota.yaml --
+namespace: default
+name: cilium.io/hostports
+hard: 4
+used: 1
+inputs:
+- source: k8s
+  origin: default/hostports
+  hard: 4
+
+-- quota-used.table --
+Namespace   Name                   Source   Origin             Hard   Used   Inputs
+default     cilium.io/hostports    k8s      default/hostports  4      1      k8s:default/hostports=4
+-- quota-acquired.table --
+Namespace   Name                   Source   Origin             Hard   Used   Inputs
+default     cilium.io/hostports    k8s      default/hostports  4      3      k8s:default/hostports=4
+-- quota-released.table --
+Namespace   Name                   Source   Origin             Hard   Used   Inputs
+
+default     cilium.io/hostports    k8s      default/hostports  4      2      k8s:default/hostports=4
