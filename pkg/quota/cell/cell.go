@@ -15,13 +15,9 @@ import (
 var Cell = cell.Module(
 	"quota",
 	"Resource quotas",
-	cell.Provide(newTable),
+	cell.ProvidePrivate(quota.NewTable),
+	cell.Provide(
+		statedb.RWTable[quota.ResourceQuota].ToTable,
+		quota.NewAccounting,
+	),
 )
-
-func newTable(db *statedb.DB) (statedb.Table[quota.ResourceQuota], error) {
-	table, err := quota.NewTable(db)
-	if err != nil {
-		return nil, err
-	}
-	return table.ToTable(), nil
-}

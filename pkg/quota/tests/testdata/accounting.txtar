@@ -1,0 +1,52 @@
+# This file was not reviewed by a human before submission
+# Account quota usage transactionally, including rejecting an over-limit change.
+hive start
+db/initialized
+
+db/insert resource-quotas quota.yaml
+quota/reserve default cilium.io/hostports-per-node initial 1
+db/cmp resource-quotas quota-used.table
+quota/reserve default cilium.io/hostports-per-node test 2
+quota/reserve default cilium.io/hostports-per-node test 2
+db/cmp resource-quotas quota-acquired.table
+! quota/reserve default cilium.io/other aborted 3 cilium.io/hostports-per-node test 4
+db/cmp resource-quotas quota-acquired.table
+quota/reserve default cilium.io/hostports-per-node test 1
+db/cmp resource-quotas quota-released.table
+
+# Release is idempotent, and restoring existing usage may exceed the limit.
+quota/release default cilium.io/hostports-per-node test
+quota/release default cilium.io/hostports-per-node test
+quota/restore default cilium.io/hostports-per-node restored 8
+quota/restore default cilium.io/hostports-per-node restored 8
+! quota/reserve default cilium.io/hostports-per-node restored 9
+quota/reserve default cilium.io/hostports-per-node restored 6
+db/cmp resource-quotas over-limit.table
+quota/release default cilium.io/hostports-per-node restored
+db/cmp resource-quotas quota-used.table
+
+-- quota.yaml --
+namespace: default
+name: cilium.io/hostports-per-node
+hard: 4
+used: 0
+inputs:
+- source: k8s
+  origin: default/hostports
+  hard: 4
+
+-- quota-used.table --
+Namespace   Name                           Source   Origin              Hard   Used   Inputs
+default     cilium.io/hostports-per-node   k8s      default/hostports   4      1      k8s:default/hostports=4
+
+-- quota-acquired.table --
+Namespace   Name                           Source   Origin              Hard   Used   Inputs
+default     cilium.io/hostports-per-node   k8s      default/hostports   4      3      k8s:default/hostports=4
+
+-- quota-released.table --
+Namespace   Name                           Source   Origin              Hard   Used   Inputs
+default     cilium.io/hostports-per-node   k8s      default/hostports   4      2      k8s:default/hostports=4
+
+-- over-limit.table --
+Namespace   Name                           Source   Origin              Hard   Used   Inputs
+default     cilium.io/hostports-per-node   k8s      default/hostports   4      7      k8s:default/hostports=4
