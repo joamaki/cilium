@@ -96,6 +96,7 @@ import (
 	policyK8s "github.com/cilium/cilium/pkg/policy/k8s"
 	"github.com/cilium/cilium/pkg/pprof"
 	"github.com/cilium/cilium/pkg/proxy"
+	quotaCell "github.com/cilium/cilium/pkg/quota/cell"
 	"github.com/cilium/cilium/pkg/signal"
 	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/status"
@@ -391,6 +392,7 @@ var (
 
 		// Provides a wrapper of the cilium config that can be watched dynamically
 		dynamicconfig.Cell,
+		quotaCell.Cell,
 
 		// Provides the manager for WithDynamicFeature()
 		// Which allows to group the cell lifecycles together and control the enablement
