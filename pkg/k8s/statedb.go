@@ -271,6 +271,12 @@ type ReflectorConfig[Obj any] struct {
 	// The object given to the transform function can be modified without copying.
 	TransformMany TransformManyFunc[Obj]
 
+	// Optional function called before processing the items from a Replace event,
+	// using the transaction that will apply the replacement. Use this to reset
+	// state maintained alongside the reflector or update the target table before
+	// it processes the replacement list.
+	OnReplace func(statedb.WriteTxn)
+
 	// Optional function to query all objects. Used when replacing the objects on resync.
 	// This can be used to "namespace" the objects managed by this reflector, e.g. on
 	// source.Source etc.
@@ -515,6 +521,9 @@ func (r *k8sReflector[Obj]) run(ctx context.Context, health cell.Health) error {
 
 		txn := r.db.WriteTxn(table)
 		if buf.replaceItems != nil {
+			if r.OnReplace != nil {
+				r.OnReplace(txn)
+			}
 			indexer := table.PrimaryIndexer()
 			inserted := sets.New[string]()
 
