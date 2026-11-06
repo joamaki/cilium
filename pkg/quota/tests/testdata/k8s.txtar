@@ -1,0 +1,81 @@
+#! --resource-quotas=*:cilium.io/hostports-per-node=5 --resource-quotas=default:cilium.io/hostports-per-node=3
+# This file was not reviewed by a human before submission
+# Reflect Cilium quota keys and aggregate duplicate ResourceQuota objects by
+# taking the smallest hard limit.
+hive start
+db/initialized
+
+k8s/add quota-a.yaml quota-b.yaml
+db/cmp resource-quotas quotas.table
+
+# Kubernetes limits override configured defaults through source priority.
+quota/reserve default cilium.io/hostports-per-node test 20
+! quota/reserve default cilium.io/hostports-per-node another 1
+quota/release default cilium.io/hostports-per-node test
+db/cmp resource-quotas quotas.table
+
+# Updating the limiting quota should reveal the next-smallest hard limit.
+k8s/update quota-a-raised.yaml
+db/cmp resource-quotas quotas-raised.table
+
+# Deleting one ResourceQuota should remove only its contribution.
+k8s/delete quota-a-raised.yaml
+db/cmp resource-quotas quotas-remaining.table
+
+# Deleting the last Kubernetes contributor reveals namespace config again.
+k8s/delete quota-b.yaml
+db/cmp resource-quotas config-only.table
+
+-- quotas.table --
+Namespace   Name                           Source   Origin            Hard   Used   Inputs
+            cilium.io/hostports-per-node   api      config            5      0      api:config=5
+default     cilium.io/hostports-per-node   k8s      default/quota-a   20     0      k8s:default/quota-a=20,k8s:default/quota-b=30,api:config=3
+default     cilium.io/serviceports         k8s      default/quota-a   10     0      k8s:default/quota-a=10
+
+-- quotas-raised.table --
+Namespace   Name                           Source   Origin            Hard   Used   Inputs
+            cilium.io/hostports-per-node   api      config            5      0      api:config=5
+default     cilium.io/hostports-per-node   k8s      default/quota-b   30     0      k8s:default/quota-b=30,k8s:default/quota-a=40,api:config=3
+default     cilium.io/serviceports         k8s      default/quota-a   10     0      k8s:default/quota-a=10
+
+-- quotas-remaining.table --
+Namespace   Name                           Source   Origin            Hard   Used   Inputs
+            cilium.io/hostports-per-node   api      config            5      0      api:config=5
+default     cilium.io/hostports-per-node   k8s      default/quota-b   30     0      k8s:default/quota-b=30,api:config=3
+
+-- config-only.table --
+Namespace   Name                           Source   Origin   Hard   Used   Inputs
+            cilium.io/hostports-per-node   api      config   5      0      api:config=5
+default     cilium.io/hostports-per-node   api      config   3      0      api:config=3
+
+-- quota-a.yaml --
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-a
+  namespace: default
+spec:
+  hard:
+    cilium.io/hostports-per-node: "20"
+    cilium.io/serviceports: "10"
+
+-- quota-b.yaml --
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-b
+  namespace: default
+spec:
+  hard:
+    cilium.io/hostports-per-node: "30"
+
+-- quota-a-raised.yaml --
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-a
+  namespace: default
+spec:
+  hard:
+    cilium.io/hostports-per-node: "40"
+    cilium.io/serviceports: "10"

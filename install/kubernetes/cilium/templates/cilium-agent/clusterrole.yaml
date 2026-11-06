@@ -1,3 +1,4 @@
+{{/* This file was not reviewed by a human before submission */}}
 {{- $readSecretsOnlyFromSecretsNamespace := eq (include "readSecretsOnlyFromSecretsNamespace" .) "true" -}}
 
 {{- if and .Values.agent (not .Values.preflight.enabled) .Values.rbac.create }}
@@ -39,6 +40,7 @@ rules:
   - ""
   resources:
   - namespaces
+  - resourcequotas
   - services
   - pods
   - nodes

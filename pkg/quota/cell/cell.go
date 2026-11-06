@@ -18,7 +18,7 @@ var Cell = cell.Module(
 	"Resource quotas",
 	cell.Config(quotasources.DefaultConfig),
 	metrics.Metric(newQuotaMetrics),
-	cell.ProvidePrivate(quota.NewTable),
+	cell.ProvidePrivate(quotasources.NewTableAndReflector),
 	cell.Provide(statedb.RWTable[quota.ResourceQuota].ToTable, quota.NewAccounting),
 	cell.Invoke(quotasources.ApplyConfig, observeHealth),
 )
