@@ -47,6 +47,7 @@ func TestScript(t *testing.T) {
 
 		flags := pflag.NewFlagSet("", pflag.ContinueOnError)
 		h.RegisterFlags(flags)
+		require.NoError(t, flags.Parse(args), "parse args")
 		t.Cleanup(func() {
 			assert.NoError(t, h.Stop(log, context.TODO()))
 		})

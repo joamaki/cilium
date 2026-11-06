@@ -1,0 +1,26 @@
+#! --default-resource-quotas=cilium.io/hostports=100k --default-resource-quotas=cilium.io/serviceports=12
+# This file was not reviewed by a human before submission
+hive start
+
+db/cmp resource-quotas names.table
+quota/acquire default cilium.io/hostports 100000
+db/cmp resource-quotas used.table
+! quota/acquire default cilium.io/hostports 1
+quota/release default cilium.io/hostports 100000
+db/cmp resource-quotas released.table
+
+-- names.table --
+Name
+cilium.io/hostports
+cilium.io/serviceports
+
+-- used.table --
+Used
+0
+0
+100000
+
+-- released.table --
+Used
+0
+0
