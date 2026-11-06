@@ -1,0 +1,78 @@
+#! --default-resource-quotas=cilium.io/hostports=5
+# Reflect Cilium quota keys and aggregate duplicate ResourceQuota objects by
+# taking the smallest hard limit.
+hive start
+db/initialized
+
+k8s/add quota-a.yaml quota-b.yaml
+db/cmp resource-quotas quotas.table
+
+# Kubernetes limits override configured defaults through source priority.
+quota/acquire default cilium.io/hostports 20
+! quota/acquire default cilium.io/hostports 1
+quota/release default cilium.io/hostports 20
+db/cmp resource-quotas quotas.table
+
+# Updating the limiting quota should reveal the next-smallest hard limit.
+k8s/update quota-a-raised.yaml
+db/cmp resource-quotas quotas-raised.table
+
+# Deleting one ResourceQuota should remove only its contribution.
+k8s/delete quota-a-raised.yaml
+db/cmp resource-quotas quotas-remaining.table
+
+# Deleting the last contributor removes the quota row.
+k8s/delete quota-b.yaml
+db/cmp resource-quotas config-only.table
+
+-- quotas.table --
+Source  Origin          Hard
+api     config          5
+k8s     default/quota-a 20
+k8s     default/quota-a 10
+-- quotas-raised.table --
+Source  Origin          Hard
+api     config          5
+k8s     default/quota-b 30
+k8s     default/quota-a 10
+
+-- quotas-remaining.table --
+Source  Origin          Hard
+api     config          5
+k8s     default/quota-b 30
+-- config-only.table --
+Source  Origin Hard
+api     config 5
+
+-- quota-a.yaml --
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-a
+  namespace: default
+spec:
+  hard:
+    cilium.io/hostports: "20"
+    cilium.io/serviceports: "10"
+
+-- quota-b.yaml --
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-b
+  namespace: default
+spec:
+  hard:
+    cilium.io/hostports: "30"
+
+-- quota-a-raised.yaml --
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-a
+  namespace: default
+spec:
+  hard:
+    cilium.io/hostports: "40"
+    cilium.io/serviceports: "10"
+
