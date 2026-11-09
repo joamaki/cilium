@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -210,6 +211,7 @@ func (f *GenericVethChainer) Add(ctx context.Context, pluginCtx chainingapi.Plug
 			IPv6: vethIPv6,
 		},
 		ContainerID:            pluginCtx.Args.ContainerID,
+		PortMappings:           pluginCtx.NetConf.RuntimeConfig.PortMappings,
 		State:                  models.EndpointStateWaitingDashForDashIdentity.Pointer(),
 		HostMac:                hostMac,
 		InterfaceIndex:         int64(vethHostIdx),

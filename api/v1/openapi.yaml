@@ -1,3 +1,4 @@
+# This file was not reviewed by a human before submission
 ---
 swagger: '2.0'
 info:
@@ -1176,6 +1177,26 @@ definitions:
       status:
         description: The desired and realized configuration state of the endpoint
         "$ref": "#/definitions/EndpointStatus"
+  PortMapping:
+    description: A port mapping supplied through the CNI portMappings capability.
+    type: object
+    properties:
+      hostIP:
+        description: Host address to bind, or empty for all host addresses.
+        type: string
+      hostPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+      containerPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+      protocol:
+        type: string
+        enum: [tcp, udp, sctp]
+        default: tcp
+
   EndpointChangeRequest:
     description: |
       Structure which contains the mutable elements of an Endpoint.
@@ -1183,6 +1204,12 @@ definitions:
     required:
       - state
     properties:
+      port-mappings:
+        description: Host port mappings supplied by the container runtime during CNI ADD.
+        type: array
+        items:
+          "$ref": "#/definitions/PortMapping"
+
       id:
         description: Local endpoint ID
         type: integer

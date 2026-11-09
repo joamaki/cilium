@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -105,6 +106,7 @@ var cniConfigs map[string]string = map[string]string{
   "plugins": [
     {
        "type": "cilium-cni",
+       "capabilities": {"portMappings": true},
        "enable-debug": {{.Debug | js }},
        "log-file": "{{.LogFile | js }}"
     }
@@ -131,6 +133,7 @@ var cniConfigs map[string]string = map[string]string{
     },
     {
        "type": "cilium-cni",
+       "capabilities": {"portMappings": true},
        "chaining-mode": "flannel",
        "enable-debug": {{.Debug | js }},
        "log-file": "{{.LogFile | js }}"
@@ -145,6 +148,7 @@ var cniConfigs map[string]string = map[string]string{
   "plugins": [
     {
        "type": "cilium-cni",
+       "capabilities": {"portMappings": true},
        "enable-debug": {{.Debug | js }},
        "log-file": "{{.LogFile | js }}"
     },
@@ -161,6 +165,7 @@ var cniConfigs map[string]string = map[string]string{
 const chainedCNIEntry = `
 {
 	"type": "cilium-cni",
+       "capabilities": {"portMappings": true},
 	"chaining-mode": "{{.ChainingMode | js }}",
 	"enable-debug": {{.Debug | js }},
 	"log-file": "{{.LogFile | js }}"

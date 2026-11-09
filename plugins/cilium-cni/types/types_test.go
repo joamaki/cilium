@@ -1,9 +1,12 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
 package types
 
 import (
+	"encoding/json"
+	"github.com/cilium/cilium/api/v1/models"
 	"os"
 	"path"
 	"testing"
@@ -310,4 +313,30 @@ func TestReadCNIConfError(t *testing.T) {
 
 	_, err = ReadNetConf(p)
 	require.Error(t, err)
+}
+
+func TestLoadNetConfPortMappings(t *testing.T) {
+	conf, err := LoadNetConf([]byte(`{
+  "name":"cilium", "type":"cilium-cni", "runtimeConfig":{"portMappings":[
+   {"hostIP":"127.0.0.1","hostPort":8080,"containerPort":80,"protocol":"tcp"},
+   {"hostIP":"::1","hostPort":5353,"containerPort":53,"protocol":"udp"},
+   {"hostPort":9090,"containerPort":90}
+  ]}
+ }`))
+	require.NoError(t, err)
+	mappings := conf.RuntimeConfig.PortMappings
+	require.Len(t, mappings, 3)
+	require.Equal(t, "127.0.0.1", mappings[0].HostIP)
+	require.Equal(t, int64(8080), mappings[0].HostPort)
+	require.Equal(t, int64(80), mappings[0].ContainerPort)
+	require.Equal(t, "tcp", *mappings[0].Protocol)
+	require.Equal(t, "::1", mappings[1].HostIP)
+	require.Equal(t, "udp", *mappings[1].Protocol)
+	require.Empty(t, mappings[2].HostIP)
+	request := models.EndpointChangeRequest{PortMappings: mappings}
+	data, err := json.Marshal(&request)
+	require.NoError(t, err)
+	var decoded models.EndpointChangeRequest
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Equal(t, mappings, decoded.PortMappings)
 }

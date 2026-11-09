@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -12,6 +13,7 @@ import (
 	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/version"
 
+	"github.com/cilium/cilium/api/v1/models"
 	alibabaCloudTypes "github.com/cilium/cilium/pkg/alibabacloud/types"
 	awsTypes "github.com/cilium/cilium/pkg/aws/types"
 	azureTypes "github.com/cilium/cilium/pkg/azure/types"
@@ -21,6 +23,7 @@ import (
 // NetConf is the Cilium specific CNI network configuration
 type NetConf struct {
 	cniTypes.NetConf
+	RuntimeConfig  RuntimeConfig          `json:"runtimeConfig,omitempty"`
 	MTU            int                    `json:"mtu"`
 	Args           Args                   `json:"args"`
 	EnableRouteMTU bool                   `json:"enable-route-mtu"`
@@ -32,6 +35,11 @@ type NetConf struct {
 	LogFormat      string                 `json:"log-format"`
 	LogFile        string                 `json:"log-file"`
 	ChainingMode   string                 `json:"chaining-mode"`
+}
+
+// RuntimeConfig contains capability arguments provided by the container runtime.
+type RuntimeConfig struct {
+	PortMappings []*models.PortMapping `json:"portMappings,omitempty"`
 }
 
 // IPAM is the Cilium specific CNI IPAM configuration

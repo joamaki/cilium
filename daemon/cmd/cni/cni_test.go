@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -60,6 +61,7 @@ func TestRenderCNIConfUnchained(t *testing.T) {
 		res := gjson.GetBytes(conf, `plugins.#(type=="cilium-cni").log-file`)
 		assert.True(t, res.Exists(), mode)
 		assert.Equal(t, `/opt"/cni.log`, res.String(), mode)
+		assert.True(t, gjson.GetBytes(conf, `plugins.#(type=="cilium-cni").capabilities.portMappings`).Bool(), mode)
 	}
 }
 
@@ -121,6 +123,7 @@ func TestRenderCNIConfChained(t *testing.T) {
     },
 	{
 		"type": "cilium-cni",
+		"capabilities": {"portMappings": true},
 		"chaining-mode": "testing",
 		"enable-debug": false,
 		"log-file": "/opt\"/cni.log"
@@ -156,6 +159,7 @@ func TestRenderCNIConfChained(t *testing.T) {
     },
 	{
 		"type": "cilium-cni",
+		"capabilities": {"portMappings": true},
 		"chaining-mode": "testing",
 		"enable-debug": false,
 		"log-file": "/opt\"/cni.log"
@@ -198,6 +202,7 @@ func TestRenderCNIConfChained(t *testing.T) {
     },
     {
 		"type": "cilium-cni",
+		"capabilities": {"portMappings": true},
 		"chaining-mode": "testing",
 		"enable-debug": false,
 		"log-file": "/opt\"/cni.log"
