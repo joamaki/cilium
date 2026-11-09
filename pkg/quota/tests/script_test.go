@@ -22,6 +22,8 @@ import (
 
 	"github.com/cilium/cilium/pkg/hive"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client/testutils"
+	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/quota"
 	quotacell "github.com/cilium/cilium/pkg/quota/cell"
 	"github.com/cilium/cilium/pkg/time"
@@ -34,6 +36,8 @@ func TestScript(t *testing.T) {
 	scripttest.Test(t, ctx, func(t testing.TB, args []string) *script.Engine {
 		h := hive.New(
 			k8sClient.FakeClientCell(),
+			metrics.Cell,
+			cell.Provide(func() *option.DaemonConfig { return &option.DaemonConfig{} }),
 			quotacell.Cell,
 			cell.Provide(func(db *statedb.DB, table statedb.Table[quota.ResourceQuota], accounting quota.Accounting) uhive.ScriptCmdsOut {
 				return uhive.NewScriptCmds(map[string]script.Cmd{

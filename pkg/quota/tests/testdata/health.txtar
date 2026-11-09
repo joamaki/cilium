@@ -1,0 +1,175 @@
+# This file was not reviewed by a human before submission
+hive start
+db/initialized
+db/insert resource-quotas a.yaml b.yaml
+db/cmp resource-quotas initial.table
+quota/reserve a cilium.io/service-ports first 1
+db/cmp --grep=job-quota-health health healthy.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-empty.table metrics.actual
+
+# Rejected requests and aborted transactions must not degrade health.
+! quota/reserve a cilium.io/service-ports another 1
+! quota/restore a cilium.io/service-ports first 2 cilium.io/other aborted invalid
+db/cmp --grep=job-quota-health health healthy.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-empty.table metrics.actual
+
+# Aggregate all committed over-limit reservations, including restored usage.
+quota/restore a cilium.io/service-ports first 2
+db/cmp --grep=job-quota-health health exceeded-a.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-a.table metrics.actual
+quota/restore b cilium.io/hostports-per-node second 5
+db/cmp --grep=job-quota-health health exceeded-both.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-both.table metrics.actual
+db/cmp resource-quotas exceeded.table
+quota/release a cilium.io/service-ports first
+db/cmp --grep=job-quota-health health exceeded-b.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-b.table metrics.actual
+
+# Raising the hard limit recovers without requiring a usage change.
+db/insert resource-quotas b-raised.yaml
+db/cmp --grep=job-quota-health health healthy.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-empty.table metrics.actual
+db/insert resource-quotas b-held.yaml
+db/cmp --grep=job-quota-health health exceeded-b.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-b.table metrics.actual
+# Zero limits have an absolute excess without division by zero.
+db/insert resource-quotas b-zero.yaml
+db/cmp --grep=job-quota-health health exceeded-b-zero.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-b-zero.table metrics.actual
+
+# Removing the configured quota clears the series while usage is still held.
+db/insert resource-quotas b-unlimited.yaml
+db/cmp --grep=job-quota-health health healthy.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-empty.table metrics.actual
+quota/release b cilium.io/hostports-per-node second
+db/cmp --grep=job-quota-health health healthy.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-empty.table metrics.actual
+
+db/delete resource-quotas a.yaml
+# Wait independently so retries do not replay mutations.
+* db/empty resource-quotas
+db/cmp --grep=job-quota-health health healthy.table
+metrics -o metrics.actual cilium_quota_excess
+cmp metrics-empty.table metrics.actual
+
+-- a.yaml --
+namespace: a
+name: cilium.io/service-ports
+hard: 1
+used: 0
+inputs:
+- source: api
+  origin: config
+  hard: 1
+
+-- b.yaml --
+namespace: b
+name: cilium.io/hostports-per-node
+hard: 2
+used: 0
+inputs:
+- source: api
+  origin: config
+  hard: 2
+
+-- b-raised.yaml --
+namespace: b
+name: cilium.io/hostports-per-node
+hard: 5
+used: 5
+inputs:
+- source: api
+  origin: config
+  hard: 5
+reservations:
+- k: second
+  v: 5
+
+-- healthy.table --
+Module   Component          Level   Message                                 Error
+quota    job-quota-health   OK      All resource quotas are within limits
+
+-- exceeded-a.table --
+Module   Component          Level      Message                      Error
+quota    job-quota-health   Degraded   1 resource quota exceeded    namespace="a" resource="cilium.io/service-ports" used=2 hard=1
+
+-- exceeded-both.table --
+Module   Component          Level      Message                      Error
+quota    job-quota-health   Degraded   2 resource quotas exceeded   namespace="a" resource="cilium.io/service-ports" used=2 hard=1; namespace="b" resource="cilium.io/hostports-per-node" used=5 hard=2
+
+-- exceeded-b.table --
+Module   Component          Level      Message                      Error
+quota    job-quota-health   Degraded   1 resource quota exceeded    namespace="b" resource="cilium.io/hostports-per-node" used=5 hard=2
+
+-- exceeded.table --
+Namespace   Name                           Source   Origin    Hard   Used   Inputs
+a           cilium.io/service-ports        api      config    1      2      api:config=1
+b           cilium.io/hostports-per-node   api      config    2      5      api:config=2
+
+-- initial.table --
+Namespace   Name                           Source   Origin    Hard   Used   Inputs
+a           cilium.io/service-ports        api      config    1      0      api:config=1
+b           cilium.io/hostports-per-node   api      config    2      0      api:config=2
+
+-- b-zero.yaml --
+namespace: b
+name: cilium.io/hostports-per-node
+hard: 0
+used: 5
+inputs:
+- source: api
+  origin: config
+  hard: 0
+reservations:
+- k: second
+  v: 5
+
+-- exceeded-b-zero.table --
+Module   Component          Level      Message                      Error
+quota    job-quota-health   Degraded   1 resource quota exceeded    namespace="b" resource="cilium.io/hostports-per-node" used=5 hard=0
+
+-- metrics-empty.table --
+Metric   Labels   Value
+-- metrics-a.table --
+Metric                Labels                                         Value
+cilium_quota_excess   namespace=a resource=cilium.io/service-ports   1.000000
+-- metrics-both.table --
+Metric                Labels                                              Value
+cilium_quota_excess   namespace=a resource=cilium.io/service-ports        1.000000
+cilium_quota_excess   namespace=b resource=cilium.io/hostports-per-node   3.000000
+-- metrics-b.table --
+Metric                Labels                                              Value
+cilium_quota_excess   namespace=b resource=cilium.io/hostports-per-node   3.000000
+-- metrics-b-zero.table --
+Metric                Labels                                              Value
+cilium_quota_excess   namespace=b resource=cilium.io/hostports-per-node   5.000000
+-- b-held.yaml --
+namespace: b
+name: cilium.io/hostports-per-node
+hard: 2
+used: 5
+inputs:
+- source: api
+  origin: config
+  hard: 2
+reservations:
+- k: second
+  v: 5
+-- b-unlimited.yaml --
+namespace: b
+name: cilium.io/hostports-per-node
+hard: 18446744073709551615
+used: 5
+reservations:
+- k: second
+  v: 5
