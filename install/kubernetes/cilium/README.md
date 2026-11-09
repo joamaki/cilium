@@ -1,3 +1,4 @@
+<!-- This file was not reviewed by a human before submission -->
 # cilium
 
 ![Version: 1.21.0-dev](https://img.shields.io/badge/Version-1.21.0--dev-informational?style=flat-square) ![AppVersion: 1.21.0-dev](https://img.shields.io/badge/AppVersion-1.21.0--dev-informational?style=flat-square)
@@ -191,6 +192,7 @@ contributors across the globe, there is almost always someone available to help.
 | ciliumEndpointSlice | object | `{"enabled":false,"rateLimits":[{"burst":20,"limit":10,"nodes":0},{"burst":100,"limit":50,"nodes":100}]}` | CiliumEndpointSlice configuration options. |
 | ciliumEndpointSlice.enabled | bool | `false` | Enable Cilium EndpointSlice feature. |
 | ciliumEndpointSlice.rateLimits | list | `[{"burst":20,"limit":10,"nodes":0},{"burst":100,"limit":50,"nodes":100}]` | List of rate limit options to be used for the CiliumEndpointSlice controller. Each object in the list must have the following fields: nodes: Count of nodes at which to apply the rate limit. limit: The sustained request rate in requests per second. The maximum rate that can be configured is 50. burst: The burst request rate in requests per second. The maximum burst that can be configured is 100. |
+| ciliumResourceQuotas | object | `{"*:cilium.io/hostports-per-node":"100"}` | Resource quotas keyed by namespace:resource. Use * as the namespace for per-namespace defaults. Values accept quantities such as 10k. For example: {"*:cilium.io/service-ports": "10k", "team-a:cilium.io/hostports-per-node": "100"}. |
 | cleanBpfState | bool | `false` | Clean all eBPF datapath state from the initContainer of the cilium-agent DaemonSet.  WARNING: Use with care! |
 | cleanState | bool | `false` | Clean all local Cilium state from the initContainer of the cilium-agent DaemonSet. Implies cleanBpfState: true.  WARNING: Use with care! |
 | cluster.id | int | `0` | Unique ID of the cluster. Must be unique across all connected clusters and in the range of 1 to 255. Only required for Cluster Mesh, may be 0 if Cluster Mesh is not used. |

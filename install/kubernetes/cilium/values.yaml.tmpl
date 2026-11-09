@@ -1,3 +1,4 @@
+# This file was not reviewed by a human before submission
 
 # @schema
 # type: [null, string]
@@ -313,6 +314,17 @@ extraHostPathMounts: []
 extraVolumes: []
 # -- Additional agent volumeMounts.
 extraVolumeMounts: []
+# @schema
+# type: object
+# additionalProperties:
+#   type: string
+# @schema
+# -- Resource quotas keyed by namespace:resource. Use * as the namespace for
+# per-namespace defaults. Values accept quantities such as 10k.
+# For example: {"*:cilium.io/service-ports": "10k", "team-a:cilium.io/hostports-per-node": "100"}.
+ciliumResourceQuotas:
+  "*:cilium.io/hostports-per-node": "100"
+
 # -- extraConfig allows you to specify additional configuration parameters to be
 # included in the cilium-config configmap.
 extraConfig: {}

@@ -1,3 +1,4 @@
+{{/* This file was not reviewed by a human before submission */}}
 {{- if and ( or (.Values.agent) (.Values.operator.enabled) .Values.clustermesh.useAPIServer) (not .Values.preflight.enabled) }}
 {{- /*  Default values with backwards compatibility */ -}}
 {{- $defaultBpfMapDynamicSizeRatio := 0.0 -}}
@@ -1581,6 +1582,13 @@ data:
 
 # Extra config allows adding arbitrary properties to the cilium config.
 # By putting it at the end of the ConfigMap, it's also possible to override existing properties.
+{{- if .Values.ciliumResourceQuotas }}
+  {{- $quotas := list }}
+  {{- range $resource, $limit := .Values.ciliumResourceQuotas }}
+  {{- $quotas = append $quotas (printf "%s=%v" $resource $limit) }}
+  {{- end }}
+  resource-quotas: {{ join "," $quotas | quote }}
+{{- end }}
 {{- if .Values.extraConfig }}
   {{ toYaml .Values.extraConfig | nindent 2 }}
 {{- end }}
