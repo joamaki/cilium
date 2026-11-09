@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -51,6 +52,7 @@ import (
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/nodeipamconfig"
 	"github.com/cilium/cilium/pkg/option"
+	quotacell "github.com/cilium/cilium/pkg/quota/cell"
 	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/testutils"
 	"github.com/cilium/cilium/pkg/time"
@@ -178,6 +180,7 @@ func (rt *scriptRuntime) newHive(extraArgs []string) (*hive.Hive, map[string]scr
 			lbMaps = m
 		}),
 
+		quotacell.Cell,
 		lbcell.Cell,
 	)
 

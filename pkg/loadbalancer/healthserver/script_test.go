@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -48,6 +49,7 @@ import (
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/nodeipamconfig"
 	"github.com/cilium/cilium/pkg/option"
+	quotacell "github.com/cilium/cilium/pkg/quota/cell"
 	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -87,6 +89,7 @@ func TestScript(t *testing.T) {
 				k8sTables.TablesCell,
 				metrics.Cell,
 
+				quotacell.Cell,
 				lbcell.Cell,
 
 				cell.Config(loadbalancer.TestConfig{}),

@@ -1,0 +1,202 @@
+#! --bpf-lb-external-clusterip=false --resource-quotas=test:cilium.io/service-ports=1
+# This file was not reviewed by a human before submission
+hive start
+db/cmp resource-quotas unused.table
+k8s/add service.yaml
+db/cmp resource-quotas used.table
+db/cmp frontends original.table
+
+# Reject the entire update and retain both the old frontend and reservation.
+k8s/update expanded.yaml
+db/cmp --grep=reflect-services-endpoints health degraded.table
+db/cmp frontends original.table
+db/cmp resource-quotas used.table
+
+# Raising the limit retries the rejected spec without another Service update.
+db/insert resource-quotas raised.yaml
+db/cmp frontends expanded.table
+db/cmp resource-quotas full.table
+
+# Lowering the quota preserves existing allocation, but rejects a new Service.
+db/insert resource-quotas lowered.yaml
+db/cmp resource-quotas lowered.table
+k8s/add second.yaml
+db/cmp --grep=reflect-services-endpoints health degraded.table
+db/cmp frontends expanded.table
+
+# Reductions are allowed even when the namespace is already above its limit.
+k8s/update service.yaml
+db/cmp frontends original.table
+db/cmp resource-quotas used.table
+
+# Deletion frees capacity and automatically retries the waiting Service.
+k8s/delete expanded.yaml
+db/cmp frontends second.table
+db/cmp resource-quotas used.table
+
+# Rebuild accounting from Kubernetes with fresh StateDB state after a restart.
+# Real BPF maps in privileged tests belong to the old Hive and cannot be retained.
+[!privileged] hive/stop
+[!privileged] hive/recreate
+[!privileged] hive/start
+db/cmp frontends second.table
+db/cmp resource-quotas used.table
+
+# A pending Service that encounters a frontend conflict must roll back its charge.
+k8s/add conflict.yaml
+db/cmp --grep=reflect-services-endpoints health degraded.table
+db/insert resource-quotas raised-second.yaml
+db/cmp --grep=reflect-services-endpoints health conflict.table
+db/cmp resource-quotas available.table
+k8s/delete conflict.yaml
+db/cmp --grep=reflect-services-endpoints health healthy.table
+db/insert resource-quotas quota.yaml
+db/cmp resource-quotas used.table
+k8s/delete second.yaml
+
+# Wait for asynchronous deletion without replaying earlier mutations.
+* db/empty services frontends
+db/cmp resource-quotas unused.table
+
+-- unused.table --
+Namespace   Name                      Source   Origin       Hard   Used   Inputs
+test        cilium.io/service-ports   api      config       1      0      api:config=1
+
+-- used.table --
+Namespace   Name                      Source   Origin       Hard   Used   Inputs
+test        cilium.io/service-ports   api      config       1      1      api:config=1
+
+-- full.table --
+Namespace   Name                      Source   Origin       Hard   Used   Inputs
+test        cilium.io/service-ports   api      config       2      2      api:config=2
+
+-- original.table --
+Address
+10.0.0.1:80/TCP
+-- expanded.table --
+Address
+10.0.0.1:80/TCP
+10.0.0.1:81/TCP
+-- second.table --
+Address
+10.0.0.2:80/TCP
+-- quota.yaml --
+namespace: test
+name: cilium.io/service-ports
+hard: 1
+used: 1
+inputs:
+- source: api
+  origin: config
+  hard: 1
+reservations:
+- k: service/test/second
+  v: 1
+-- raised.yaml --
+namespace: test
+name: cilium.io/service-ports
+hard: 2
+used: 1
+inputs:
+- source: api
+  origin: config
+  hard: 2
+reservations:
+- k: service/test/first
+  v: 1
+-- service.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: test
+  name: first
+spec:
+  clusterIP: 10.0.0.1
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+-- expanded.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: test
+  name: first
+spec:
+  clusterIP: 10.0.0.1
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+  - name: extra
+    protocol: TCP
+    port: 81
+-- second.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: test
+  name: second
+spec:
+  clusterIP: 10.0.0.2
+  ports:
+  - protocol: TCP
+    port: 80
+
+-- degraded.table --
+Component                               Level
+job-reflect-services-endpoints          Degraded
+
+-- lowered.table --
+Namespace   Name                      Source   Origin       Hard   Used   Inputs
+test        cilium.io/service-ports   api      config       1      2      api:config=1
+
+-- available.table --
+Namespace   Name                      Source   Origin       Hard   Used   Inputs
+test        cilium.io/service-ports   api      config       2      1      api:config=2
+
+-- conflict.yaml --
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: test
+  name: conflict
+spec:
+  clusterIP: 10.0.0.2
+  ports:
+  - protocol: TCP
+    port: 80
+
+-- healthy.table --
+Component                               Level
+job-reflect-services-endpoints          OK
+
+-- conflict.table --
+Component                               Error
+job-reflect-services-endpoints          frontend already owned by another service: 10.0.0.2:80/TCP is owned by test/second
+
+-- lowered.yaml --
+namespace: test
+name: cilium.io/service-ports
+hard: 1
+used: 2
+inputs:
+- source: api
+  origin: config
+  hard: 1
+reservations:
+- k: service/test/first
+  v: 2
+
+-- raised-second.yaml --
+namespace: test
+name: cilium.io/service-ports
+hard: 2
+used: 1
+inputs:
+- source: api
+  origin: config
+  hard: 2
+reservations:
+- k: service/test/second
+  v: 1

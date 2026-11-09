@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -52,6 +53,7 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/nodeipamconfig"
 	"github.com/cilium/cilium/pkg/option"
+	quotacell "github.com/cilium/cilium/pkg/quota/cell"
 	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -85,6 +87,7 @@ func TestScript(t *testing.T) {
 			daemonk8s.ResourcesCell,
 			cell.Config(envoyCfg.SecretSyncConfig{}),
 			k8sTables.TablesCell,
+			quotacell.Cell,
 			lbcell.Cell,
 
 			maglev.Cell,

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -38,7 +39,9 @@ import (
 	"github.com/cilium/cilium/pkg/loadbalancer/writer"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/node"
+	"github.com/cilium/cilium/pkg/quota"
 	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -60,6 +63,7 @@ var K8sReflectorCell = cell.Module(
 	"Reflects load-balancing state from Kubernetes",
 
 	cell.Provide(provideK8sReflector),
+	metrics.Metric(newServiceQuotaMetrics),
 	cell.ProvidePrivate(newEventStream),
 	cell.Invoke(func(_ K8sReflectorRegistered) {}),
 )
@@ -67,6 +71,8 @@ var K8sReflectorCell = cell.Module(
 type reflectorParams struct {
 	cell.In
 
+	Accounting             quota.Accounting
+	QuotaMetrics           *serviceQuotaMetrics
 	DB                     *statedb.DB
 	Log                    *slog.Logger
 	Lifecycle              cell.Lifecycle
@@ -209,12 +215,27 @@ func runPodReflector(ctx context.Context, health cell.Health, p reflectorParams,
 func runServiceEndpointsReflector(ctx context.Context, health cell.Health, p reflectorParams, initServices, initEndpoints func(writer.WriteTxn)) error {
 	rh := newReflectorHealth(health, p.Log)
 
+	// Wait for configured quotas before admitting the initial Service list.
+	_, initialized := p.Accounting.Table().Initialized(p.DB.ReadTxn())
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-initialized:
+	}
+	pending := map[loadbalancer.ServiceName]*slim_corev1.Service{}
+	releaseQuota := func(txn writer.WriteTxn, name loadbalancer.ServiceName) {
+		if err := p.Accounting.Release(txn, name.Namespace(), quota.ServicePorts, serviceReservationID(name)); err != nil {
+			p.Log.Error("Failed to release Service quota", logfields.Service, name.String(), logfields.Error, err)
+		}
+	}
+
 	upsertService := func(txn writer.WriteTxn, obj *slim_corev1.Service) {
+		name := loadbalancer.NewServiceName(obj.Namespace, obj.Name)
+		delete(pending, name)
 		localNode, _, _ := p.Nodes.Get(txn, node.LocalNodeQuery)
 		svc, fes := convertService(p.Config, p.ExtConfig, p.Log, localNode, obj, source.Kubernetes)
 		if svc == nil {
 			// The service should not be provisioned on this agent. Try to delete if it was previously.
-			name := loadbalancer.NewServiceName(obj.Namespace, obj.Name)
 			rh.update("svc:"+name.String(), nil)
 
 			oldSvc, err := p.Writer.DeleteServiceAndFrontends(txn, name)
@@ -225,22 +246,43 @@ func runServiceEndpointsReflector(ctx context.Context, health cell.Health, p ref
 			if oldSvc != nil {
 				p.SVCMetrics.DelService(oldSvc)
 			}
+			releaseQuota(txn, name)
 			return
 		}
-		p.SVCMetrics.AddService(svc)
+		previous, err := p.Accounting.Reserve(txn, obj.Namespace, quota.ServicePorts, serviceReservationID(name), countServicePorts(obj))
+		if err != nil {
+			pending[name] = obj
+			if errors.Is(err, quota.ErrQuotaExceeded) {
+				p.QuotaMetrics.Rejections.Inc()
+			}
+			rh.update("svc:"+name.String(), err)
+			return
+		}
 
 		// Sort the frontends by address
 		slices.SortStableFunc(fes, func(a, b loadbalancer.FrontendParams) int {
 			return bytes.Compare(a.Address.Bytes(), b.Address.Bytes())
 		})
 
-		err := p.Writer.UpsertServiceAndFrontends(txn, svc, fes...)
+		err = p.Writer.UpsertServiceAndFrontends(txn, svc, fes...)
+		if err != nil {
+			// Frontend conflicts must not retain a reservation for a rejected update.
+			if restoreErr := p.Accounting.Restore(txn, obj.Namespace, quota.ServicePorts, serviceReservationID(name), previous); restoreErr != nil {
+				err = errors.Join(err, restoreErr)
+			}
+		} else {
+			p.SVCMetrics.AddService(svc)
+		}
 		rh.update("svc:"+svc.Name.String(), err)
 	}
 
 	processServiceEvent := func(txn writer.WriteTxn, val bufferValue) {
 		switch val.kind {
 		case resource.Sync:
+			for name := range pending {
+				rh.update("svc:"+name.String(), nil)
+			}
+			clear(pending)
 			orphans := sets.New[loadbalancer.ServiceName]()
 			for svc := range p.Writer.Services().All(txn) {
 				if svc.Source == source.Kubernetes && !strings.Contains(svc.Name.Name(), hostPortServiceNameInfix) {
@@ -252,6 +294,8 @@ func runServiceEndpointsReflector(ctx context.Context, health cell.Health, p ref
 				upsertService(txn, svc)
 			}
 			for name := range orphans {
+				releaseQuota(txn, name)
+				rh.update("svc:"+name.String(), nil)
 				_, err := p.Writer.DeleteServiceAndFrontends(txn, name)
 				if err != nil && !errors.Is(err, statedb.ErrObjectNotFound) {
 					p.Log.Error("BUG: Unexpected failure in DeleteServiceAndFrontends",
@@ -266,6 +310,8 @@ func runServiceEndpointsReflector(ctx context.Context, health cell.Health, p ref
 		case resource.Delete:
 			obj := val.svc
 			name := loadbalancer.NewServiceName(obj.Namespace, obj.Name)
+			delete(pending, name)
+			releaseQuota(txn, name)
 			rh.update("svc:"+name.String(), nil)
 
 			svc, err := p.Writer.DeleteServiceAndFrontends(txn, name)
@@ -381,7 +427,7 @@ func runServiceEndpointsReflector(ctx context.Context, health cell.Health, p ref
 	)
 
 	processBuffer := func(buf buffer) {
-		txn := p.Writer.WriteTxn()
+		txn := p.Writer.WriteTxn(p.Accounting.Table())
 		defer txn.Commit()
 		for key, val := range buf.All() {
 			if key.isSvc {
@@ -392,13 +438,38 @@ func runServiceEndpointsReflector(ctx context.Context, health cell.Health, p ref
 		}
 	}
 
-	for buf := range events {
-		processBuffer(buf)
-		buf.Clear()
-		bufferPool.Put(buf)
+	_, quotaWatch := p.Accounting.Table().AllWatch(p.DB.ReadTxn())
+	for {
+		select {
+		case buf, open := <-events:
+			if !open {
+				return nil
+			}
+			processBuffer(buf)
+			buf.Clear()
+			bufferPool.Put(buf)
+		case <-quotaWatch:
+			// Register the next watch before retrying, so releases or quota
+			// changes concurrent with reconciliation are not missed.
+			_, quotaWatch = p.Accounting.Table().AllWatch(p.DB.ReadTxn())
+			txn := p.Writer.WriteTxn(p.Accounting.Table())
+			names := slices.Collect(maps.Keys(pending))
+			slices.SortFunc(names, func(a, b loadbalancer.ServiceName) int { return strings.Compare(a.String(), b.String()) })
+			for _, name := range names {
+				upsertService(txn, pending[name])
+			}
+			txn.Commit()
+		}
+		p.QuotaMetrics.Pending.Set(float64(len(pending)))
+		var used uint64
+		for row := range p.Accounting.Table().All(p.DB.ReadTxn()) {
+			if row.Name == quota.ServicePorts {
+				used += row.Used
+			}
+		}
+		p.QuotaMetrics.Ports.Set(float64(used))
 		rh.report()
 	}
-	return nil
 }
 
 type bufferKey struct {

@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -27,6 +28,7 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/nodeipamconfig"
 	"github.com/cilium/cilium/pkg/option"
+	quotacell "github.com/cilium/cilium/pkg/quota/cell"
 	"github.com/cilium/cilium/pkg/source"
 )
 
@@ -115,5 +117,6 @@ var Hive = hive.New(
 			return &cfg
 		},
 	),
+	quotacell.Cell,
 	lbcell.Cell,
 )

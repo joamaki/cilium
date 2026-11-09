@@ -1,3 +1,4 @@
+// This file was not reviewed by a human before submission
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
@@ -59,6 +60,7 @@ import (
 	"github.com/cilium/cilium/pkg/nodeipamconfig"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/promise"
+	quotacell "github.com/cilium/cilium/pkg/quota/cell"
 	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/time"
 )
@@ -87,6 +89,7 @@ func TestScript(t *testing.T) {
 			lbipamconfig.Cell,
 			nodeipamconfig.Cell,
 
+			quotacell.Cell,
 			lbcell.Cell,
 
 			cell.Provide(
